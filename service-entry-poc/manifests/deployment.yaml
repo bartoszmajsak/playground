@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: service-entry-routing
+  labels:
+    app: service-entry-echo
+    version: v1
+spec:
+  selector:
+    matchLabels:
+      app: service-entry-echo
+      version: v1
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: service-entry-echo
+        version: v1
+        sidecar.istio.io/inject: "true"
+    spec:
+      containers:
+        - name: service-entry-proxy
+          image: quay.io/bmajsak/http-echo:latest
+          imagePullPolicy: Always
+          args: 
+            - --service-url
+            - http://gist.local
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo
+spec:
+  ports:
+  - name: http
+    port: 80
+    targetPort: 9988
+  selector:
+    app: service-entry-echo

@@ -1,0 +1,87 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: service-entry-gateway
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+  - port:
+      number: 80
+      name: http
+      protocol: HTTP
+    hosts:
+    - "*"
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: ServiceEntry
+metadata:
+  name: gist-local
+spec:
+  hosts:
+  - gist.local
+  ports:
+  - number: 443
+    name: https
+    protocol: TLS
+  resolution: DNS
+  location: MESH_EXTERNAL
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: ServiceEntry
+metadata:
+  name: gist-ext
+spec:
+  hosts:
+  - gist.githubusercontent.com
+  ports:
+  - number: 443
+    name: https
+    protocol: TLS
+  resolution: DNS
+  location: MESH_EXTERNAL
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: gist-rewrite-vs
+spec:
+  hosts:
+  - gist.local
+  http: 
+  # Default route
+  - match:
+    - uri:
+        regex: ".*"
+    rewrite:
+      uri: "/bartoszmajsak/ea8fcb8793631a3efcf31392e36864ce/raw/6d200d53b1f995f8065393532d8acf41fba3af1d/entry1.json"
+      authority: gist.githubusercontent.com
+    route:
+    - destination:
+        host: gist.githubusercontent.com
+        port:
+          number: 443
+  # Special route based on the header in the incoming request
+  - match:
+    - headers:
+        x-end-user:
+          exact: bartosz
+    rewrite:
+      uri: "/bartoszmajsak/ea8fcb8793631a3efcf31392e36864ce/raw/6d200d53b1f995f8065393532d8acf41fba3af1d/entry2.json"
+      authority: gist.githubusercontent.com
+    route:
+    - destination:
+        host: gist.githubusercontent.com
+        port:
+          number: 443
+
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: gist
+spec:
+  host: gist.githubusercontent.com
+  trafficPolicy:
+    tls:
+      mode: SIMPLE
