@@ -33,7 +33,7 @@ EOF
 
 ### Deploy proxy app
 
-We will now deploy the simple app which will act as a proxy:
+We will now deploy the simple app (and service named `echo`) which will act as a proxy:
 
 ```sh
 kubectl apply -n $NS -f manifests/deployment.yaml
@@ -70,7 +70,7 @@ The simplest way is to attach a pod to the mesh and curl the service.
 kubectl -n $NS run curl-pod-$(uuid) --attach --rm --restart=Never -q --image=curlimages/curl -it sh 
 ```
 
-Then we can use curl to check if our calls are routed correctly:
+Now we can use curl and call our `echo` service to check if the calls are routed correctly:
 
 ```sh
 curl echo
@@ -81,5 +81,3 @@ curl echo
 $ curl echo -H"x-end-user: bartosz"
 { "name": "user:bartosz" }
 ```
-
-You should see two different responses.
