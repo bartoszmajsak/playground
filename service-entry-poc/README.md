@@ -60,7 +60,7 @@ Let's break it down:
 * `ServiceEntry` named `gist-local` allows to refer to `gist.local` host from our proxy app, so that the URL of the service we want to reach stays the same (trick for the `VirtualService` to work).
 * `ServiceEntry` named `gist-ext` registers `ServiceEntry` external to the mesh which points to `gist.githubusercontent.com` over `HTTPS`.
 * `VirtualService` will dispatch a call made to `gist.local` to different endpoints outside of the mesh based on some critiera (in this case `x-end-user` header). It does that by rewriting the URI to point to the actual location.
-* `DestinatioRule` is needed as we originate our calls from the proxy app using `HTTP`, but be need to set a TLS client to reach external location using `HTTPS`.
+* `DestinationRule` is needed as we originate our calls from the proxy app using `HTTP`, but be need to set a TLS client to reach external location using `HTTPS`.
 
 ### Testing
 
@@ -70,7 +70,7 @@ The simplest way is to attach a pod to the mesh and curl the service.
 kubectl -n $NS run curl-pod-$(uuid) --attach --rm --restart=Never -q --image=curlimages/curl -it sh 
 ```
 
-Then we can use curl to check if our calls are routed correctly.
+Then we can use curl to check if our calls are routed correctly:
 
 ```sh
 curl echo
