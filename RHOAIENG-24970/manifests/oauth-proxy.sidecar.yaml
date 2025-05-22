@@ -1,0 +1,33 @@
+- name: echo-app
+  image: openshift/hello-openshift:latest
+  env:
+    - name: PORT
+      value: "19191"
+    - name: RESPONSE
+      value: "RBAC: allowed"
+  ports:
+    - containerPort: 19191
+      name: http
+      protocol: TCP
+- name: oauth-proxy
+  image: quay.io/openshift/origin-oauth-proxy:4.18.0
+  imagePullPolicy: IfNotPresent
+  args:
+    - --provider=openshift
+    - --http-address=:9191
+    - --upstream=http://127.0.0.1:19191
+    - --openshift-service-account=oauth-proxy-sa
+    - --openshift-delegate-urls={"/":{"group":"serving.kserve.io","resource":"inferenceservices","verb":"get","name":"${ISVC_NAME}","namespace":"${NAMESPACE}"}}
+    - --client-secret-file=/var/run/secrets/kubernetes.io/serviceaccount/token
+    - --tls-cert=/etc/tls/private/tls.crt
+    - --tls-key=/etc/tls/private/tls.key
+    - --cookie-secret=e00594f394c8301c2501fbb9d5c7d741
+  ports:
+    - containerPort: 9191
+      name: http
+      protocol: TCP
+  terminationMessagePath: /dev/termination-log
+  terminationMessagePolicy: File
+  volumeMounts:
+    - mountPath: /etc/tls/private
+      name: oauth-proxy-tls-creds 
