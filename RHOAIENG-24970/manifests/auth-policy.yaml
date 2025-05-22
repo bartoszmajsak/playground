@@ -1,0 +1,22 @@
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: ext-authz-for-isvc
+spec:
+  action: CUSTOM
+  selector:
+    matchLabels:
+      component: predictor
+      security.opendatahub.io/authorization-group: oauth-proxy
+  provider:
+    name: oauth-proxy-authz-local
+  rules:
+    - to:
+      - operation:
+          notPaths:
+          - /healthz
+          - /debug/pprof/
+          - /metrics
+          - /wait-for-drain
+          - /health
+          - /app-health

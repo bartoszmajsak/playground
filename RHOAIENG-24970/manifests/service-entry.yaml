@@ -1,0 +1,14 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: ServiceEntry
+metadata:
+  name: oauth-proxy-authz-local-http
+spec:
+  hosts:
+  - "oauth-proxy-authz.local"
+  endpoints:
+  - address: "127.0.0.1"
+  ports:
+  - name: http
+    number: 9191
+    protocol: HTTP
+  resolution: STATIC

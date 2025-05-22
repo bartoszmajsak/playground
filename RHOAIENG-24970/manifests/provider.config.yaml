@@ -1,0 +1,9 @@
+extensionProviders:
+  - name: oauth-proxy-authz-local
+    envoyExtAuthzHttp:
+      service: oauth-proxy-authz.local
+      port: "9191" 
+      includeRequestHeadersInCheck: ["authorization", "cookie"]
+      headersToUpstreamOnAllow: ["authorization", "path", "x-auth-request-user", "x-auth-request-email", "x-auth-request-access-token"].
+      headersToDownstreamOnAllow: ["set-cookie"] 
+      headersToDownstreamOnDeny: ["content-type", "set-cookie"]

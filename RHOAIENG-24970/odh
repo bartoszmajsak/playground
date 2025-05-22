@@ -1,0 +1,345 @@
+#!/bin/bash
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+source "$SCRIPT_DIR/oauth-proxy.func.sh"
+
+: "${KSERVE_MODE:=serverless}"
+: "${ODH_VERSION:=v2.29.0}"
+: "${MODEL_NAME:=sklearn-v2-iris}"
+: "${MODEL_NAMESPACE:=kserve-model}"
+
+COMMAND=""
+
+set -euo pipefail
+trap 'echo "Error: Command failed at line $LINENO"' ERR
+
+apply_dsc_initialization() {
+  echo "Applying DSC initialization..."
+  wait_for_crd "dscinitializations.dscinitialization.opendatahub.io"
+  kubectl apply -f "https://raw.githubusercontent.com/opendatahub-io/opendatahub-operator/${ODH_VERSION}/config/samples/dscinitialization_v1_dscinitialization.yaml"
+  kubectl wait --for=jsonpath='{.status.phase}'=Ready dsci --all --timeout=600s
+}
+
+create_datascience_cluster() {
+  echo "Creating DataScienceCluster..."
+  local dsc_file
+  if [[ "$KSERVE_MODE" == "raw" ]]; then
+    dsc_file=$(cat <<EOF
+apiVersion: datasciencecluster.opendatahub.io/v1
+kind: DataScienceCluster
+metadata:
+  name: default-dsc
+spec:
+  components:
+    codeflare:
+      managementState: Removed
+    dashboard:
+      managementState: Removed
+    datasciencepipelines:
+      managementState: Removed
+    kserve:
+      defaultDeploymentMode: RawDeployment
+      RawDeploymentServiceConfig: Headed
+      managementState: Managed
+      serving:
+        managementState: Removed
+        name: knative-serving
+    modelmeshserving:
+      managementState: Removed
+    kueue:
+      managementState: Removed
+    trainingoperator:
+      managementState: Removed
+    ray:
+      managementState: Removed
+    workbenches:
+      managementState: Removed
+    trustyai:
+      managementState: Removed
+    modelregistry:
+      managementState: Removed
+EOF
+)
+  else
+    dsc_file=$(cat <<EOF
+apiVersion: datasciencecluster.opendatahub.io/v1
+kind: DataScienceCluster
+metadata:
+  name: default-dsc
+spec:
+  components:
+    codeflare:
+      managementState: Removed
+    dashboard:
+      managementState: Removed
+    datasciencepipelines:
+      managementState: Removed
+    kserve:
+      managementState: Managed
+      serving:
+        managementState: Managed
+    modelmeshserving:
+      managementState: Removed
+    kueue:
+      managementState: Removed
+    trainingoperator:
+      managementState: Removed
+    ray:
+      managementState: Removed
+    workbenches:
+      managementState: Removed
+    trustyai:
+      managementState: Removed
+    modelregistry:
+      managementState: Removed
+EOF
+)
+  fi
+
+  echo "$dsc_file" | kubectl apply -f -
+  kubectl wait --for=jsonpath='{.status.phase}'=Ready dsc --all --timeout=300s
+}
+
+deploy_model() {
+  echo "Setting up model namespace..."
+  kubectl create namespace "$MODEL_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f - || true
+
+  echo "Applying sklearn runtime..."
+  curl -s https://raw.githubusercontent.com/opendatahub-io/kserve/master/config/runtimes/kserve-sklearnserver.yaml | \
+    sed 's/ClusterServingRuntime/ServingRuntime/' | \
+    sed "s|kserve-sklearnserver:replace|quay.io/pierdipi/sklearnserver:latest|" | \
+    kubectl apply -n "$MODEL_NAMESPACE" -f -
+
+  echo "Creating InferenceService..."
+  cat <<EOF | kubectl apply -n "$MODEL_NAMESPACE" -f -
+apiVersion: "serving.kserve.io/v1beta1"
+kind: "InferenceService"
+metadata:
+  name: "${MODEL_NAME}"
+  annotations:
+    serving.knative.openshift.io/enablePassthrough: "true"
+    sidecar.istio.io/inject: "true"
+    sidecar.istio.io/rewriteAppHTTPProbers: "true"
+spec:
+  predictor:
+    model:
+      modelFormat:
+        name: sklearn
+      protocolVersion: v2
+      runtime: kserve-sklearnserver
+      storageUri: "gs://kfserving-examples/models/sklearn/1.0/model"
+EOF
+}
+
+model_call() {
+  local token=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --token)
+        token="$2"; shift 2
+        ;;
+      *)
+        echo "Unknown option for model-call: $1" >&2
+        exit 1
+        ;;
+    esac
+  done
+
+  echo "Testing model deployment..."
+
+  local endpoint
+  endpoint=$(kubectl get ksvc "${MODEL_NAME}-predictor" -n "$MODEL_NAMESPACE" -o jsonpath='{.status.url}' 2>/dev/null)
+  
+  if [[ -z "$endpoint" ]]; then
+    echo "Error: Could not retrieve model endpoint" >&2
+    exit 1
+  fi
+
+  echo "Model endpoint: $endpoint"
+  echo "Testing model with sample data..."
+
+  payload='{
+    "inputs": [
+      {
+        "name": "input-0",
+        "shape": [1, 4],
+        "datatype": "FP32",
+        "data": [6.8, 2.8, 4.8, 1.4]
+      }
+    ]
+  }'
+
+  echo "Payload being sent:" >&2
+  echo "$payload" >&2
+
+  if [[ -n "$token" ]]; then
+    curl -v -k "${endpoint}/v2/models/${MODEL_NAME}/infer" \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer ${token}" \
+      -d "$payload"
+  else
+    curl -v -k "${endpoint}/v2/models/${MODEL_NAME}/infer" \
+      -H "Content-Type: application/json" \
+      -d "$payload"
+  fi
+  echo ""
+}
+
+model_undeploy() {
+  echo "Undeploying model..."
+  kubectl delete inferenceservice "$MODEL_NAME" -n "$MODEL_NAMESPACE" || true
+  kubectl delete servingruntime kserve-sklearnserver -n "$MODEL_NAMESPACE" || true
+  kubectl delete namespace "$MODEL_NAMESPACE" || true
+  echo "Model undeploy completed"
+}
+
+odh_delete() {
+  echo "Deleting ODH components..."
+  kubectl delete dsc --all --all-namespaces
+  kubectl delete dsci --all --all-namespaces
+  kubectl delete subscription opendatahub-operator -n openshift-operators
+  kubectl delete csv -n openshift-operators -l operators.coreos.com/opendatahub-operator.openshift-operators
+}
+
+odh_setup() {
+  echo "Setting up OpenDataHub with KServe mode: $KSERVE_MODE"
+  
+  install_operators
+  apply_dsc_initialization
+  create_datascience_cluster
+}
+
+### CLI helpers
+
+show_usage() {
+  cat <<EOF
+Usage: $0 <command> [options]
+
+Commands:
+  setup       Install operators and apply resources
+  model-call  Execute curl to test the deployed model
+  model-deploy Deploy the model
+  model-undeploy Undeploy the deployed model
+  delete      Delete ODH components (DSC and DSCI)
+  inject-oauth-proxy Inject oauth-proxy sidecar into a deployment by label
+
+Options for setup:
+  --mode <mode>      Set KServe mode (serverless|raw) [default: serverless]
+  --model-ns <ns>    Set model namespace [default: kserve-model]
+Options for inject-oauth-proxy:
+  --label <label>    Label selector for the target deployment (required)
+  --model-ns <ns>    Set model namespace [default: kserve-model]
+
+Examples:
+  $0 setup
+  $0 setup --mode raw
+  $0 setup --model-ns my-model-ns
+  $0 model-call
+  $0 model-deploy
+  $0 model-undeploy
+  $0 delete
+  $0 inject-oauth-proxy --label app=my-app --model-ns my-namespace
+EOF
+}
+
+parse_args() {
+  if [[ $# -eq 0 ]]; then
+    show_usage
+    exit 1
+  fi
+
+  COMMAND="$1"
+  shift
+
+  case "$COMMAND" in
+    setup)
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --mode)
+            KSERVE_MODE="$2"
+            shift 2
+            ;;
+          --model-ns)
+            MODEL_NAMESPACE="$2"
+            echo "Model namespace: $MODEL_NAMESPACE"
+            shift 2
+            ;;
+          *)
+            echo "Unknown option for setup: $1" >&2
+            exit 1
+            ;;
+        esac
+      done
+      ;;
+    inject-oauth-proxy)
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --label)
+            TARGET_WORKLOAD_LABEL="$2"
+            shift 2
+            ;;
+          --model-ns)
+            MODEL_NAMESPACE="$2"
+            shift 2
+            ;;
+          *)
+            echo "Unknown option for inject-oauth-proxy: $1" >&2
+            exit 1
+            ;;
+        esac
+      done
+      if [[ -z "${TARGET_WORKLOAD_LABEL:-}" ]]; then
+        echo "Error: --label is required for inject-oauth-proxy" >&2
+        exit 1
+      fi
+      ;;
+    model-call)
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --token)
+            MODEL_CALL_TOKEN="$2"; shift 2
+            ;;
+          *)
+            echo "Unknown option for model-call: $1" >&2
+            exit 1
+            ;;
+        esac
+      done
+      ;;
+    model-deploy|model-undeploy|delete)
+      ;;
+    *)
+      echo "Unknown command: $COMMAND" >&2
+      show_usage
+      exit 1
+      ;;
+  esac
+
+  if [[ "$COMMAND" == "setup" && "$KSERVE_MODE" != "serverless" && "$KSERVE_MODE" != "raw" ]]; then
+    echo "Error: --mode must be either 'serverless' or 'raw'" >&2
+    exit 1
+  fi
+}
+
+parse_args "$@"
+
+case "$COMMAND" in
+  setup)
+    odh_setup
+    ;;
+  model-call)
+    model_call ${MODEL_CALL_TOKEN:+--token "$MODEL_CALL_TOKEN"}
+    ;;
+  model-deploy)
+    deploy_model
+    ;;
+  model-undeploy)
+    model_undeploy
+    ;;
+  delete)
+    odh_delete
+    ;;
+  inject-oauth-proxy)
+    oauth_proxy_ext_authz "$TARGET_WORKLOAD_LABEL" "$MODEL_NAMESPACE"
+    ;;
+esac 

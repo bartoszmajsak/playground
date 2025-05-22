@@ -1,0 +1,4 @@
+spec:
+  selector:
+    matchLabels:
+      security.opendatahub.io/authorization-group: default 
