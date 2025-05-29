@@ -59,6 +59,12 @@ odh model-call --token $DEV_TOKEN
 odh model-call --token $ADMIN_TOKEN
 ```
 
+When using `$SVC_TOKEN` the call should be rejected, as the Service Account lacks proper RBAC roles. To fix it apply:
+```sh
+kubectl apply -n kserve-model -f manifests/role-get-isvc.yaml
+odh model-call --token $SVC_TOKEN
+```
+
 ## Under the hood
 
 Below are the changes applied to the cluster to integrate openshift/oauth-proxy
@@ -78,10 +84,10 @@ Below are the changes applied to the cluster to integrate openshift/oauth-proxy
 - New ServiceAccount and RBAC rules required for oauth-proxy
 
 ### ISVC deployment
-- Adds the ServiceAccount and mount the TLS secret.
+- Adds the ServiceAccount and mount the TLS secret
 - Injects the oauth-proxy sidecar container
-- Inject echo container to be used as upstream for oauth-proxy
-- Adds a label to the ISVC deployment's pod template to enable external authorization.
+- Adds a label to the ISVC deployment's pod template to enable external authorization
+- Inject echo service as oauth-proxy upstream allowing Envoy to proceed with authorized requests
 
 ### Service Mesh settings
 
