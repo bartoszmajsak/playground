@@ -107,12 +107,15 @@ inject_oauth_proxy_sidecar() {
   export NAMESPACE="$namespace"
   ISVC_NAME=$(kubectl -n "$namespace" get deployment "$deployment_name" -o jsonpath='{.metadata.labels.serving\.kserve\.io/inferenceservice}')
   export ISVC_NAME
-  
-  sidecar_json=$(envsubst < "$SCRIPT_DIR/manifests/oauth-proxy.sidecar.yaml" | yq -o=json)
-  kubectl -n "$namespace" patch deployment "$deployment_name" --type='json' -p="[
-    {\"op\":\"add\",\"path\":\"/spec/template/spec/containers/-\",\"value\":$sidecar_json[0]}
-  ]"
 
+  containers_json=$(envsubst < "$SCRIPT_DIR/manifests/oauth-proxy.sidecar.yaml" | yq -o=json)
+  num_containers=$(echo "$containers_json" | jq 'length')
+  for i in $(seq 0 $((num_containers - 1))); do
+    container=$(echo "$containers_json" | jq ".[$i]")
+    kubectl -n "$namespace" patch deployment "$deployment_name" --type='json' -p="[
+      {\"op\":\"add\",\"path\":\"/spec/template/spec/containers/-\",\"value\":$container}
+    ]"
+  done
 }
 
 enable_authz() {
