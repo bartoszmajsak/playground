@@ -1,11 +1,13 @@
+[oauth-proxy]: https://github.com/openshift/oauth-proxy/
+
 # oauth-proxy as external authz provider
 
 ## Summary
 
-Using [`openshift/oauth-proxy`](https://github.com/openshift/oauth-proxy/) as authorization component in KServe running with Serveless + Service Mesh mode is possible, but evaluated solutions come with certain shortcomings that do not necessarily put them in a favorable position to the currently used solution that is based on [Authorino](https://github.com/Kuadrant/authorino). 
+Using [openshift/oauth-proxy][oauth-proxy] as authorization component in KServe running with Serveless + Service Mesh mode is possible, but evaluated solutions come with certain shortcomings that do not necessarily put them in a favorable position to the currently used solution that is based on [Authorino](https://github.com/Kuadrant/authorino). 
 
 From the purely technical standpoint, using `oauth-proxy` as the authorization layer for KServe/Serverless offers limited value and does not justify the required effort nor additional complexity it brings. In brief, these are the reasons:
-  * **As Istio’s [external authorization](https://istio.io/latest/docs/tasks/security/authorization/authz-custom/)**: it does not fit Envoy’s authorization request flow, there is a need for a workaround that adds a new container and extra network hops to satisfy it (`echo` container in this PoC).
+  * **As Istio's [external authorization](https://istio.io/latest/docs/tasks/security/authorization/authz-custom/)**: it does not fit Envoy's authorization request flow, there is a need for a workaround that adds a new container and extra network hops to satisfy it (`echo` container in this PoC).
   * **As standalone proxy sidecar**: requires changes to how KNative controller wires Istio Virtual Services and k8s Services. This customization, being Openshift/RHOAI specific, is unlikely to be accepted upstream adding additional maintenance cost to our fork. 
 
 This PoC demonstrates how to set it up as Istio's External Authorization provider, deployed as local container for each protected workload.
@@ -77,7 +79,7 @@ odh model-call --token $SVC_TOKEN
 
 ## Under the hood
 
-Below are the changes applied to the cluster to integrate openshift/oauth-proxy
+Below are the changes applied to the cluster to integrate [openshift/oauth-proxy][oauth-proxy]
 
 ### Service Mesh 
 
