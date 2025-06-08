@@ -10,11 +10,11 @@
 
 ## Prerequisites
 
-```sh {"name":"pre-req"}
+```sh {"name":"pre-req", "tag": "setup"}
 kubectl get crd gateways.gateway.networking.k8s.io &> /dev/null || { kubectl kustomize "github.com/kubernetes-sigs/gateway-api/config/crd?ref=v1.0.0" | kubectl apply -f -; }
 ```
 
-```sh {"name":"create-smcp"}
+```sh {"name":"create-smcp", "tag": "setup"}
 kubectl create ns istio-system || true
 kubectl apply -f - << EOF
 kind: ServiceMeshControlPlane
@@ -46,17 +46,19 @@ EOF
 
 We will use bookinfo app to verify the setup.
 
-```sh {"name":"bookinfo-create"}
-kubectl create ns bookinfo || true
-kubectl label namespace bookinfo istio-injection=enabled
-kubectl apply -n bookinfo -f https://raw.githubusercontent.com/Maistra/istio/maistra-2.6/samples/bookinfo/platform/kube/bookinfo.yaml
-kubectl apply -n bookinfo -f https://raw.githubusercontent.com/Maistra/istio/maistra-2.6/samples/bookinfo/gateway-api/bookinfo-gateway.yaml
+```sh {"name":"bookinfo-create", "tag": "app"}
+export NS="bookinfo-2"
+kubectl create ns "${NS}" || true
+kubectl label namespace "${NS}" istio-injection=enabled
+kubectl apply -n "${NS}" -f https://raw.githubusercontent.com/Maistra/istio/maistra-2.6/samples/bookinfo/platform/kube/bookinfo.yaml
+kubectl apply -n "${NS}" -f https://raw.githubusercontent.com/Maistra/istio/maistra-2.6/samples/bookinfo/gateway-api/bookinfo-gateway.yaml
 ```
 
 Verification:
 
 ```sh {"name": "verify"}
-export INGRESS_HOST=$(kubectl get gtw bookinfo-gateway -n bookinfo -o jsonpath='{.status.addresses[0].value}')
-kubectl exec -n bookinfo "$(kubectl get pod -n bookinfo -l app=ratings  -o jsonpath='{.items[0].metadata.name}')" -c ratings -- curl -sS productpage:9080/productpage"
-curl -s "http://${INGRESS_HOST}/productpage" 
+export NS="bookinfo"
+export INGRESS_HOST=$(kubectl get gtw bookinfo-gateway -n "${NS}" -o jsonpath='{.status.addresses[0].value}')
+kubectl exec -n bookinfo "$(kubectl get pod -n ${NS} -l app=ratings  -o jsonpath='{.items[0].metadata.name}')" -c ratings -- curl -sS productpage:9080/productpage -H'Host:bookinfo.rh.io'| grep -o "<title>.*</title>"
+curl -H'Host:bookinfo.rh.io' -s "http://${INGRESS_HOST}/productpage" | grep -o "<title>.*</title>"
 ```
