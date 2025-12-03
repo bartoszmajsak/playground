@@ -1,5 +1,10 @@
 # Reproducer showing k8s client timeout under load
 
+### Prerequisites
+
+- Install [`k6`](https://grafana.com/docs/k6/latest/set-up/install-k6/?pg=oss-k6&plcmt=deploy-box-1#install-k6) load testing tool.
+- K8s or Openshift cluster with Gateway API support
+
 ## Quick Start
 
 Run the setup script:
@@ -11,10 +16,6 @@ Run the setup script:
 Then follow instructions to run load tests.
 
 ## Manual Setup
-
-### Prerequisites
-
-Install [`k6`](https://grafana.com/docs/k6/latest/set-up/install-k6/?pg=oss-k6&plcmt=deploy-box-1#install-k6) load testing tool.
 
 Set environment variables:
 
