@@ -1,9 +1,12 @@
 # Reproducer showing k8s client timeout under load
 
+Ref: https://github.com/Kuadrant/authorino/issues/568
+
 ### Prerequisites
 
 - Install [`k6`](https://grafana.com/docs/k6/latest/set-up/install-k6/?pg=oss-k6&plcmt=deploy-box-1#install-k6) load testing tool.
 - K8s or Openshift cluster with Gateway API support
+- Kuadrant operator and Authorino configured
 
 ## Quick Start
 
