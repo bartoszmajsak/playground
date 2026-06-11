@@ -24,6 +24,8 @@ SPLIT_90_MIN="${ROUTE_VALIDATION_SPLIT_90_MIN:-82}"
 SPLIT_90_MAX="${ROUTE_VALIDATION_SPLIT_90_MAX:-97}"
 SPLIT_50_MIN="${ROUTE_VALIDATION_SPLIT_50_MIN:-35}"
 SPLIT_50_MAX="${ROUTE_VALIDATION_SPLIT_50_MAX:-65}"
+GATEWAY_READY_TIMEOUT="${ROUTE_VALIDATION_GATEWAY_READY_TIMEOUT:-180}"
+GATEWAY_READY_INTERVAL="${ROUTE_VALIDATION_GATEWAY_READY_INTERVAL:-3}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -172,6 +174,45 @@ discover_gateway() {
     kubectl port-forward -n "$NS" "svc/${svc}" 8888:80 &
     PF_PID=$!; sleep 2; GATEWAY_URL="http://localhost:8888"
     info "Port-forward PID $PF_PID: $GATEWAY_URL"
+}
+
+probe_gateway_route() {
+    local url="$1"; shift
+    local tmpfile
+    tmpfile=$(mktemp)
+
+    local body status
+    body=$(curl -s -D "$tmpfile" --max-time 5 "$@" "$url" 2>/dev/null || true)
+    status=$(head -1 "$tmpfile" 2>/dev/null | awk '{print $2}')
+    rm -f "$tmpfile"
+
+    [[ "$status" == "200" && ( "$body" == *v1* || "$body" == *v2* ) ]]
+}
+
+wait_for_gateway_traffic() {
+    local timeout="$GATEWAY_READY_TIMEOUT"
+    local interval="$GATEWAY_READY_INTERVAL"
+    local started="$SECONDS"
+    local elapsed=0
+
+    info "Waiting for gateway traffic readiness (${timeout}s max)..."
+    while [[ $elapsed -lt $timeout ]]; do
+        if probe_gateway_route "$GATEWAY_URL/" -H "${MODEL_HEADER}: ${MODEL_VALUE}"; then
+            pass "Gateway is serving header-routed traffic"
+            return 0
+        fi
+        if probe_gateway_route "${GATEWAY_URL}${PUBLISHER_PATH}"; then
+            pass "Gateway is serving publisher-path traffic"
+            return 0
+        fi
+
+        sleep "$interval"
+        elapsed=$((SECONDS - started))
+    done
+
+    fail "Gateway discovered but not routing traffic within ${timeout}s"
+    warn "Try a longer wait: ROUTE_VALIDATION_GATEWAY_READY_TIMEOUT=300 ./validate.sh"
+    return 1
 }
 
 # ================================================================
@@ -374,6 +415,10 @@ main() {
 
     setup
     discover_gateway "${1:-}"
+    if ! wait_for_gateway_traffic; then
+        [[ -n "${PF_PID:-}" ]] && kill "$PF_PID" 2>/dev/null || true
+        exit "$FAILURES"
+    fi
 
     test_route_status
     test_header_split
