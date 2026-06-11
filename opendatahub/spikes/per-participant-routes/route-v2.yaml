@@ -1,0 +1,56 @@
+# ============================================================
+# route-v2: "canary" participant (applied second = standby)
+#
+# Same rule structure as route-v1:
+#   1. Header match (weighted) - IDENTICAL to route-v1
+#   2. Publisher path (weighted) - IDENTICAL to route-v1
+#   3. Direct access path (pinned) - unique to v2
+#
+# Apply AFTER manifests.yaml to ensure route-v2 is newer.
+# ============================================================
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: route-v2
+  namespace: route-validation
+  labels:
+    version: v2
+spec:
+  parentRefs:
+    - name: test-gateway
+  rules:
+    # Rule 1: model-routing header match (IDENTICAL to route-v1)
+    - matches:
+        - headers:
+            - type: Exact
+              name: X-Gateway-Model-Name
+              value: publishers/route-validation/models/test-model
+      backendRefs:
+        - name: echo-v1
+          port: 8080
+          weight: 9
+        - name: echo-v2
+          port: 8080
+          weight: 1
+
+    # Rule 2: publisher path (IDENTICAL to route-v1)
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /publishers/route-validation/models/test-model
+      backendRefs:
+        - name: echo-v1
+          port: 8080
+          weight: 9
+        - name: echo-v2
+          port: 8080
+          weight: 1
+
+    # Rule 3: per-participant direct access (unique to v2)
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /direct/v2
+      backendRefs:
+        - name: echo-v2
+          port: 8080
