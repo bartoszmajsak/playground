@@ -41,6 +41,9 @@ This validator enforces that model strictly: both `route-v1` and `route-v2` must
 - **route-v1** applied first (via `manifests.yaml`) - becomes the oldest
 - **route-v2** applied second (via `route-v2.yaml`) - newer, acts as hot standby
 - **validate.sh** sends curl requests through the gateway and counts which backend responds
+- Before tests, **validate.sh** waits for the gateway endpoint to serve real routed traffic (helps on first-run ELB/DNS propagation)
+- **validate-k6.js** runs parallel load checks for header/publisher/direct patterns
+- **validate-k6.sh** discovers gateway URL and launches `k6 run validate-k6.js`
 - During setup, **validate.sh** deletes/recreates both routes so `route-v1` is always older than `route-v2` before failover tests
 
 ## Tests
@@ -72,6 +75,35 @@ kubectl apply -f route-v2.yaml
 kubectl delete ns route-validation
 ```
 
+## Parallel load validation with k6
+
+Use this when you want a concurrent counterpart to `validate.sh` traffic tests.
+
+```bash
+# Requires routes already deployed (manifests.yaml + route-v2.yaml)
+
+# Auto-discover gateway URL and run parallel scenarios
+./validate-k6.sh
+
+# Or pass gateway URL explicitly
+./validate-k6.sh http://10.96.1.100
+
+# Run longer/harder
+ROUTE_VALIDATION_K6_DURATION=60s \
+ROUTE_VALIDATION_K6_HEADER_VUS=50 \
+ROUTE_VALIDATION_K6_PUBLISHER_VUS=50 \
+ROUTE_VALIDATION_K6_DIRECT_V1_VUS=20 \
+ROUTE_VALIDATION_K6_DIRECT_V2_VUS=20 \
+./validate-k6.sh
+```
+
+`validate-k6.js` runs four scenarios concurrently for the same routing model:
+
+- Header match split (`/` + `X-Gateway-Model-Name`)
+- Publisher path split (`/publishers/...`)
+- Direct `/direct/v1` pinned to v1
+- Direct `/direct/v2` pinned to v2
+
 ## Configuration
 
 Edit `manifests.yaml` to change `gatewayClassName: istio` for other implementations (e.g., `envoy`, `nginx`).
@@ -80,6 +112,17 @@ Distribution thresholds are configurable:
 
 - `ROUTE_VALIDATION_SPLIT_90_MIN` / `ROUTE_VALIDATION_SPLIT_90_MAX` (defaults: `82` / `97`)
 - `ROUTE_VALIDATION_SPLIT_50_MIN` / `ROUTE_VALIDATION_SPLIT_50_MAX` (defaults: `35` / `65`)
+- `ROUTE_VALIDATION_GATEWAY_READY_TIMEOUT` (default: `180`, seconds)
+- `ROUTE_VALIDATION_GATEWAY_READY_INTERVAL` (default: `3`, seconds)
+
+k6-specific knobs:
+
+- `ROUTE_VALIDATION_K6_DURATION` (default: `30s`)
+- `ROUTE_VALIDATION_K6_HEADER_VUS` (default: `20`)
+- `ROUTE_VALIDATION_K6_PUBLISHER_VUS` (default: `20`)
+- `ROUTE_VALIDATION_K6_DIRECT_V1_VUS` (default: `10`)
+- `ROUTE_VALIDATION_K6_DIRECT_V2_VUS` (default: `10`)
+- `ROUTE_VALIDATION_K6_REQUEST_TIMEOUT` (default: `5s`)
 
 ## Interpreting results
 
