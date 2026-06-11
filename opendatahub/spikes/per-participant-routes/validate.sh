@@ -20,6 +20,10 @@ VERBOSE="${ROUTE_VALIDATION_VERBOSE:-false}"
 MODEL_HEADER="X-Gateway-Model-Name"
 MODEL_VALUE="publishers/route-validation/models/test-model"
 PUBLISHER_PATH="/publishers/route-validation/models/test-model"
+SPLIT_90_MIN="${ROUTE_VALIDATION_SPLIT_90_MIN:-82}"
+SPLIT_90_MAX="${ROUTE_VALIDATION_SPLIT_90_MAX:-97}"
+SPLIT_50_MIN="${ROUTE_VALIDATION_SPLIT_50_MIN:-35}"
+SPLIT_50_MAX="${ROUTE_VALIDATION_SPLIT_50_MAX:-65}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -109,18 +113,47 @@ check_pinned() {
     fi
 }
 
+assert_route_order() {
+    local v1_created v2_created
+    v1_created=$(kubectl get httproute route-v1 -n "$NS" -o jsonpath='{.metadata.creationTimestamp}' 2>/dev/null || true)
+    v2_created=$(kubectl get httproute route-v2 -n "$NS" -o jsonpath='{.metadata.creationTimestamp}' 2>/dev/null || true)
+
+    if [[ -z "$v1_created" || -z "$v2_created" ]]; then
+        fail "Unable to read route creation timestamps (route-v1='${v1_created:-?}' route-v2='${v2_created:-?}')"
+        return 1
+    fi
+
+    info "Route creation timestamps: route-v1=$v1_created route-v2=$v2_created"
+    if [[ "$v1_created" < "$v2_created" ]]; then
+        pass "Precondition met: route-v1 is oldest, route-v2 is newer standby"
+        return 0
+    fi
+
+    fail "Precondition failed: route-v1 must be older than route-v2 for failover validation"
+    return 1
+}
+
 setup() {
     header "Setup"
-    info "Deploying base resources + route-v1..."
+    info "Deploying base resources..."
     kubectl apply -f manifests.yaml
     kubectl wait -n "$NS" --for=condition=Ready pod -l app=echo --timeout=60s
     kubectl wait -n "$NS" --for=condition=Programmed gateway/test-gateway --timeout=60s 2>/dev/null || \
     kubectl wait -n "$NS" --for=condition=Ready gateway/test-gateway --timeout=60s 2>/dev/null || \
     warn "Gateway condition check skipped"
+
+    info "Resetting HTTPRoutes to enforce deterministic precedence..."
+    kubectl delete httproute route-v1 route-v2 -n "$NS" --ignore-not-found=true >/dev/null 2>&1 || true
+
+    info "Creating route-v1 (must be oldest)..."
+    kubectl apply -f manifests.yaml
     sleep 2
-    info "Applying route-v2 (must be newer)..."
+
+    info "Applying route-v2 (must be newer standby)..."
     kubectl apply -f route-v2.yaml
     sleep 3
+
+    assert_route_order
 }
 
 discover_gateway() {
@@ -142,21 +175,53 @@ discover_gateway() {
 }
 
 # ================================================================
-# Test 1: Route status - check for conflict conditions
+# Test 1: Route status - both routes must be attached
 # ================================================================
 test_route_status() {
     header "1. Route status conditions"
-    for route in route-v1 route-v2; do
-        local accepted reason conditions
-        accepted=$(kubectl get httproute "$route" -n "$NS" \
-            -o jsonpath='{.status.parents[0].conditions[?(@.type=="Accepted")].status}' 2>/dev/null || echo "?")
-        reason=$(kubectl get httproute "$route" -n "$NS" \
-            -o jsonpath='{.status.parents[0].conditions[?(@.type=="Accepted")].reason}' 2>/dev/null || echo "?")
-        conditions=$(kubectl get httproute "$route" -n "$NS" \
-            -o jsonpath='{range .status.parents[0].conditions[*]}{.type}={.status} {end}' 2>/dev/null || echo "?")
-        info "$route: Accepted=$accepted Reason=$reason"
-        info "$route conditions: $conditions"
-    done
+    local v1_accepted v1_reason v1_refs v1_conditions
+    local v2_accepted v2_reason v2_refs v2_conditions
+
+    v1_accepted=$(kubectl get httproute route-v1 -n "$NS" \
+        -o jsonpath='{.status.parents[0].conditions[?(@.type=="Accepted")].status}' 2>/dev/null || echo "?")
+    v1_reason=$(kubectl get httproute route-v1 -n "$NS" \
+        -o jsonpath='{.status.parents[0].conditions[?(@.type=="Accepted")].reason}' 2>/dev/null || echo "?")
+    v1_refs=$(kubectl get httproute route-v1 -n "$NS" \
+        -o jsonpath='{.status.parents[0].conditions[?(@.type=="ResolvedRefs")].status}' 2>/dev/null || echo "?")
+    v1_conditions=$(kubectl get httproute route-v1 -n "$NS" \
+        -o jsonpath='{range .status.parents[0].conditions[*]}{.type}={.status} {end}' 2>/dev/null || echo "?")
+
+    v2_accepted=$(kubectl get httproute route-v2 -n "$NS" \
+        -o jsonpath='{.status.parents[0].conditions[?(@.type=="Accepted")].status}' 2>/dev/null || echo "?")
+    v2_reason=$(kubectl get httproute route-v2 -n "$NS" \
+        -o jsonpath='{.status.parents[0].conditions[?(@.type=="Accepted")].reason}' 2>/dev/null || echo "?")
+    v2_refs=$(kubectl get httproute route-v2 -n "$NS" \
+        -o jsonpath='{.status.parents[0].conditions[?(@.type=="ResolvedRefs")].status}' 2>/dev/null || echo "?")
+    v2_conditions=$(kubectl get httproute route-v2 -n "$NS" \
+        -o jsonpath='{range .status.parents[0].conditions[*]}{.type}={.status} {end}' 2>/dev/null || echo "?")
+
+    info "route-v1: Accepted=$v1_accepted Reason=$v1_reason"
+    info "route-v1 conditions: $v1_conditions"
+    info "route-v2: Accepted=$v2_accepted Reason=$v2_reason"
+    info "route-v2 conditions: $v2_conditions"
+
+    [[ "$v1_refs" == "True" ]] && pass "route-v1 ResolvedRefs=True" || fail "route-v1 ResolvedRefs is '$v1_refs'"
+    [[ "$v2_refs" == "True" ]] && pass "route-v2 ResolvedRefs=True" || fail "route-v2 ResolvedRefs is '$v2_refs'"
+
+    if [[ "$v1_accepted" == "True" ]]; then
+        pass "route-v1 Accepted=True"
+    else
+        fail "route-v1 must be Accepted=True (got '$v1_accepted', reason '$v1_reason')"
+    fi
+
+    if [[ "$v2_accepted" == "True" ]]; then
+        pass "route-v2 Accepted=True (standby route is attached and active)"
+    elif [[ "$v2_accepted" == "False" ]]; then
+        fail "route-v2 must be Accepted=True for this model (got False, reason '$v2_reason')"
+    else
+        fail "route-v2 Accepted condition missing (got '$v2_accepted')"
+    fi
+
     echo ""
     kubectl get httproute -n "$NS" -o wide 2>/dev/null || true
 }
@@ -167,7 +232,7 @@ test_route_status() {
 test_header_split() {
     header "2. Header match weighted split ($REQUESTS requests)"
     read -r v1 v2 errors <<< "$(send_requests "$GATEWAY_URL/" "$REQUESTS" -H "${MODEL_HEADER}: ${MODEL_VALUE}")"
-    check_split "Header match" "$v1" "$v2" "$errors" 70 98
+    check_split "Header match" "$v1" "$v2" "$errors" "$SPLIT_90_MIN" "$SPLIT_90_MAX"
 }
 
 # ================================================================
@@ -176,7 +241,7 @@ test_header_split() {
 test_publisher_path_split() {
     header "3. Publisher path weighted split ($REQUESTS requests)"
     read -r v1 v2 errors <<< "$(send_requests "${GATEWAY_URL}${PUBLISHER_PATH}" "$REQUESTS")"
-    check_split "Publisher path" "$v1" "$v2" "$errors" 70 98
+    check_split "Publisher path" "$v1" "$v2" "$errors" "$SPLIT_90_MIN" "$SPLIT_90_MAX"
 }
 
 # ================================================================
@@ -220,11 +285,11 @@ test_failover() {
 
     info "Header match after failover:"
     read -r v1 v2 errors <<< "$(send_requests "$GATEWAY_URL/" "$REQUESTS" -H "${MODEL_HEADER}: ${MODEL_VALUE}")"
-    check_split "Header after failover" "$v1" "$v2" "$errors" 70 98
+    check_split "Header after failover" "$v1" "$v2" "$errors" "$SPLIT_90_MIN" "$SPLIT_90_MAX"
 
     info "Publisher path after failover:"
     read -r v1 v2 errors <<< "$(send_requests "${GATEWAY_URL}${PUBLISHER_PATH}" "$REQUESTS")"
-    check_split "Publisher after failover" "$v1" "$v2" "$errors" 70 98
+    check_split "Publisher after failover" "$v1" "$v2" "$errors" "$SPLIT_90_MIN" "$SPLIT_90_MAX"
 
     info "Direct /v1 should be unreachable (route deleted):"
     read -r v1 v2 errors <<< "$(send_requests "$GATEWAY_URL/direct/v1" 5)"
@@ -280,11 +345,11 @@ test_weight_change() {
 
     info "Header match after weight change:"
     read -r v1 v2 errors <<< "$(send_requests "$GATEWAY_URL/" "$REQUESTS" -H "${MODEL_HEADER}: ${MODEL_VALUE}")"
-    check_split "Header 50/50" "$v1" "$v2" "$errors" 30 70
+    check_split "Header 50/50" "$v1" "$v2" "$errors" "$SPLIT_50_MIN" "$SPLIT_50_MAX"
 
     info "Publisher path after weight change:"
     read -r v1 v2 errors <<< "$(send_requests "${GATEWAY_URL}${PUBLISHER_PATH}" "$REQUESTS")"
-    check_split "Publisher 50/50" "$v1" "$v2" "$errors" 30 70
+    check_split "Publisher 50/50" "$v1" "$v2" "$errors" "$SPLIT_50_MIN" "$SPLIT_50_MAX"
 
     info "Direct access unaffected by weight change:"
     read -r v1 v2 errors <<< "$(send_requests "$GATEWAY_URL/direct/v1" 5)"
@@ -303,6 +368,8 @@ main() {
     echo "  Each route carries: header match (weighted, overlapping)"
     echo "                      publisher path (weighted, overlapping)"
     echo "                      direct access (pinned, non-overlapping)"
+    echo "  Split thresholds:   90/10 => ${SPLIT_90_MIN}-${SPLIT_90_MAX}% v1"
+    echo "                      50/50 => ${SPLIT_50_MIN}-${SPLIT_50_MAX}% v1"
     echo "============================================================"
 
     setup
