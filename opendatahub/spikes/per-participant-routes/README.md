@@ -8,12 +8,12 @@ Each participant creates **one HTTPRoute** with three rule types. Two participan
 
 ```
 route-v1 (oldest = wins precedence for overlapping rules)
-├── Rule 1: header X-Model → [v1:9, v2:1]           ← overlapping (identical on both routes)
+├── Rule 1: header X-Gateway-Model-Name → [v1:9, v2:1]           ← overlapping (identical on both routes)
 ├── Rule 2: path /publishers/ns/models/name → [v1:9, v2:1]  ← overlapping (identical)
 └── Rule 3: path /direct/v1 → [v1]                  ← non-overlapping (unique to v1)
 
 route-v2 (newest = standby for overlapping rules)
-├── Rule 1: header X-Model → [v1:9, v2:1]           ← IDENTICAL to route-v1
+├── Rule 1: header X-Gateway-Model-Name → [v1:9, v2:1]           ← IDENTICAL to route-v1
 ├── Rule 2: path /publishers/ns/models/name → [v1:9, v2:1]  ← IDENTICAL to route-v1
 └── Rule 3: path /direct/v2 → [v2]                  ← non-overlapping (unique to v2)
 ```
@@ -22,6 +22,18 @@ For overlapping rules (1, 2), Gateway API mandates precedence - oldest route win
 
 For non-overlapping rules (3), both routes are active concurrently. Each version's direct-access path routes to that version only.
 
+## Gateway API model summary
+
+This spike relies on standard HTTPRoute merge and precedence behavior:
+
+- Multiple `HTTPRoute`s can attach to one Gateway listener and are merged into one routing table.
+- For each request, one winning rule is selected by match precedence: exact path, longest prefix, method, number of headers, number of query params.
+- If still tied across routes, Gateway API tie-breakers apply: oldest route wins, then lexical `{namespace}/{name}`.
+- Because overlapping rules are intentionally identical on `route-v1` and `route-v2`, either winner produces the same weighted split.
+- Non-overlapping direct paths (`/direct/v1`, `/direct/v2`) should both be active while both routes are accepted by the Gateway.
+
+This validator enforces that model strictly: both `route-v1` and `route-v2` must be `Accepted=True` before traffic tests proceed.
+
 ## What's running
 
 - **Namespace** `route-validation` with a standalone Gateway
@@ -29,13 +41,14 @@ For non-overlapping rules (3), both routes are active concurrently. Each version
 - **route-v1** applied first (via `manifests.yaml`) - becomes the oldest
 - **route-v2** applied second (via `route-v2.yaml`) - newer, acts as hot standby
 - **validate.sh** sends curl requests through the gateway and counts which backend responds
+- During setup, **validate.sh** deletes/recreates both routes so `route-v1` is always older than `route-v2` before failover tests
 
 ## Tests
 
 | # | Test | Validates | How |
 |---|------|-----------|-----|
-| 1 | Route status | Does the gateway report conflict on the standby? | Reads HTTPRoute `.status.parents[].conditions` |
-| 2 | Header split | Weighted distribution via model-routing header | 100 requests with `X-Model` header, expect ~90/10 |
+| 1 | Route status | Are both routes attached and fully resolved? | Asserts `Accepted=True` and `ResolvedRefs=True` for both routes |
+| 2 | Header split | Weighted distribution via model-routing header | 100 requests with `X-Gateway-Model-Name` header, expect ~90/10 |
 | 3 | Publisher path split | Weighted distribution via stable path | 100 requests to `/publishers/ns/models/name`, expect ~90/10 |
 | 4 | Direct access | Per-participant paths pin to correct version | 10 requests each to `/direct/v1` and `/direct/v2` |
 | 5 | Concurrent | All three patterns work simultaneously | Sends requests to all patterns in sequence, checks no interference |
@@ -63,11 +76,16 @@ kubectl delete ns route-validation
 
 Edit `manifests.yaml` to change `gatewayClassName: istio` for other implementations (e.g., `envoy`, `nginx`).
 
+Distribution thresholds are configurable:
+
+- `ROUTE_VALIDATION_SPLIT_90_MIN` / `ROUTE_VALIDATION_SPLIT_90_MAX` (defaults: `82` / `97`)
+- `ROUTE_VALIDATION_SPLIT_50_MIN` / `ROUTE_VALIDATION_SPLIT_50_MAX` (defaults: `35` / `65`)
+
 ## Interpreting results
 
 **All pass**: the per-participant route model works on your gateway. Proceed with controller implementation.
 
-**Test 1 - conflict conditions on route-v2**: the controller will need to suppress or ignore these conditions for grouped routes. They're intentional (overlapping matches by design), not misconfiguration.
+**Test 1 - `route-v2` not accepted**: this gateway behavior does not fit the strict standby model in this spike. If `route-v2` is not attached, `/direct/v2` and failover guarantees are not reliable.
 
 **Test 6 - failover fails**: standby route didn't take over. Check if the gateway requires explicit route activation or has a propagation delay longer than the test sleep.
 
