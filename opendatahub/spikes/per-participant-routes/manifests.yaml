@@ -1,0 +1,188 @@
+# Per-Participant Routes Validation Spike
+#
+# Each "version" gets ONE HTTPRoute containing ALL rule types:
+#   - Model-routing header match (weighted, identical across routes)
+#   - Publisher path match (weighted, identical across routes)
+#   - Per-participant direct access path (single backend, unique per route)
+#
+# This mirrors the actual controlled deployment design where each
+# LLMInferenceService creates one HTTPRoute with the complete rule set.
+#
+# Gateway API precedence (oldest route wins) determines which route
+# is active for the overlapping rules. Non-overlapping rules (direct
+# access paths) work concurrently on both routes.
+#
+# Usage:
+#   kubectl apply -f manifests.yaml
+#   sleep 2
+#   kubectl apply -f route-v2.yaml
+#   ./validate.sh
+#   kubectl delete ns route-validation
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: route-validation
+
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: openshift-default
+spec:
+  controllerName: "openshift.io/gateway-controller/v1"
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: test-gateway
+  namespace: route-validation
+spec:
+  gatewayClassName: openshift-default  # change to match your cluster
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: Same
+
+---
+# Echo v1 - returns "v1"
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echo-v1
+  namespace: route-validation
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: echo
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: echo
+        version: v1
+    spec:
+      containers:
+        - name: echo
+          image: hashicorp/http-echo:0.2.3
+          args: ["-text=v1", "-listen=:8080"]
+          ports:
+            - containerPort: 8080
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo-v1
+  namespace: route-validation
+spec:
+  selector:
+    app: echo
+    version: v1
+  ports:
+    - port: 8080
+      targetPort: 8080
+
+---
+# Echo v2 - returns "v2"
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echo-v2
+  namespace: route-validation
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: echo
+      version: v2
+  template:
+    metadata:
+      labels:
+        app: echo
+        version: v2
+    spec:
+      containers:
+        - name: echo
+          image: hashicorp/http-echo:0.2.3
+          args: ["-text=v2", "-listen=:8080"]
+          ports:
+            - containerPort: 8080
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo-v2
+  namespace: route-validation
+spec:
+  selector:
+    app: echo
+    version: v2
+  ports:
+    - port: 8080
+      targetPort: 8080
+
+---
+# ============================================================
+# route-v1: "production" participant (applied first = oldest)
+#
+# One HTTPRoute with ALL rule types:
+#   1. Header match (weighted) - overlaps with route-v2
+#   2. Publisher path (weighted) - overlaps with route-v2
+#   3. Direct access path (pinned) - unique to v1
+# ============================================================
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: route-v1
+  namespace: route-validation
+  labels:
+    version: v1
+spec:
+  parentRefs:
+    - name: test-gateway
+  rules:
+    # Rule 1: model-routing header match (overlapping, weighted)
+    # Simulates: X-Gateway-Model-Name: publishers/<ns>/models/<model>
+    - matches:
+        - headers:
+            - type: Exact
+              name: X-Gateway-Model-Name
+              value: publishers/route-validation/models/test-model
+      backendRefs:
+        - name: echo-v1
+          port: 8080
+          weight: 9
+        - name: echo-v2
+          port: 8080
+          weight: 1
+
+    # Rule 2: publisher path (overlapping, weighted)
+    # Simulates: /publishers/<ns>/models/<model-name>/...
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /publishers/route-validation/models/test-model
+      backendRefs:
+        - name: echo-v1
+          port: 8080
+          weight: 9
+        - name: echo-v2
+          port: 8080
+          weight: 1
+
+    # Rule 3: per-participant direct access (non-overlapping, pinned)
+    # Simulates: /<ns>/<llmisvc-name>/...
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /direct/v1
+      backendRefs:
+        - name: echo-v1
+          port: 8080
