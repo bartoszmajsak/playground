@@ -1,0 +1,22 @@
+apiVersion: serving.kserve.io/v1alpha2
+kind: LLMInferenceService
+metadata:
+  name: tiny-llama-v1
+  namespace: controlled-deployment-spike
+  annotations:
+    serving.kserve.io/enable-served-by-header: "true"
+spec:
+  model:
+    name: tiny-llama
+  baseRefs:
+    - name: model-tiny-llama
+    - name: workload-single-cpu
+  tracing:
+    exporterEndpoint: "http://otel-collector.kserve.svc:4317"
+    sampler: "always_on"
+  router:
+    route:
+      group: tiny-llama
+      weight: 9
+      http: {}
+    scheduler: {}

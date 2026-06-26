@@ -1,0 +1,15 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: llmisvc-gateway
+  namespace: kserve
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      gateway.networking.k8s.io/gateway-name: kserve-ingress-gateway
+  podMetricsEndpoints:
+    - portNumber: 15090
+      path: /stats/prometheus
+      interval: 15s
