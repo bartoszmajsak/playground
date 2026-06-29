@@ -17,6 +17,6 @@ spec:
   router:
     route:
       group: tiny-llama
-      weight: 0
+      weight: 1
       http: {}
     scheduler: {}

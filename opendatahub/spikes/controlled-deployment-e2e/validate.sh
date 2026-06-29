@@ -17,14 +17,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-NS="controlled-deployment-spike"
-V1="tiny-llama-v1"
-V2="tiny-llama-v2"
-GROUP="tiny-llama"
-MODEL="tiny-llama"
+source "$SCRIPT_DIR/lib.sh"
+
 REQUESTS="${REQUESTS:-50}"
 
-GATEWAY_URL=""
 RUN_PHASE=""
 RUN_STEP=""
 SKIP_DEPLOY=false
@@ -48,13 +44,6 @@ while [[ $# -gt 0 ]]; do
         *) echo "Unknown arg: $1"; exit 1 ;;
     esac
 done
-
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-CYAN='\033[0;36m'
-BOLD='\033[1m'
-NC='\033[0m'
 
 # --scenario all: run each overlay in sequence with namespace cleanup between runs
 if [[ "$SCENARIO" == "all" ]]; then
@@ -106,7 +95,6 @@ STEPS_RAN=0
 
 pass() { echo -e "  ${GREEN}PASS${NC}: $1"; }
 fail() { echo -e "  ${RED}FAIL${NC}: $1"; FAILURES=$((FAILURES + 1)); }
-info() { echo -e "  ${CYAN}INFO${NC}: $1"; }
 
 SMOKE_STEPS="1 2 3 5 6 13"
 
@@ -166,10 +154,14 @@ send_requests() {
     for ((i = 0; i < count; i++)); do
         local resp_file
         resp_file=$(mktemp)
-        if ! curl -s -D "$resp_file" --max-time 30 \
+        local http_code
+        http_code=$(curl -s -D "$resp_file" --max-time 30 \
             -H "Content-Type: application/json" \
             -d "$payload" \
-            "$@" "$url" >/dev/null 2>&1; then
+            -o /dev/null -w "%{http_code}" \
+            "$@" "$url" 2>/dev/null) || true
+
+        if [[ "$http_code" != "200" ]]; then
             errors=$((errors + 1)); rm -f "$resp_file"; continue
         fi
 
@@ -340,71 +332,10 @@ condition_reason_set() {
     [[ -n "$reason" ]]
 }
 
-has_istio() {
-    kubectl api-resources --api-group=networking.istio.io 2>/dev/null | grep -q destinationrules
-}
-
-# Upstream controller always mounts self-signed certs and the EPP defaults
-# --secure-serving=true, so the EPP serves TLS regardless of config.
-# Istio's gateway proxy needs DestinationRules to originate TLS.
-# See: kserve/kserve#5716, opendatahub-io/kserve#1595
-patch_epp_tls() {
-    has_istio || return 0
-    local svc_name
-    while IFS= read -r svc_name; do
-        [[ -z "$svc_name" ]] && continue
-        kubectl apply -f - <<DREOF 2>/dev/null || true
-apiVersion: networking.istio.io/v1
-kind: DestinationRule
-metadata:
-  name: ${svc_name}-tls
-  namespace: $NS
-spec:
-  host: "${svc_name}.${NS}.svc.cluster.local"
-  trafficPolicy:
-    tls:
-      mode: SIMPLE
-      insecureSkipVerify: true
-DREOF
-    done < <(kubectl get svc -n "$NS" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null | tr ' ' '\n' | grep epp || true)
-}
-
 # =========================================================================
 # Setup
 # =========================================================================
 
-GATEWAY_NAME="kserve-ingress-gateway"
-GATEWAY_NS="${GATEWAY_NS:-}"
-
-discover_gateway() {
-    if [[ -n "$GATEWAY_URL" ]]; then return; fi
-
-    # Auto-detect gateway namespace
-    if [[ -z "$GATEWAY_NS" ]]; then
-        if kubectl get gateway "$GATEWAY_NAME" -n openshift-ingress >/dev/null 2>&1; then
-            GATEWAY_NS="openshift-ingress"
-        else
-            GATEWAY_NS="kserve"
-        fi
-    fi
-
-    local addr
-    addr=$(kubectl get gateway "$GATEWAY_NAME" -n "$GATEWAY_NS" \
-        -o jsonpath='{.status.addresses[0].value}' 2>/dev/null || true)
-    if [[ -n "$addr" ]]; then
-        GATEWAY_URL="http://$addr"; return
-    fi
-
-    addr=$(kubectl get svc -n "$GATEWAY_NS" \
-        -l "gateway.networking.k8s.io/gateway-name=$GATEWAY_NAME" \
-        -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
-    if [[ -n "$addr" ]]; then
-        GATEWAY_URL="http://$addr"; return
-    fi
-
-    echo "No gateway address found. Pass URL: ./validate.sh http://<gateway-ip>"
-    exit 1
-}
 discover_gateway
 
 echo -e "${BOLD}Controlled Deployment E2E Validation${NC}"
@@ -423,29 +354,14 @@ if [[ "$SKIP_DEPLOY" == "false" ]] && { should_run_phase 1 || should_run_step 1 
     if kubectl get clusterversion >/dev/null 2>&1; then
         oc adm policy add-scc-to-user privileged -z default -n "$NS" 2>/dev/null || true
     fi
-    # Istio: the EPP auto-enables TLS when it finds certs at /var/run/kserve/tls
-    # (mounted by the controller regardless of enableTLS). Istio's gateway proxy
-    # needs a DestinationRule to connect via TLS with insecureSkipVerify.
-    # This mirrors what the midstream controller does in router_platform_networking_odh.go.
-    if has_istio; then
-        kubectl apply -f - <<PAEOF
-apiVersion: security.istio.io/v1
-kind: PeerAuthentication
-metadata:
-  name: permissive
-  namespace: $NS
-spec:
-  mtls:
-    mode: PERMISSIVE
-PAEOF
-    fi
+    apply_peer_authentication
 fi
 
 # =========================================================================
 # Phase 1: Canary Rollout Lifecycle
 # =========================================================================
 
-if step 1 "Deploy v1 (production) and v2 (canary at weight 0)" 1; then
+if step 1 "Deploy v1 (w=9) and v2 (canary at w=1)" 1; then
     if [[ "$SKIP_DEPLOY" == "false" ]]; then
         wait_ready "$V1"
         wait_ready "$V2"
@@ -460,31 +376,26 @@ if step 1 "Deploy v1 (production) and v2 (canary at weight 0)" 1; then
     if [[ "$members" == *"$V1"* && "$members" == *"$V2"* ]]; then pass "Both members in group status"; else fail "Both members in group status"; fi
 
     v2_weight=$(get_group_weight "$V1" "$V2")
-    if [[ "$v2_weight" == "0" ]]; then pass "v2 onboarded at weight 0"; else fail "v2 onboarded at weight 0"; fi
+    if [[ "$v2_weight" == "1" ]]; then pass "v2 onboarded at weight 1"; else fail "v2 weight=$v2_weight (expected 1)"; fi
 fi
 
-if step 2 "All traffic to v1 (v2 receives nothing)" 1; then
-    read -r v1 v2 unk err <<< "$(send_requests "$(model_routing_url)" 10 \
+if step 2 "Baseline: ~90/10 split (v1=9, v2=1)" 1; then
+    read -r v1 v2 unk err <<< "$(send_requests "$(model_routing_url)" "$REQUESTS" \
         -H "$(model_routing_header)")"
-    check_pinned "Model-routing (v2 at weight 0)" "v1" "$v1" "$v2" "$unk" "$err" 10
+    check_split "Model-routing 90/10 baseline" "$v1" "$v2" "$unk" "$err" 75 98
 fi
 
-if step 3 "Canary: shift to 90/10" 1; then
-    set_weight "$V2" 1
+if step 3 "Canary: shift to 70/30" 1; then
+    set_weight "$V2" 3
+    set_weight "$V1" 7
 
     v1_w=$(get_group_weight "$V1" "$V1")
     v2_w=$(get_group_weight "$V1" "$V2")
-    if [[ "$v1_w" == "9" && "$v2_w" == "1" ]]; then pass "Weights: v1=$v1_w v2=$v2_w"; else fail "Weights: v1=$v1_w v2=$v2_w"; fi
+    if [[ "$v1_w" == "7" && "$v2_w" == "3" ]]; then pass "Weights: v1=$v1_w v2=$v2_w"; else fail "Weights: v1=$v1_w v2=$v2_w"; fi
 
-    # Wait for gateway to propagate weighted routing by probing until v2 gets traffic
-    for attempt in 1 2 3; do
-        read -r v1 v2 unk err <<< "$(send_requests "$(model_routing_url)" "$REQUESTS" \
-            -H "$(model_routing_header)")"
-        [[ $v2 -gt 0 ]] && break
-        info "Attempt $attempt: v2 not receiving traffic yet, waiting for gateway propagation..."
-        sleep 5
-    done
-    check_split "Model-routing 90/10" "$v1" "$v2" "$unk" "$err" 75 98
+    read -r v1 v2 unk err <<< "$(send_requests "$(model_routing_url)" "$REQUESTS" \
+        -H "$(model_routing_header)")"
+    check_split "Model-routing 70/30" "$v1" "$v2" "$unk" "$err" 55 85
 fi
 
 if step 4 "Validate: 50/50 split via Prometheus metrics" 1; then
