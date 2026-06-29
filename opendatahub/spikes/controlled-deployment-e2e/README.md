@@ -53,9 +53,9 @@ Manifests are kustomize overlays under `manifests/overlays/`:
 
 | Step | Action | Verify |
 |------|--------|--------|
-| 1 | Deploy v1 (w=9) and v2 (w=0) | Ready, group status, routing-group label |
-| 2 | Traffic via model-routing header | 100% to v1 |
-| 3 | Canary: v2 weight to 1 | ~90/10 weighted split |
+| 1 | Deploy v1 (w=9) and v2 (w=1) | Ready, group status, routing-group label |
+| 2 | Baseline: 90/10 split | ~90/10 weighted split |
+| 3 | Canary ramp: v1=7, v2=3 | ~70/30 weighted split |
 | 4 | 50/50 split via Prometheus | Observability pipeline validates split |
 | 5 | Promote: v1 weight to 0 | 100% to v2 |
 | 6 | Direct access | Per-participant paths always hit targeted version |
@@ -98,6 +98,24 @@ Manifests are kustomize overlays under `manifests/overlays/`:
 
 Most steps use the `x-served-by` response header (fast, per-request attribution). Step 4 uses Prometheus `vllm:request_success_total` by `llm_isvc_name` to validate the observability pipeline end-to-end.
 
+## Zero-Downtime Canary Validation
+
+Runs continuous traffic via k6 while applying the full canary lifecycle in the background, then checks for request errors during each transition.
+
+```bash
+./validate-canary.sh                        # deploys pool scenario if needed
+./validate-canary.sh --scenario service     # service backend variant
+```
+
+The test sends requests at a steady rate (2 req/s default, override with `RATE=5`) while applying six phases over ~3 minutes: baseline (90/10), canary ramp (70/30), 50/50 split, promote, force-stop, and decommission. Each response is logged with its `x-served-by` attribution and timestamp. Since members deploy at weight=1 (not 0), all weight transitions are pure value updates with no structural route changes - avoiding the gateway config reload drops.
+
+After the run, the analysis script checks:
+- Per-phase traffic distribution matches expected weights (with 5s grace after each mutation)
+- Zero request errors during transition windows
+- Final verdict: `ZERO DOWNTIME` or `DOWNTIME DETECTED` with details
+
+Requires: `k6` (`go install go.k6.io/k6@latest`)
+
 ## Observe
 
 ```bash
@@ -123,6 +141,10 @@ See `docs/observability-findings.md` for PromQL examples and gap analysis.
 | Istio 1.27+ | Supported | Tested on 1.27.1, 1.28.0, 1.30.1 |
 | Envoy AI Gateway | Not supported | "at most one inferencepool per route rule" - [see reproducer](https://github.com/bartoszmajsak/playground/tree/main/opendatahub/spikes/envoy-gateway-weighted-split) |
 | OpenShift | Depends on Istio version | |
+
+## Operational Characteristics
+
+- **Canary onboarding at weight=1**: members deploy at weight=1 (not 0) so the gateway has all backends warmed from the start. Changing weight from 0 to non-zero triggers a structural HTTPRoute change (new backendRef) that causes gateway config reload and brief request drops. Starting at weight=1 keeps subsequent weight changes as pure value updates - no route structure changes, no drops. See `docs/research-zero-downtime-routing.md` for the full analysis.
 
 ## Known Issues
 
