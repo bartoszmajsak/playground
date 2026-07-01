@@ -1,0 +1,28 @@
+GatewayAPIInferenceExtensionVersion: v1.4.0
+apiVersion: gateway.networking.k8s.io/v1
+date: "2026-07-01T22:04:35+02:00"
+gatewayAPIChannel: standard
+gatewayAPIVersion: v1.5.0
+implementation:
+  contact:
+  - github.com/envoyproxy/ai-gateway/issues
+  organization: envoyproxy
+  project: envoy-ai-gateway
+  url: https://github.com/envoyproxy/ai-gateway
+  version: v1.0.0
+kind: ConformanceReport
+mode: default
+profiles:
+- core:
+    failedTests:
+    - GatewayDestinationEndpointServed
+    - GatewayWeightedAcrossTwoInferencePools
+    - HTTPRouteMultipleGatewaysDifferentPools
+    - InferencePoolResolvedRefsCondition
+    result: failure
+    statistics:
+      Failed: 4
+      Passed: 8
+      Skipped: 0
+  name: Gateway
+  summary: Core tests failed with 4 test failures.
