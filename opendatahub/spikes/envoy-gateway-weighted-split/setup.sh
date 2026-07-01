@@ -12,6 +12,10 @@ AIEG_VERSION="${AIEG_VERSION:-v1.0.0}"
 GIE_VERSION="${GIE_VERSION:-v1.0.2}"
 AIEG_RAW="https://raw.githubusercontent.com/envoyproxy/ai-gateway/${AIEG_VERSION}"
 
+CTX="kind-${CLUSTER_NAME}"
+KC="kubectl --context $CTX"
+HC="helm --kube-context $CTX"
+
 info() { echo -e "\033[0;33mINFO\033[0m: $1"; }
 ok()   { echo -e "\033[0;32m  OK\033[0m: $1"; }
 err()  { echo -e "\033[0;31mFAIL\033[0m: $1"; exit 1; }
@@ -23,18 +27,17 @@ else
     info "Creating kind cluster '$CLUSTER_NAME'"
     kind create cluster --name "$CLUSTER_NAME" --wait 60s
 fi
-kubectl config use-context "kind-${CLUSTER_NAME}" 2>/dev/null || true
 
 # MetalLB
 info "Installing MetalLB"
-kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.9/config/manifests/metallb-native.yaml
-kubectl wait --timeout=120s --namespace metallb-system \
+$KC apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.9/config/manifests/metallb-native.yaml
+$KC wait --timeout=120s --namespace metallb-system \
     deployment/controller --for=condition=Available || err "MetalLB not ready"
 
 subnet=$(docker network inspect "kind" -f '{{range .IPAM.Config}}{{.Subnet}}{{"\n"}}{{end}}' | grep -v ':' | head -1)
 subnet="${subnet:-172.18.0.0/16}"
 base=$(echo "$subnet" | cut -d. -f1-2)
-kubectl apply -f - <<EOF
+$KC apply -f - <<EOF
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
 metadata:
@@ -53,7 +56,7 @@ EOF
 
 # Remove cloud-provider-kind's Gateway API CRDs (kind v0.32+ bundles them, conflicts with EG's)
 info "Removing pre-installed Gateway API CRDs"
-kubectl delete crd gatewayclasses.gateway.networking.k8s.io gateways.gateway.networking.k8s.io \
+$KC delete crd gatewayclasses.gateway.networking.k8s.io gateways.gateway.networking.k8s.io \
     httproutes.gateway.networking.k8s.io grpcroutes.gateway.networking.k8s.io \
     referencegrants.gateway.networking.k8s.io backendtlspolicies.gateway.networking.k8s.io \
     2>/dev/null || true
@@ -61,37 +64,37 @@ kubectl delete crd gatewayclasses.gateway.networking.k8s.io gateways.gateway.net
 # Envoy Gateway (bundles Gateway API CRDs, must be first)
 # Don't use AI Gateway values yet - install EG standalone first to get CRDs in place
 info "Installing Envoy Gateway ${EG_VERSION}"
-helm upgrade -i eg oci://docker.io/envoyproxy/gateway-helm \
+$HC upgrade -i eg oci://docker.io/envoyproxy/gateway-helm \
     --version "${EG_VERSION}" \
     --namespace envoy-gateway-system --create-namespace
-kubectl wait --timeout=300s -n envoy-gateway-system \
+$KC wait --timeout=300s -n envoy-gateway-system \
     deployment/envoy-gateway --for=condition=Available || err "Envoy Gateway not ready"
 
 # GIE CRDs (now that Gateway API CRDs exist from EG install)
 info "Installing GIE CRDs ${GIE_VERSION}"
-kubectl apply -f "https://github.com/kubernetes-sigs/gateway-api-inference-extension/releases/download/${GIE_VERSION}/manifests.yaml"
+$KC apply -f "https://github.com/kubernetes-sigs/gateway-api-inference-extension/releases/download/${GIE_VERSION}/manifests.yaml"
 
 # AI Gateway CRDs + controller
 info "Installing AI Gateway CRDs ${AIEG_VERSION}"
-helm upgrade -i aieg-crd oci://docker.io/envoyproxy/ai-gateway-crds-helm \
+$HC upgrade -i aieg-crd oci://docker.io/envoyproxy/ai-gateway-crds-helm \
     --version "${AIEG_VERSION}" \
     --namespace envoy-ai-gateway-system --create-namespace
 
 info "Installing AI Gateway controller ${AIEG_VERSION}"
-helm upgrade -i aieg oci://docker.io/envoyproxy/ai-gateway-helm \
+$HC upgrade -i aieg oci://docker.io/envoyproxy/ai-gateway-helm \
     --version "${AIEG_VERSION}" \
     --namespace envoy-ai-gateway-system --create-namespace
-kubectl wait --timeout=120s -n envoy-ai-gateway-system \
+$KC wait --timeout=120s -n envoy-ai-gateway-system \
     deployment/ai-gateway-controller --for=condition=Available || err "AI Gateway controller not ready"
 
 # Re-install EG with AI Gateway values + InferencePool addon
 info "Upgrading Envoy Gateway with AI Gateway InferencePool addon"
-helm upgrade eg oci://docker.io/envoyproxy/gateway-helm \
+$HC upgrade eg oci://docker.io/envoyproxy/gateway-helm \
     --version "${EG_VERSION}" \
     --namespace envoy-gateway-system \
     -f "${AIEG_RAW}/manifests/envoy-gateway-values.yaml" \
     -f "${AIEG_RAW}/examples/inference-pool/envoy-gateway-values-addon.yaml"
-kubectl rollout status deployment/envoy-gateway -n envoy-gateway-system --timeout=120s \
+$KC rollout status deployment/envoy-gateway -n envoy-gateway-system --timeout=120s \
     || err "Envoy Gateway not ready after upgrade"
 
 # Note: RBAC workaround for InferencePool (https://gist.github.com/bartoszmajsak/5eb001b1478982e9915767cf61b83479)
@@ -100,8 +103,8 @@ kubectl rollout status deployment/envoy-gateway -n envoy-gateway-system --timeou
 ok "Envoy Gateway + AI Gateway ready"
 
 # GatewayClass + Gateway
-kubectl create namespace "$NS" 2>/dev/null || true
-kubectl apply -f - <<EOF
+$KC create namespace "$NS" 2>/dev/null || true
+$KC apply -f - <<EOF
 apiVersion: gateway.networking.k8s.io/v1
 kind: GatewayClass
 metadata:
@@ -132,7 +135,7 @@ TESTUPSTREAM_IMAGE="docker.io/envoyproxy/ai-gateway-testupstream:latest"
 EPP_IMAGE="registry.k8s.io/gateway-api-inference-extension/epp:v1.0.1"
 
 # RBAC for EPP
-kubectl apply -f - <<EOF
+$KC apply -f - <<EOF
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -211,7 +214,7 @@ data:
 EOF
 
 for ver in v1 v2; do
-    kubectl apply -f - <<EOF
+    $KC apply -f - <<EOF
 apiVersion: v1
 kind: Service
 metadata:
@@ -343,7 +346,7 @@ spec:
 EOF
 done
 
-kubectl wait --timeout=120s -n "$NS" \
+$KC wait --timeout=120s -n "$NS" \
     deployment/model-v1 deployment/model-v2 \
     deployment/pool-v1-epp deployment/pool-v2-epp \
     --for=condition=Available || err "Backends or EPPs not ready"
@@ -351,7 +354,7 @@ kubectl wait --timeout=120s -n "$NS" \
 # Wait for gateway address
 info "Waiting for gateway address..."
 for _ in $(seq 1 30); do
-    gw_addr=$(kubectl get gateway test-gateway -n "$NS" \
+    gw_addr=$($KC get gateway test-gateway -n "$NS" \
         -o jsonpath='{.status.addresses[0].value}' 2>/dev/null || true)
     if [[ -n "$gw_addr" ]]; then
         echo ""
