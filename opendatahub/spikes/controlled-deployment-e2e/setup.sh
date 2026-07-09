@@ -59,11 +59,12 @@ err()  { echo -e "${RED}FAIL${NC}: $1"; exit 1; }
 # -------------------------------------------------------------------------
 
 setup_kind_cluster() {
-    if kind get clusters 2>/dev/null | grep -q "^kind$"; then
-        info "Kind cluster already exists"
+    local name="${CLUSTER_NAME:-kind}"
+    if kind get clusters 2>/dev/null | grep -q "^${name}$"; then
+        info "Kind cluster '${name}' already exists"
     else
-        info "Creating kind cluster"
-        cat <<KINDEOF | kind create cluster --config=-
+        info "Creating kind cluster '${name}'"
+        cat <<KINDEOF | kind create cluster --name "$name" --config=-
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
@@ -71,6 +72,7 @@ nodes:
   - role: worker
 KINDEOF
     fi
+    kubectl config use-context "kind-${name}" 2>/dev/null || true
 
     info "Installing MetalLB"
     kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.9/config/manifests/metallb-native.yaml
@@ -101,10 +103,7 @@ METALEOF
 }
 
 deploy_kserve_llmisvc() {
-    local llmisvc_img="${LLMISVC_IMAGE:-}"
-    if [[ -z "$llmisvc_img" ]]; then
-        err "LLMISVC_IMAGE is required. Set it to a pre-built controller image (e.g., quay.io/bmajsak/llmisvc-controller:traffic-splitting)"
-    fi
+    local llmisvc_img="${LLMISVC_IMAGE:-quay.io/bmajsak/llmisvc-controller:traffic-splitting}"
 
     info "Deploying KServe LLMISVC (image: $llmisvc_img, ref: $KSERVE_REF)"
     kubectl create namespace kserve 2>/dev/null || true
