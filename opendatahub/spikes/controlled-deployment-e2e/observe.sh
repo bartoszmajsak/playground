@@ -12,7 +12,8 @@
 set -euo pipefail
 
 CLUSTER_NAME="${CLUSTER_NAME:-controlled-deployment}"
-export KUBECONFIG="${KUBECONFIG:-${HOME}/.kube/kind-${CLUSTER_NAME}.config}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export KUBECONFIG="${KUBECONFIG:-${SCRIPT_DIR}/.kubeconfig}"
 
 NS="controlled-deployment-spike"
 V1="tiny-llama-v1"
