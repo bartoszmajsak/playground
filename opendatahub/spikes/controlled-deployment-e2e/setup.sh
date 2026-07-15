@@ -16,6 +16,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NS="controlled-deployment-spike"
+CLUSTER_NAME="${CLUSTER_NAME:-controlled-deployment}"
+export KUBECONFIG="${KUBECONFIG:-${HOME}/.kube/kind-${CLUSTER_NAME}.config}"
 CLUSTER_TYPE="${1:-kind-istio}"
 
 # Upstream refs - defaults to the traffic-splitting branch on the fork
@@ -60,12 +62,11 @@ err()  { echo -e "${RED}FAIL${NC}: $1"; exit 1; }
 # -------------------------------------------------------------------------
 
 setup_kind_cluster() {
-    local name="${CLUSTER_NAME:-kind}"
-    if kind get clusters 2>/dev/null | grep -q "^${name}$"; then
-        info "Kind cluster '${name}' already exists"
+    if kind get clusters 2>/dev/null | grep -q "^${CLUSTER_NAME}$"; then
+        info "Kind cluster '${CLUSTER_NAME}' already exists"
     else
-        info "Creating kind cluster '${name}'"
-        cat <<KINDEOF | kind create cluster --name "$name" --config=-
+        info "Creating kind cluster '${CLUSTER_NAME}'"
+        cat <<KINDEOF | kind create cluster --name "$CLUSTER_NAME" --config=-
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
@@ -73,7 +74,7 @@ nodes:
   - role: worker
 KINDEOF
     fi
-    kubectl config use-context "kind-${name}" 2>/dev/null || true
+    kubectl config use-context "kind-${CLUSTER_NAME}" 2>/dev/null || true
 
     info "Installing MetalLB"
     kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.9/config/manifests/metallb-native.yaml
@@ -425,6 +426,7 @@ EOF
 # =========================================================================
 
 echo -e "${BOLD}Controlled Deployment E2E - Setup${NC}"
+echo "Cluster: $CLUSTER_NAME (kubeconfig: $KUBECONFIG)"
 echo "Cluster type: $CLUSTER_TYPE"
 echo "Image: ${LLMISVC_IMAGE:-<will build from KSERVE_ROOT>}"
 echo "KServe ref: $KSERVE_REF"
