@@ -1,0 +1,9 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceServiceConfig
+metadata:
+  name: model-tiny-llama
+  namespace: agentgateway-spike
+spec:
+  model:
+    name: tiny-llama
+    uri: "hf://hmellor/tiny-random-LlamaForCausalLM"

@@ -1,0 +1,13 @@
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata:
+  name: tiny-llama-backend
+  namespace: agentgateway-spike
+spec:
+  ai:
+    provider:
+      custom:
+        formats:
+          - type: Completions
+      host: tiny-llama-kserve-workload-svc.agentgateway-spike.svc.cluster.local
+      port: 8000
