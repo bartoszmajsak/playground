@@ -25,32 +25,43 @@ CREATE INDEX IF NOT EXISTS idx_last_used ON api_keys(last_used_at) WHERE last_us
 
 const numKeys = 10_000
 
+const bareQuery = `UPDATE api_keys SET last_used_at = now() WHERE id = $1 AND tenant = $2`
+
 type strategy struct {
-	name  string
-	query string
+	name string
+	// exec runs the UPDATE for one goroutine. Returns error from the DB call,
+	// or nil if the call was skipped (e.g. debounce).
+	exec func(ctx context.Context, db *sql.DB, keyID, tenant string) error
 }
 
-var strategies = []strategy{
-	{
-		name:  "bare",
-		query: `UPDATE api_keys SET last_used_at = now() WHERE id = $1 AND tenant = $2`,
-	},
-	{
-		name: "sql-guard",
-		query: `UPDATE api_keys SET last_used_at = now() WHERE id = $1 AND tenant = $2
-		         AND (last_used_at IS NULL OR last_used_at < now() - interval '60 seconds')`,
-	},
-	{
-		name: "skip-locked",
-		query: `WITH candidate AS (
-			SELECT id, tenant FROM api_keys
-			WHERE id = $1 AND tenant = $2
-			  AND (last_used_at IS NULL OR last_used_at < now() - interval '60 seconds')
-			FOR UPDATE SKIP LOCKED
-		)
-		UPDATE api_keys SET last_used_at = now()
-		FROM candidate WHERE api_keys.id = candidate.id AND api_keys.tenant = candidate.tenant`,
-	},
+func sqlStrategy(name, query string) strategy {
+	return strategy{
+		name: name,
+		exec: func(ctx context.Context, db *sql.DB, keyID, tenant string) error {
+			_, err := db.ExecContext(ctx, query, keyID, tenant)
+			return err
+		},
+	}
+}
+
+// debounce replicates the sync.Map + LoadOrStore + CompareAndSwap pattern
+// from PR #1073. Each run gets a fresh debouncer.
+type debouncer struct {
+	m   sync.Map
+	ttl time.Duration
+}
+
+func (d *debouncer) shouldUpdate(keyID string) bool {
+	now := time.Now()
+	actual, loaded := d.m.LoadOrStore(keyID, now)
+	if !loaded {
+		return true
+	}
+	lastTime, ok := actual.(time.Time)
+	if ok && now.Sub(lastTime) >= d.ttl {
+		return d.m.CompareAndSwap(keyID, actual, now)
+	}
+	return false
 }
 
 var concurrencyLevels = []int{256, 512, 1024, 2048, 10000}
@@ -85,6 +96,28 @@ func main() {
 
 	keys := seedKeys(ctx, db)
 
+	strategies := []strategy{
+		sqlStrategy("bare", bareQuery),
+		sqlStrategy("sql-guard",
+			`UPDATE api_keys SET last_used_at = now() WHERE id = $1 AND tenant = $2
+			 AND (last_used_at IS NULL OR last_used_at < now() - interval '60 seconds')`),
+		sqlStrategy("skip-locked",
+			`WITH candidate AS (
+				SELECT id, tenant FROM api_keys
+				WHERE id = $1 AND tenant = $2
+				  AND (last_used_at IS NULL OR last_used_at < now() - interval '60 seconds')
+				FOR UPDATE SKIP LOCKED
+			)
+			UPDATE api_keys SET last_used_at = now()
+			FROM candidate WHERE api_keys.id = candidate.id AND api_keys.tenant = candidate.tenant`),
+	}
+
+	// debounce strategy: fresh debouncer per concurrency level, same as
+	// production where the sync.Map is process-scoped.
+	debounceStrategy := strategy{
+		name: "debounce",
+	}
+
 	fmt.Printf("%-14s %6s %8s %10s %10s %10s %10s\n",
 		"STRATEGY", "CONC", "ERRORS", "WALL", "p50", "p95", "p99")
 	fmt.Println("-------------- ------ -------- ---------- ---------- ---------- ----------")
@@ -93,11 +126,28 @@ func main() {
 		for _, conc := range concurrencyLevels {
 			resetKeys(ctx, db)
 			hotKey := keys[rand.IntN(len(keys))]
-			errs, wall, lats := run(db, s.query, hotKey, conc)
+			errs, wall, lats := run(db, s, hotKey, conc)
 			printRow(s.name, conc, errs, wall, lats)
 		}
 		fmt.Println()
 	}
+
+	// Debounce runs with a fresh debouncer per concurrency level
+	for _, conc := range concurrencyLevels {
+		resetKeys(ctx, db)
+		hotKey := keys[rand.IntN(len(keys))]
+		d := &debouncer{ttl: 60 * time.Second}
+		debounceStrategy.exec = func(ctx context.Context, db *sql.DB, keyID, tenant string) error {
+			if !d.shouldUpdate(keyID) {
+				return nil
+			}
+			_, err := db.ExecContext(ctx, bareQuery, keyID, tenant)
+			return err
+		}
+		errs, wall, lats := run(db, debounceStrategy, hotKey, conc)
+		printRow(debounceStrategy.name, conc, errs, wall, lats)
+	}
+	fmt.Println()
 }
 
 func seedKeys(ctx context.Context, db *sql.DB) []string {
@@ -141,7 +191,7 @@ func printRow(name string, conc int, errCount int, wall time.Duration, latencies
 		p99.Truncate(time.Microsecond))
 }
 
-func run(db *sql.DB, query, keyID string, concurrency int) (int, time.Duration, []time.Duration) {
+func run(db *sql.DB, s strategy, keyID string, concurrency int) (int, time.Duration, []time.Duration) {
 	const tenant = "perf-tenant"
 	var (
 		mu        sync.Mutex
@@ -161,7 +211,7 @@ func run(db *sql.DB, query, keyID string, concurrency int) (int, time.Duration, 
 			defer cancel()
 
 			t0 := time.Now()
-			_, err := db.ExecContext(ctx, query, keyID, tenant)
+			err := s.exec(ctx, db, keyID, tenant)
 			elapsed := time.Since(t0)
 
 			mu.Lock()
