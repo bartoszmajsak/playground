@@ -1,6 +1,6 @@
 GatewayAPIInferenceExtensionVersion: v1.4.0
 apiVersion: gateway.networking.k8s.io/v1
-date: "2026-07-01T22:04:35+02:00"
+date: "2026-07-03T11:51:55+02:00"
 gatewayAPIChannel: standard
 gatewayAPIVersion: v1.5.0
 implementation:
@@ -17,12 +17,10 @@ profiles:
     failedTests:
     - GatewayDestinationEndpointServed
     - GatewayWeightedAcrossTwoInferencePools
-    - HTTPRouteMultipleGatewaysDifferentPools
-    - InferencePoolResolvedRefsCondition
     result: failure
     statistics:
-      Failed: 4
-      Passed: 8
+      Failed: 2
+      Passed: 10
       Skipped: 0
   name: Gateway
-  summary: Core tests failed with 4 test failures.
+  summary: Core tests failed with 2 test failures.

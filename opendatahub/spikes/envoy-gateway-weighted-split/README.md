@@ -1,4 +1,4 @@
-# Envoy Gateway Weighted Split - InferencePool vs Service
+# Envoy (AI) Gateway Weighted Split - InferencePool vs Service
 
 Reproducer for the "at most one inferencepool per route rule" limitation when using weighted traffic splitting with InferencePool backendRefs.
 
@@ -28,7 +28,7 @@ It gets worse though - the xDS failure is fatal for the **entire** push, not jus
 
 ### How the issue manifests
 
-When bypassing AIGatewayRoute validation with a plain HTTPRoute, the route status reports both `Accepted` and `ResolvedRefs` as `True` - everything looks fine from kubectl. The xDS translation silently fails. The only indication is in the Envoy Gateway logs:
+With a plain HTTPRoute, the route status reports both `Accepted` and `ResolvedRefs` as `True` - everything looks fine from kubectl. The xDS translation silently fails. The only indication is in the Envoy Gateway logs:
 
 ```
 error  xds  skipped publishing xds resources: failed to translate xds ir
@@ -48,11 +48,9 @@ The error is prefixed with "BUG:" which suggests the authors consider this an un
 
 ### Why this is fundamental to the ext_proc architecture
 
-This isn't a missing feature or implementation gap - it's a structural consequence of how Envoy AI Gateway integrates InferencePool.
+Unclear if that's a deliberate choice or implementation gap.
 
-**How the ext_proc chain works:**
-
-The AI Gateway uses three ext_proc filters in its architecture:
+Currently, the Envoy AI Gateway uses three `ext_proc` filters in its architecture:
 
 1. **Router-level ext_proc** (AI Gateway's own) - parses request body, extracts the `model` field, sets `x-ai-eg-model` header, triggers route re-evaluation via `ClearRouteCache: true`
 2. **Upstream-level ext_proc** (AI Gateway's own) - auth injection and request schema translation (e.g. OpenAI -> Bedrock)
@@ -60,7 +58,7 @@ The AI Gateway uses three ext_proc filters in its architecture:
 
 The critical piece: [`PostClusterModify`](https://github.com/envoyproxy/ai-gateway/blob/v1.0.0/internal/extensionserver/post_cluster_modify.go#L51) converts InferencePool-backed clusters from standard EDS to **`ORIGINAL_DST`** with `HttpHeaderName: "x-gateway-destination-endpoint"`. Envoy routes each request to whatever IP:port the EPP places in that header. The EPP filter is scoped via per-route [`ExtProcPerRoute{Disabled: true}`](https://github.com/envoyproxy/ai-gateway/blob/v1.0.0/internal/extensionserver/post_route_modify.go#L80) so only the matching pool's filter runs.
 
-**Why two pools break this:**
+#### Further analysis
 
 1. **ORIGINAL_DST is single-destination.** Each pool's cluster becomes ORIGINAL_DST with header-based LB. There's no mechanism for "send 90% to pool-A's EPP pick and 10% to pool-B's EPP pick" within a single cluster.
 
@@ -68,20 +66,20 @@ The critical piece: [`PostClusterModify`](https://github.com/envoyproxy/ai-gatew
 
 3. **Metadata is singular.** Route and cluster metadata stores the pool reference as a single string, not a list.
 
-The core problem: ext_proc fires per-request at the filter chain level, **before** weighted cluster selection. Envoy has no native way to say "run ext_proc-A for 90% of requests and ext_proc-B for 10%." The filter chain executes sequentially on every request - there is no "probabilistic filter activation."
+The core problem stems from the fact that `ext_proc` runs as part of the HTTP filter chain on each request, before the router makes the final weighted-cluster forwarding decision. If two `ext_proc` filters are configured in the same filter chain, Envoy will execute them sequentially for every matching request; there is no generic “probabilistic filter activation” mechanism that says “run `ext_proc-A` for 90% of requests and `ext_proc-B` for 10%.”
 
 ### Mixed backends (InferencePool + Service) are also broken
 
-You might expect that a single InferencePool + a plain Service in the same rule would work - after all, there's only one pool per rule. It doesn't.
+You might expect that a single InferencePool + a plain Service in the same rule would work - after all, there's only one pool per rule. Unfortunately it doesn't.
 
-Tested on a clean kind cluster with EG v1.7.0 + AI Gateway v0.6.0 (kserve CI stack). HTTPRoute rule with `Service weight=9` + `InferencePool weight=1`:
+`HTTPRoute` rule with `Service weight=9` + `InferencePool weight=1`:
 
 - No xDS errors (only one InferencePool, passes the multi-pool check)
 - Route reports `Accepted` and `ResolvedRefs` as `True`
 - All requests return 200
 - **100% of traffic goes to the InferencePool, 0% to the Service**
 
-The xDS config dump reveals why. The AI Gateway's `PostClusterModify` converts the entire route rule into a single ORIGINAL_DST cluster for the InferencePool. The Service backend is silently dropped:
+The AI Gateway's `PostClusterModify` converts the entire route rule into a single ORIGINAL_DST cluster for the InferencePool. The Service backend is silently dropped:
 
 ```json
 // What the HTTPRoute declares:
@@ -118,8 +116,6 @@ There's no `weighted_clusters` in the Envoy config at all. The ext_proc for v2's
 
 This is arguably worse than the multi-pool case: no error, no log warning, route looks healthy, traffic flows - but the weight distribution is completely wrong. Silent data plane misconfiguration.
 
-Full traces (AI Gateway logs, Envoy xDS config dump, test output): [traces-mixed-backend.md](traces-mixed-backend.md)
-
 ### How Istio handles this differently
 
 Istio takes a fundamentally different approach that separates *which pool* from *which endpoint*:
@@ -137,17 +133,9 @@ So Istio's flow is: route matches -> weighted cluster selection picks pool-A or 
 | Endpoint picking | EPP sets `x-gateway-destination-endpoint` | EPP sets `x-gateway-destination-endpoint` |
 | Weighted multi-pool | Not supported (fundamental) | Supported natively |
 
-### What could fix it
+## Reproducer 
 
-All options require significant work:
-
-- **Envoy AI Gateway switches to standard EDS** for InferencePool clusters (like [Istio does](https://github.com/istio/istio/tree/master/pilot/pkg/serviceregistry/kube/controller/ambient)) - effectively reimplementing Istio's shadow service approach
-- **Composite ext_proc filter** that internally delegates to multiple EPPs with weights - needs a new Envoy core primitive
-- **Meta-EPP** that resolves weights before calling per-pool EPPs - changes the [EPP contract](https://github.com/kubernetes-sigs/gateway-api-inference-extension/blob/main/pkg/epp/server/runnable/grpc.go)
-
-None of these are on the horizon. For weighted multi-pool routing today, Istio is the right gateway choice.
-
-## Setup
+### Setup
 
 Uses the same stack as the upstream `envoyproxy/ai-gateway` inference-pool example: testupstream mock backends, full EPP with plugin config, AIGatewayRoute for routing.
 
@@ -162,7 +150,7 @@ Override versions with env vars:
 EG_VERSION=v1.8.1 AIEG_VERSION=v0.7.0 GIE_VERSION=v1.5.0 ./setup.sh
 ```
 
-## Conformance tests
+### Conformance tests
 
 Run the upstream GIE conformance suite against Envoy AI Gateway and Istio for comparison:
 
@@ -175,7 +163,7 @@ make compare                # Both, side by side
 
 See [`conformance/FINDINGS.md`](conformance/FINDINGS.md) for details.
 
-## Cleanup
+### Cleanup
 
 ```bash
 kind delete cluster --name eg-split-spike

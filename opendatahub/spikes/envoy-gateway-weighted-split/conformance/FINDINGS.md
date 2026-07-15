@@ -1,82 +1,94 @@
-# GIE Conformance Findings
+# GIE Conformance Findings - Envoy AI Gateway
 
-**Date:** 2026-07-01
-**GIE conformance suite:** v1.4.0 (12 tests)
+**Date:** 2026-07-03
+**GIE conformance suite:** v1.5.0 (13 tests)
 **Gateway API CRDs:** v1.5.0
 **Kubernetes:** v1.36.1 (kind v0.32)
 
 ## Results
 
+### Baseline (Envoy AI GW v1.0.0 unmodified)
+
 | Test | Envoy AI GW v1.0.0 | Istio 1.30.2 |
 |---|---|---|
 | EppUnAvailableFailOpen | PASS | PASS |
+| GatewayDestinationEndpointServed | **FAIL** | PASS |
 | GatewayFollowingEPPRouting | PASS | PASS |
 | GatewayFollowingEPPRoutingWithDataParallelism | PASS | PASS |
 | **GatewayWeightedAcrossTwoInferencePools** | **FAIL** | PASS |
-| **GatewayDestinationEndpointServed** | **FAIL** | PASS |
 | HTTPRouteInvalidInferencePoolRef | PASS | PASS |
 | HTTPRouteMultipleGatewaysDifferentPools | PASS | PASS |
 | HTTPRouteMultipleRulesDifferentPools | PASS | PASS |
 | InferencePoolAccepted | PASS | PASS |
+| InferencePoolAppProtocol (h2c) | **FAIL** | PASS |
+| InferencePoolAppProtocol (http) | PASS | PASS |
+| InferencePoolAppProtocol (default) | PASS | PASS |
 | InferencePoolHTTPRoutePortValidation | PASS | PASS |
 | InferencePoolInvalidEPPService | PASS | PASS |
-| **InferencePoolResolvedRefsCondition** | **FAIL** | PASS |
+| InferencePoolResolvedRefsCondition | PASS | PASS |
 
-**Envoy AI Gateway v1.0.0** (on Envoy Gateway v1.8.1): **9 passed, 3 failed.**
+**Envoy AI Gateway v1.0.0 (EG v1.8.1): 10 passed, 3 failed.**
 
-**Istio 1.30.2: 12 passed, 0 failed.** Full conformance.
+**Istio 1.30.2: 13 passed, 0 failed.** Full conformance.
 
-Raw reports:
-- [`reports/aigw-v1.0.0-gateway-report.yaml`](reports/aigw-v1.0.0-gateway-report.yaml)
-- [`reports/istio-1.30.2-gateway-report.yaml`](reports/istio-1.30.2-gateway-report.yaml)
+### With fixes applied
 
-## Failed: GatewayWeightedAcrossTwoInferencePools
+Three changes to `envoy-ai-gateway` bring the score to **12/13**, leaving only the weighted split test:
 
-### What the test does
+| Fix | Tests unblocked |
+|---|---|
+| MetadataOptions + Lua filter for `x-gateway-destination-endpoint-served` | GatewayDestinationEndpointServed |
+| h2c upstream protocol options based on InferencePool appProtocol | InferencePoolAppProtocol/h2c |
+| (both above combined) | InferencePoolAppProtocol/http, default (already passed) |
 
-The [GatewayWeightedAcrossTwoInferencePools](https://github.com/kubernetes-sigs/gateway-api-inference-extension/blob/v1.4.0/conformance/tests/gateway_weighted_two_pools.go) conformance test creates an HTTPRoute with two InferencePool backendRefs at different weights (70/30), sends 200 requests, and asserts the traffic split matches the ratio.
+Raw report (with fixes): [`reports/aigw-v1.0.0-gateway-report.yaml`](reports/aigw-v1.0.0-gateway-report.yaml)
 
-### How Envoy AI Gateway fails
+## Root causes
 
-The extension server hard-codes a limit of exactly 1 InferencePool per route rule:
+### 1. Missing `envoy.lb` metadata forwarding (GatewayDestinationEndpointServed)
 
-**[`post_route_modify.go:37-38`](https://github.com/envoyproxy/ai-gateway/blob/v1.0.0/internal/extensionserver/post_route_modify.go#L37-L38)**
+The [EPP protocol spec](https://github.com/kubernetes-sigs/gateway-api-inference-extension/blob/main/docs/proposals/004-endpoint-picker-protocol/README.md#destination-endpoint-served) requires the data plane to populate `envoy.lb["x-gateway-destination-endpoint-served"]` in the ext_proc MetadataContext on the response path.
 
-```go
-if len(inferencePools) != 1 {
-    return nil, fmt.Errorf("BUG: at most one inferencepool can be referenced per route rule but found %d", len(inferencePools))
-}
-```
+**Two issues:**
 
-Envoy Gateway's xDS runner receives this gRPC error and skips publishing all xDS resources. The route returns 404.
+1. The InferencePool ext_proc filter (`buildHTTPFilterForInferencePool`) had no `MetadataOptions`, so Envoy never forwarded the `envoy.lb` namespace to/from the EPP. Fix: add `ReceivingNamespaces` and `ForwardingNamespaces` with `envoy.lb`.
 
-### Envoy Gateway logs
+2. The `x-gateway-destination-endpoint-served` key itself was never populated. Istio uses the `OverrideHost` LB policy with `SelectedHostKey` to have Envoy write the served endpoint automatically. The AI gateway uses `ORIGINAL_DST` clusters which lack this mechanism. Fix: a Lua response filter that copies `envoy.lb["x-gateway-destination-endpoint"]` (set by the EPP during request processing) to `envoy.lb["x-gateway-destination-endpoint-served"]`. With `ORIGINAL_DST`, the served endpoint is always the selected endpoint - there is no retry fallback to alternative endpoints.
 
-```
-error  xds  skipped publishing xds resources: failed to translate xds ir
-  {"error": "rpc error: code = Unknown desc = BUG: at most one inferencepool
-            can be referenced per route rule but found 2"}
-```
+### 2. Missing h2c upstream protocol options (InferencePoolAppProtocol)
 
-### Impact
+`handleInferencePoolCluster` configures `ORIGINAL_DST` clusters but does not set `TypedExtensionProtocolOptions` based on the InferencePool's `appProtocol` field. When a pool specifies `appProtocol: kubernetes.io/h2c`, the backend expects HTTP/2 cleartext but Envoy sends HTTP/1.1, resulting in 400 responses.
 
-Weighted canary rollouts across InferencePools are impossible. The error poisons the entire xDS push, breaking all routes on that listener.
+Fix: read `appProtocol` from the unstructured InferencePool resource (the AI gateway depends on GIE v1.0.2 which predates the `AppProtocol` field) and set `Http2ProtocolOptions` on the cluster when h2c is specified.
 
-## Failed: GatewayDestinationEndpointServed / InferencePoolResolvedRefsCondition
+Note: [GIE #2965](https://github.com/kubernetes-sigs/gateway-api-inference-extension/issues/2965) reports issues with the h2c conformance test fixture itself (echo server serving both protocols from one container). The AI gateway fix is still needed regardless.
 
-These are additional conformance gaps in Envoy AI Gateway v1.0.0 surfaced by the v1.4.0 test suite. The `GatewayDestinationEndpointServed` test was added after v1.1.0 and validates that the gateway correctly routes to the specific endpoint selected by the EPP. The `InferencePoolResolvedRefsCondition` test validates the status condition lifecycle when HTTPRoutes referencing an InferencePool are added and removed.
+### 3. Weighted split across InferencePools (GatewayWeightedAcrossTwoInferencePools)
+
+The conformance test creates an HTTPRoute with two InferencePool `backendRefs` at different weights (80/20). Every request returns **404**.
+
+**Two issues across two repos:**
+
+1. **envoy-ai-gateway** enforces "at most one InferencePool per route rule" (`post_cluster_modify.go:50`, `post_route_modify.go:38`). This is a deliberate design choice, not a bug - the comment says `BUG:` but the constraint is CEL-validated. When triggered, it returns a gRPC error that poisons the entire xDS push, breaking all routes on the listener.
+
+2. **envoy-gateway** (`internal/xds/translator/route.go:351`) skips custom backends when building weighted cluster actions. The condition only checks `len(destinationSetting.Endpoints) > 0 || destinationSetting.IsDynamicResolver` but is missing `|| destinationSetting.IsCustomBackend`.
+
+This is the only remaining conformance gap. Fixing it requires changes in both repos and careful design around multi-EPP routing (each pool has its own EPP, so after the weight split, Envoy needs to call the correct EPP for the selected pool).
 
 ## How to reproduce
 
 ```bash
 cd conformance/
 
-make test-aigw              # Envoy AI Gateway (expect: 9/12 pass)
-make test-istio             # Istio (expect: 12/12 pass)
+make test-aigw              # Envoy AI Gateway baseline (expect: 10/13 pass)
+make test-istio             # Istio (expect: 13/13 pass)
 make compare                # Both in parallel, side by side
+
+# With custom controller image (includes fixes):
+make test-aigw AIGW_CONTROLLER_IMAGE=docker.io/envoyproxy/ai-gateway-controller:fix-metadata
 
 # Single test
 make test-aigw RUN_TEST=GatewayWeightedAcrossTwoInferencePools
 ```
 
-The GIE repo is auto-cloned and checked out to v1.4.0 if needed.
+The GIE repo is auto-cloned and checked out to v1.5.0 if needed.
