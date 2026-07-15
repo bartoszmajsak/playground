@@ -48,7 +48,8 @@ GIE_VERSION="${GIE_VERSION:-v1.5.0}"
 LWS_VERSION="${LWS_VERSION:-v0.8.0}"
 PROMETHEUS_VERSION="${PROMETHEUS_VERSION:-83.4.0}"
 JAEGER_VERSION="${JAEGER_VERSION:-4.7.0}"
-ISTIO_VERSION="${ISTIO_VERSION_OVERRIDE:-${ISTIO_VERSION:-1.30.1}}"
+# ponytail: InferencePool v1 (inference.networking.k8s.io) requires Istio >= 1.28
+ISTIO_VERSION="${ISTIO_VERSION_OVERRIDE:-1.28.1}"
 
 info() { echo -e "${YELLOW}INFO${NC}: $1"; }
 ok()   { echo -e "${GREEN}  OK${NC}: $1"; }

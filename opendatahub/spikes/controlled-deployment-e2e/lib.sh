@@ -114,9 +114,9 @@ ensure_deployed() {
         fi
         apply_peer_authentication
         info "Waiting for $V1 to be Ready..."
-        kubectl wait llmisvc "$V1" -n "$NS" --for=condition=Ready --timeout=600s
+        kubectl wait llmisvc "$V1" -n "$NS" --for=condition=Ready --timeout=900s
         info "Waiting for $V2 to be Ready..."
-        kubectl wait llmisvc "$V2" -n "$NS" --for=condition=Ready --timeout=600s
+        kubectl wait llmisvc "$V2" -n "$NS" --for=condition=Ready --timeout=900s
     fi
 
     patch_epp_tls
