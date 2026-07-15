@@ -61,14 +61,14 @@ This validator enforces that model strictly: both `route-v1` and `route-v2` must
 ## Usage
 
 ```bash
-# Deploy
-kubectl apply -f manifests.yaml
-sleep 2
-kubectl apply -f route-v2.yaml
-
-# Run
+# Run (auto-detects gateway class, deploys everything)
 ./validate.sh
-# or with explicit gateway URL
+
+# Explicit gateway class
+GW_CLASS=istio ./validate.sh
+GW_CLASS=envoy ./validate.sh
+
+# Explicit gateway URL (skips discovery)
 ./validate.sh http://10.96.1.100
 
 # Cleanup
@@ -106,7 +106,11 @@ ROUTE_VALIDATION_K6_DIRECT_V2_VUS=20 \
 
 ## Configuration
 
-Edit `manifests.yaml` to change `gatewayClassName: istio` for other implementations (e.g., `envoy`, `nginx`).
+The gateway class is auto-detected at runtime (checks for `istio`, `envoy`, `openshift-default` in that order). Override with `GW_CLASS`:
+
+```bash
+GW_CLASS=envoy ./validate.sh
+```
 
 Distribution thresholds are configurable:
 

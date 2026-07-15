@@ -27,19 +27,12 @@ metadata:
 
 ---
 apiVersion: gateway.networking.k8s.io/v1
-kind: GatewayClass
-metadata:
-  name: openshift-default
-spec:
-  controllerName: "openshift.io/gateway-controller/v1"
----
-apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
   name: test-gateway
   namespace: route-validation
 spec:
-  gatewayClassName: openshift-default  # change to match your cluster
+  gatewayClassName: __GW_CLASS__
   listeners:
     - name: http
       port: 80
