@@ -19,4 +19,3 @@ spec:
       group: tiny-llama
       weight: 9
       http: {}
-    scheduler: {}

@@ -52,7 +52,7 @@ if [[ "$SCENARIO" == "all" ]]; then
 
     # Build forwarded args (everything except --scenario)
     FWD_ARGS=()
-    [[ -n "$GATEWAY_URL" ]] && FWD_ARGS+=("$GATEWAY_URL")
+    [[ -n "${GATEWAY_URL:-}" ]] && FWD_ARGS+=("$GATEWAY_URL")
     [[ -n "$RUN_PHASE" ]] && FWD_ARGS+=(--phase "$RUN_PHASE")
     [[ -n "$RUN_STEP" ]] && FWD_ARGS+=(--step "$RUN_STEP")
     [[ "$SKIP_DEPLOY" == "true" ]] && FWD_ARGS+=(--skip-deploy)
@@ -96,7 +96,7 @@ STEPS_RAN=0
 pass() { echo -e "  ${GREEN}PASS${NC}: $1"; }
 fail() { echo -e "  ${RED}FAIL${NC}: $1"; FAILURES=$((FAILURES + 1)); }
 
-SMOKE_STEPS="1 2 3 5 6 13"
+SMOKE_STEPS="1 2 3 5 6 6a 6b 13 21"
 
 should_run_phase() {
     [[ -n "$PROFILE" ]] && return 1
@@ -121,7 +121,7 @@ step() {
 }
 
 wait_ready() {
-    local name=$1 timeout=${2:-600}
+    local name=$1 timeout=${2:-900}
     info "Waiting for $name to be Ready (timeout: ${timeout}s)"
     kubectl wait llmisvc "$name" -n "$NS" --for=condition=Ready --timeout="${timeout}s"
 }
@@ -150,6 +150,9 @@ send_requests() {
     local url="$1" count="$2"; shift 2
     local v1=0 v2=0 unknown=0 errors=0
     local payload='{"model":"'"$MODEL"'","prompt":"Hello","max_tokens":5}'
+    if [[ "$url" == */chat/completions* ]]; then
+        payload='{"model":"'"$MODEL"'","messages":[{"role":"user","content":"Hello"}],"max_tokens":5}'
+    fi
 
     for ((i = 0; i < count; i++)); do
         local resp_file
@@ -285,7 +288,17 @@ set_weight() {
     local name="$1" weight="$2"
     kubectl patch llmisvc "$name" -n "$NS" --type merge \
         -p "{\"spec\":{\"router\":{\"route\":{\"weight\":$weight}}}}"
-    wait_until 15 weight_applied "$name" "$weight" || sleep 3
+    wait_until 45 weight_applied "$name" "$weight" || true
+}
+
+# ponytail: wait for group weights in owner status, then let xDS propagate
+await_weights() {
+    while [[ $# -ge 2 ]]; do
+        local member="$1" expected="$2"; shift 2
+        wait_until 45 weight_applied "$member" "$expected" || true
+    done
+    # xDS push from HTTPRoute update to Envoy has no pollable signal
+    sleep "${XDS_SETTLE:-10}"
 }
 
 model_routing_url() { echo "$GATEWAY_URL/v1/completions"; }
@@ -348,6 +361,8 @@ echo "Scenario: $SCENARIO"
 echo ""
 
 if [[ "$SKIP_DEPLOY" == "false" ]] && { should_run_phase 1 || should_run_step 1 1; }; then
+    info "Cleaning up existing resources before deploy"
+    kubectl delete llmisvc --all -n "$NS" --wait=true 2>/dev/null || true
     info "Applying manifests (scenario: $SCENARIO)"
     kubectl apply -k "$OVERLAY_DIR"
     # OCP: workload pods need privileged SCC for hardcoded runAsUser/seccomp
@@ -388,6 +403,7 @@ fi
 if step 3 "Canary: shift to 70/30" 1; then
     set_weight "$V2" 3
     set_weight "$V1" 7
+    await_weights "$V1" 7 "$V2" 3
 
     v1_w=$(get_group_weight "$V1" "$V1")
     v2_w=$(get_group_weight "$V1" "$V2")
@@ -401,6 +417,7 @@ fi
 if step 4 "Validate: 50/50 split via Prometheus metrics" 1; then
     set_weight "$V1" 5
     set_weight "$V2" 5
+    await_weights "$V1" 5 "$V2" 5
 
     if [[ "$HAS_PROMETHEUS" == "true" ]]; then
         b1=$(prom_vllm_count "$V1"); b2=$(prom_vllm_count "$V2")
@@ -425,6 +442,7 @@ fi
 
 if step 5 "Promote: v2 to 100%" 1; then
     set_weight "$V1" 0
+    await_weights "$V1" 0
 
     read -r v1 v2 unk err <<< "$(send_requests "$(model_routing_url)" 10 \
         -H "$(model_routing_header)")"
@@ -439,9 +457,36 @@ if step 6 "Direct access: always hits the targeted version" 1; then
     check_pinned "Direct v2 path" "v2" "$v1" "$v2" "$unk" "$err" 10
 fi
 
+if step 6a "Publisher path routing" 1; then
+    read -r v1 v2 unk err <<< "$(send_requests \
+        "$GATEWAY_URL/publishers/$NS/models/$MODEL/v1/completions" 10)"
+    check_pinned "Publisher path /v1/completions" "v2" "$v1" "$v2" "$unk" "$err" 10
+
+    read -r v1 v2 unk err <<< "$(send_requests \
+        "$GATEWAY_URL/publishers/$NS/models/$MODEL/v1/chat/completions" 10)"
+    check_pinned "Publisher path /v1/chat/completions" "v2" "$v1" "$v2" "$unk" "$err" 10
+fi
+
+if step 6b "Header-based model routing (chat/completions)" 1; then
+    # v1 is at weight 0 from step 5; restore to test split via header routing
+    set_weight "$V1" 7
+    set_weight "$V2" 3
+    await_weights "$V1" 7 "$V2" 3
+
+    read -r v1 v2 unk err <<< "$(send_requests "$GATEWAY_URL/v1/chat/completions" "$REQUESTS" \
+        -H "$(model_routing_header)")"
+    check_split "Header model-routing /v1/chat/completions" "$v1" "$v2" "$unk" "$err" 55 85
+
+    read -r v1 v2 unk err <<< "$(send_requests "$GATEWAY_URL/v1/completions" 10 \
+        -H "$(model_routing_header)")"
+    total=$((v1 + v2))
+    if [[ $total -ge 8 ]]; then pass "Header model-routing /v1/completions ($total/10 attributed)"; else fail "Header model-routing /v1/completions ($total/10 attributed, err=$err unk=$unk)"; fi
+fi
+
 if step 7 "Rollback: v1 back to 100%" 1; then
     set_weight "$V1" 9
     set_weight "$V2" 0
+    await_weights "$V1" 9 "$V2" 0
 
     read -r v1 v2 unk err <<< "$(send_requests "$(model_routing_url)" 10 \
         -H "$(model_routing_header)")"
@@ -451,6 +496,7 @@ fi
 if step 8 "Re-promote v2, force-stop v1 (GPU reclamation)" 1; then
     set_weight "$V1" 0
     set_weight "$V2" 9
+    await_weights "$V1" 0 "$V2" 9
     kubectl annotate llmisvc "$V1" -n "$NS" serving.kserve.io/stop=true --overwrite
     wait_until 30 deploy_scaled_down "${V1}-kserve" "$NS" || true
 
@@ -462,6 +508,21 @@ if step 8 "Re-promote v2, force-stop v1 (GPU reclamation)" 1; then
 
     members=$(get_group_members "$V2")
     if [[ "$members" == *"$V1"* ]]; then pass "v1 still a group member while stopped"; else pass "v1 removed from group (force-stop cleans up)"; fi
+
+    # Verify peer route is still accepted by the gateway (stale backendRef at weight=0
+    # must not break the route - Istio handles this, but stricter gateways might not)
+    v2_ready=$(get_condition "$V2" "Ready")
+    if [[ "$v2_ready" == "True" ]]; then pass "v2 stays Ready after peer force-stopped"; else fail "v2 Ready=$v2_ready (stale backendRef may have broken the route)"; fi
+
+    route_accepted=$(kubectl get httproute "${V2}-kserve-route" -n "$NS" -o jsonpath='{.status.parents[0].conditions[?(@.type=="Accepted")].status}' 2>/dev/null)
+    if [[ "$route_accepted" == "True" ]]; then pass "v2 HTTPRoute still Accepted by gateway"; else fail "v2 HTTPRoute Accepted=$route_accepted"; fi
+
+    route_resolved=$(kubectl get httproute "${V2}-kserve-route" -n "$NS" -o jsonpath='{.status.parents[0].conditions[?(@.type=="ResolvedRefs")].status}' 2>/dev/null)
+    if [[ "$route_resolved" == "True" ]]; then
+        pass "v2 HTTPRoute ResolvedRefs=True (gateway tolerates weight=0 stale ref)"
+    else
+        info "v2 HTTPRoute ResolvedRefs=$route_resolved (gateway may reject stale backendRef at weight=0)"
+    fi
 
     read -r v1 v2 unk err <<< "$(send_requests "$(model_routing_url)" 10 \
         -H "$(model_routing_header)")"
@@ -488,7 +549,7 @@ fi
 # Phase 2: Error handling
 # =========================================================================
 
-if step 10 "Model name mismatch rejected" 2; then
+if step 10 "Model name divergence forms sub-group" 2; then
     cat <<EOF | kubectl apply -f -
 apiVersion: serving.kserve.io/v1alpha2
 kind: LLMInferenceService
@@ -508,12 +569,18 @@ spec:
       http: {}
     scheduler: {}
 EOF
-    wait_until 120 condition_reason_set "tiny-llama-v3-bad" "GroupReady" || true
-    reason=$(get_condition_reason "tiny-llama-v3-bad" "GroupReady")
-    if [[ "$reason" == "ModelNameAmbiguous" || "$reason" == "ModelNameMismatch" ]]; then
-        pass "GroupReady reason=$reason (wrong model rejected)"
+    wait_until 120 condition_reason_set "tiny-llama-v3-bad" "GroupDegraded" || true
+    reason=$(get_condition_reason "tiny-llama-v3-bad" "GroupDegraded")
+    ready=$(get_condition "tiny-llama-v3-bad" "GroupReady")
+    if [[ "$ready" == "True" ]]; then
+        pass "GroupReady=True (sub-group works)"
     else
-        fail "GroupReady reason=${reason:-<not set>}"
+        fail "Expected GroupReady=True, got $ready"
+    fi
+    if [[ "$reason" == "MemberDivergence" ]]; then
+        pass "GroupDegraded reason=MemberDivergence"
+    else
+        fail "Expected MemberDivergence, got ${reason:-<not set>}"
     fi
     kubectl delete llmisvc tiny-llama-v3-bad -n "$NS" --wait=false 2>/dev/null || true
 fi
@@ -674,6 +741,7 @@ if step 15 "N>2 group: three-member weighted routing" 5; then
     wait_ready "$V2"
     wait_ready "$V3"
     patch_epp_tls
+    wait_until 30 member_present "$V1" "$V3" || true
 
     members=$(get_group_members "$V1")
     if [[ "$members" == *"$V1"* && "$members" == *"$V2"* && "$members" == *"$V3"* ]]; then
@@ -726,6 +794,7 @@ if step 17 "Delete member at weight > 0" 5; then
     # Chain from step 16: v1=9, v2=1. Patch to equal weight, then delete v2
     set_weight "$V1" 5
     set_weight "$V2" 5
+    await_weights "$V1" 5 "$V2" 5
 
     kubectl delete llmisvc "$V2" -n "$NS" --wait=false
     wait_until 30 member_removed "$V1" "$NS" "$V2" || true
@@ -765,34 +834,32 @@ if step 18 "Force-stop the route owner" 5; then
     fi
 fi
 
-if step 19 "ModelNameAmbiguous: no majority (symmetric failure)" 5; then
-    # Must recreate - different model names
+if step 19 "Even split divergence (independent sub-groups)" 5; then
     kubectl delete llmisvc --all -n "$NS" --wait=true 2>/dev/null || true
 
     apply_member "$V1" "model-alpha" 5
     apply_member "$V2" "model-beta" 5
-    wait_until 120 condition_reason_set "$V1" "GroupReady" || true
-    wait_until 120 condition_reason_set "$V2" "GroupReady" || true
+    wait_until 180 condition_reason_set "$V2" "GroupDegraded" || true
+    wait_until 180 condition_reason_set "$V1" "GroupDegraded" || true
 
-    r1=$(get_condition_reason "$V1" "GroupReady")
-    r2=$(get_condition_reason "$V2" "GroupReady")
     s1=$(get_condition "$V1" "GroupReady")
     s2=$(get_condition "$V2" "GroupReady")
+    r1=$(get_condition_reason "$V1" "GroupDegraded")
+    r2=$(get_condition_reason "$V2" "GroupDegraded")
 
-    if [[ "$r1" == "ModelNameAmbiguous" && "$r2" == "ModelNameAmbiguous" ]]; then
-        pass "Both members get ModelNameAmbiguous (symmetric)"
+    if [[ "$s1" == "True" && "$s2" == "True" ]]; then
+        pass "Both members GroupReady=True (independent sub-groups)"
     else
-        fail "Expected both ModelNameAmbiguous, got v1=$r1 v2=$r2"
+        fail "Expected both True, got v1=$s1 v2=$s2"
     fi
-    if [[ "$s1" == "False" && "$s2" == "False" ]]; then
-        pass "Both GroupReady=False"
+    if [[ "$r1" == "MemberDivergence" && "$r2" == "MemberDivergence" ]]; then
+        pass "Both members GroupDegraded=MemberDivergence (symmetric)"
     else
-        fail "Expected both False, got v1=$s1 v2=$s2"
+        fail "Expected both MemberDivergence, got v1=$r1 v2=$r2"
     fi
 fi
 
-if step 20 "GroupDegraded: majority excludes outlier" 5; then
-    # Must recreate - need correct model names for majority
+if step 20 "GroupDegraded: divergent member forms sub-group" 5; then
     kubectl delete llmisvc --all -n "$NS" --wait=true 2>/dev/null || true
 
     apply_member "$V1" "$MODEL" 5
@@ -801,19 +868,20 @@ if step 20 "GroupDegraded: majority excludes outlier" 5; then
     wait_ready "$V2"
     apply_member "$V3" "wrong-model" 2
     wait_until 120 condition_reason_set "$V3" "GroupDegraded" || true
+    wait_until 120 condition_reason_set "$V1" "GroupDegraded" || true
+    wait_until 120 condition_reason_set "$V2" "GroupDegraded" || true
 
-    # Group stays ready - majority serves traffic
-    wait_until 30 condition_is "$V1" "GroupReady" "True" || true
+    # All members GroupReady=True - each sub-group works
     s1=$(get_condition "$V1" "GroupReady")
     s2=$(get_condition "$V2" "GroupReady")
     s3=$(get_condition "$V3" "GroupReady")
     if [[ "$s1" == "True" && "$s2" == "True" && "$s3" == "True" ]]; then
-        pass "All members GroupReady=True (group serves traffic)"
+        pass "All members GroupReady=True (sub-groups work)"
     else
         fail "GroupReady: v1=$s1 v2=$s2 v3=$s3"
     fi
 
-    # All members report degraded (symmetric - reflects group state, not individual participation)
+    # All members report degraded (symmetric)
     d1=$(get_condition "$V1" "GroupDegraded")
     d2=$(get_condition "$V2" "GroupDegraded")
     d3=$(get_condition "$V3" "GroupDegraded")
@@ -823,13 +891,92 @@ if step 20 "GroupDegraded: majority excludes outlier" 5; then
     else
         fail "GroupDegraded: v1=$d1 v2=$d2 v3=$d3"
     fi
-    if [[ "$r1" == "MemberExcluded" ]]; then
-        pass "GroupDegraded reason=MemberExcluded"
+    if [[ "$r1" == "MemberDivergence" ]]; then
+        pass "GroupDegraded reason=MemberDivergence"
     else
-        fail "Expected MemberExcluded, got $r1"
+        fail "Expected MemberDivergence, got $r1"
     fi
 
     kubectl delete llmisvc --all -n "$NS" --wait=false 2>/dev/null || true
+fi
+
+# =========================================================================
+# Phase 6: x-served-by toggle
+# =========================================================================
+
+if step 21 "x-served-by opt-in/opt-out toggle (no pod restart)" 6; then
+    # Clean slate: standalone LLMISVC without the served-by annotation.
+    kubectl delete llmisvc --all -n "$NS" --wait=true 2>/dev/null || true
+    TOGGLE_NAME="tiny-llama-toggle"
+    cat <<TOGGLEEOF | kubectl apply -f -
+apiVersion: serving.kserve.io/v1alpha2
+kind: LLMInferenceService
+metadata:
+  name: $TOGGLE_NAME
+  namespace: $NS
+spec:
+  model:
+    name: $MODEL
+  baseRefs:
+    - name: model-tiny-llama
+    - name: workload-single-cpu
+  router:
+    route:
+      http: {}
+TOGGLEEOF
+    wait_ready "$TOGGLE_NAME"
+
+    # Record pod identity before toggle cycle
+    pod=$(kubectl get pods -n "$NS" -l "app.kubernetes.io/name=$TOGGLE_NAME" --no-headers -o custom-columns=':metadata.name' | head -1)
+    uid_before=$(kubectl get pod "$pod" -n "$NS" -o jsonpath='{.metadata.uid}')
+    restarts_before=$(kubectl get pod "$pod" -n "$NS" -o jsonpath='{.status.containerStatuses[0].restartCount}')
+    info "Pod $pod: uid=$uid_before restarts=${restarts_before:-0}"
+
+    # Baseline: no annotation -> no header
+    tmpfile=$(mktemp)
+    curl -s -D "$tmpfile" --max-time 30 \
+        -H "Content-Type: application/json" \
+        -d '{"model":"'"$MODEL"'","prompt":"Hello","max_tokens":5}' \
+        "$GATEWAY_URL/$NS/$TOGGLE_NAME/v1/completions" >/dev/null 2>&1 || true
+    served_by=$(grep -i "x-served-by" "$tmpfile" 2>/dev/null | awk '{print $2}' | tr -d '\r' || true)
+    rm -f "$tmpfile"
+    if [[ -z "$served_by" ]]; then pass "x-served-by absent at baseline (no annotation)"; else fail "x-served-by present at baseline: $served_by"; fi
+
+    # Opt-in: set annotation
+    kubectl annotate llmisvc "$TOGGLE_NAME" -n "$NS" serving.kserve.io/enable-served-by-header=true --overwrite
+    info "Waiting ${KUBELET_SYNC:-70}s for kubelet ConfigMap propagation (opt-in)"
+    sleep "${KUBELET_SYNC:-70}"
+
+    tmpfile=$(mktemp)
+    curl -s -D "$tmpfile" --max-time 30 \
+        -H "Content-Type: application/json" \
+        -d '{"model":"'"$MODEL"'","prompt":"Hello","max_tokens":5}' \
+        "$GATEWAY_URL/$NS/$TOGGLE_NAME/v1/completions" >/dev/null 2>&1 || true
+    served_by=$(grep -i "x-served-by" "$tmpfile" 2>/dev/null | awk '{print $2}' | tr -d '\r' || true)
+    rm -f "$tmpfile"
+    if [[ -n "$served_by" ]]; then pass "x-served-by present after opt-in: $served_by"; else fail "x-served-by missing after opt-in"; fi
+
+    # Opt-out: remove annotation
+    kubectl annotate llmisvc "$TOGGLE_NAME" -n "$NS" serving.kserve.io/enable-served-by-header-
+    info "Waiting ${KUBELET_SYNC:-70}s for kubelet ConfigMap propagation (opt-out)"
+    sleep "${KUBELET_SYNC:-70}"
+
+    tmpfile=$(mktemp)
+    curl -s -D "$tmpfile" --max-time 30 \
+        -H "Content-Type: application/json" \
+        -d '{"model":"'"$MODEL"'","prompt":"Hello","max_tokens":5}' \
+        "$GATEWAY_URL/$NS/$TOGGLE_NAME/v1/completions" >/dev/null 2>&1 || true
+    served_by=$(grep -i "x-served-by" "$tmpfile" 2>/dev/null | awk '{print $2}' | tr -d '\r' || true)
+    rm -f "$tmpfile"
+    if [[ -z "$served_by" ]]; then pass "x-served-by absent after opt-out"; else fail "x-served-by still present after opt-out: $served_by"; fi
+
+    # Verify pod was never restarted or replaced
+    uid_after=$(kubectl get pod "$pod" -n "$NS" -o jsonpath='{.metadata.uid}')
+    restarts_after=$(kubectl get pod "$pod" -n "$NS" -o jsonpath='{.status.containerStatuses[0].restartCount}')
+    if [[ "$uid_before" == "$uid_after" ]]; then pass "Pod UID unchanged (no replacement)"; else fail "Pod UID changed: $uid_before -> $uid_after"; fi
+    if [[ "${restarts_before:-0}" == "${restarts_after:-0}" ]]; then pass "Restart count unchanged (${restarts_before:-0})"; else fail "Restart count changed: ${restarts_before:-0} -> ${restarts_after:-0}"; fi
+
+    kubectl delete llmisvc "$TOGGLE_NAME" -n "$NS" --wait=false 2>/dev/null || true
 fi
 
 # =========================================================================
