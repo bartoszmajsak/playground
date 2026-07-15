@@ -2,10 +2,10 @@
 # Envoy Gateway weighted split reproducer - validation
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NS="eg-split-test"
 CLUSTER_NAME="eg-split-spike"
-CTX="kind-${CLUSTER_NAME}"
-KC="kubectl --context $CTX"
+export KUBECONFIG="${KUBECONFIG:-${SCRIPT_DIR}/.kubeconfig}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -50,12 +50,12 @@ check_traffic() {
 route_in_xds() {
     local route_name="$1"
     local proxy_pod
-    proxy_pod=$($KC get pods -n envoy-gateway-system \
+    proxy_pod=$(kubectl get pods -n envoy-gateway-system \
         -l app.kubernetes.io/component=proxy -o name 2>/dev/null | head -1)
     if [[ -z "$proxy_pod" ]]; then return 1; fi
 
     local admin_port=19099
-    $KC port-forward -n envoy-gateway-system "$proxy_pod" "${admin_port}:19000" &>/dev/null &
+    kubectl port-forward -n envoy-gateway-system "$proxy_pod" "${admin_port}:19000" &>/dev/null &
     local pf_pid=$!
     sleep 1
 
@@ -80,7 +80,7 @@ for config in data.get('configs', []):
 }
 
 GATEWAY_URL=""
-gw_addr=$($KC get gateway test-gateway -n "$NS" \
+gw_addr=$(kubectl get gateway test-gateway -n "$NS" \
     -o jsonpath='{.status.addresses[0].value}' 2>/dev/null || true)
 if [[ -n "$gw_addr" ]]; then
     GATEWAY_URL="http://$gw_addr"
@@ -96,7 +96,7 @@ echo ""
 # Wait for the gateway to be programmed
 info "Waiting for gateway to be programmed..."
 for _ in $(seq 1 30); do
-    programmed=$($KC get gateway test-gateway -n "$NS" \
+    programmed=$(kubectl get gateway test-gateway -n "$NS" \
         -o jsonpath='{.status.conditions[?(@.type=="Programmed")].status}' 2>/dev/null || true)
     if [[ "$programmed" == "True" ]]; then
         break
@@ -111,7 +111,7 @@ fi
 # Wait for EG to register InferencePools as custom backend resources
 info "Waiting for EG to register InferencePools..."
 for _ in $(seq 1 15); do
-    registered=$($KC logs -n envoy-gateway-system deployment/envoy-gateway --tail=50 2>&1 \
+    registered=$(kubectl logs -n envoy-gateway-system deployment/envoy-gateway --tail=50 2>&1 \
         | grep -c "added custom backend resource.*InferencePool" || true)
     if [[ "$registered" -ge 2 ]]; then
         break
@@ -125,7 +125,7 @@ done
 
 echo -e "${BOLD}Test 1: Service backendRefs with weighted split${NC}"
 
-$KC apply -f - >/dev/null 2>&1 <<EOF
+kubectl apply -f - >/dev/null 2>&1 <<EOF
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -149,7 +149,7 @@ spec:
 EOF
 sleep 5
 
-accepted=$($KC get httproute service-weighted -n "$NS" \
+accepted=$(kubectl get httproute service-weighted -n "$NS" \
     -o jsonpath='{.status.parents[0].conditions[?(@.type=="Accepted")].status}' 2>/dev/null || true)
 if [[ "$accepted" == "True" ]]; then
     pass "Service weighted HTTPRoute accepted"
@@ -160,7 +160,7 @@ fi
 check_traffic "/v1/chat/completions" 20
 
 # Clean up - don't leave a path-conflicting route for the AIGatewayRoute tests
-$KC delete httproute service-weighted -n "$NS" >/dev/null 2>&1
+kubectl delete httproute service-weighted -n "$NS" >/dev/null 2>&1
 sleep 3
 
 echo ""
@@ -171,7 +171,7 @@ echo ""
 
 echo -e "${BOLD}Test 2: Single InferencePool via AIGatewayRoute (control)${NC}"
 
-$KC apply -f - >/dev/null 2>&1 <<EOF
+kubectl apply -f - >/dev/null 2>&1 <<EOF
 apiVersion: aigateway.envoyproxy.io/v1beta1
 kind: AIGatewayRoute
 metadata:
@@ -197,7 +197,7 @@ EOF
 # Wait for AIGatewayRoute controller to generate HTTPRoute + ext_proc sidecar rollout
 info "Waiting for AIGatewayRoute reconciliation + sidecar rollout..."
 for _ in $(seq 1 30); do
-    status=$($KC get aigatewayroute pool-single -n "$NS" \
+    status=$(kubectl get aigatewayroute pool-single -n "$NS" \
         -o jsonpath='{.status.conditions[?(@.type=="Accepted")].status}' 2>/dev/null || true)
     if [[ "$status" == "True" ]]; then break; fi
     sleep 2
@@ -205,9 +205,9 @@ done
 
 # The sidecar rollout takes time - wait for the proxy pod to have 3 containers
 for _ in $(seq 1 30); do
-    ready=$($KC get pods -n envoy-gateway-system -l app.kubernetes.io/component=proxy \
+    ready=$(kubectl get pods -n envoy-gateway-system -l app.kubernetes.io/component=proxy \
         -o jsonpath='{.items[0].status.containerStatuses[?(@.ready==true)].name}' 2>/dev/null | wc -w || true)
-    init_ready=$($KC get pods -n envoy-gateway-system -l app.kubernetes.io/component=proxy \
+    init_ready=$(kubectl get pods -n envoy-gateway-system -l app.kubernetes.io/component=proxy \
         -o jsonpath='{.items[0].status.initContainerStatuses[?(@.ready==true)].name}' 2>/dev/null | wc -w || true)
     total=$((ready + init_ready))
     if [[ $total -ge 3 ]]; then break; fi
@@ -234,7 +234,7 @@ echo -e "${BOLD}Test 3: Multi-InferencePool weighted split${NC}"
 # AIGatewayRoute rejects multiple InferencePools per rule at admission:
 #   "only one InferencePool backend is allowed per rule"
 # So we test with a plain HTTPRoute to hit the xDS-level bug.
-aigw_error=$($KC apply -f - 2>&1 <<'AIGWEOF' || true
+aigw_error=$(kubectl apply -f - 2>&1 <<'AIGWEOF' || true
 apiVersion: aigateway.envoyproxy.io/v1beta1
 kind: AIGatewayRoute
 metadata:
@@ -270,7 +270,7 @@ else
 fi
 
 # Bypass AIGatewayRoute validation with a plain HTTPRoute
-$KC apply -f - >/dev/null 2>&1 <<EOF
+kubectl apply -f - >/dev/null 2>&1 <<EOF
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -296,7 +296,7 @@ spec:
 EOF
 sleep 5
 
-xds_error=$($KC logs -n envoy-gateway-system deployment/envoy-gateway --since=30s 2>&1 \
+xds_error=$(kubectl logs -n envoy-gateway-system deployment/envoy-gateway --since=30s 2>&1 \
     | grep -o "at most one inferencepool.*" | head -1 || true)
 if [[ -n "$xds_error" ]]; then
     fail "xDS translation rejected by AI Gateway extension server"
@@ -330,7 +330,7 @@ else
 fi
 
 # 4b: Create a brand-new single-pool route that has never been in any xDS push.
-$KC apply -f - >/dev/null 2>&1 <<EOF
+kubectl apply -f - >/dev/null 2>&1 <<EOF
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -368,13 +368,13 @@ echo ""
 
 echo -e "${BOLD}Test 5: Recovery - removing multi-pool route unblocks single-pool${NC}"
 
-$KC delete httproute pool-weighted pool-single-new -n "$NS" >/dev/null 2>&1
+kubectl delete httproute pool-weighted pool-single-new -n "$NS" >/dev/null 2>&1
 sleep 5
 
 if route_in_xds "pool-single"; then
     pass "Single-pool route recovered after removing multi-pool route"
 
-    xds_error=$($KC logs -n envoy-gateway-system deployment/envoy-gateway --since=10s 2>&1 \
+    xds_error=$(kubectl logs -n envoy-gateway-system deployment/envoy-gateway --since=10s 2>&1 \
         | grep -o "at most one inferencepool.*" | head -1 || true)
     if [[ -n "$xds_error" ]]; then
         fail "Unexpected xDS error after recovery"
@@ -395,10 +395,10 @@ echo ""
 
 echo -e "${BOLD}Test 6: Mixed InferencePool + Service weighted split${NC}"
 
-$KC delete httproute pool-single -n "$NS" >/dev/null 2>&1
+kubectl delete httproute pool-single -n "$NS" >/dev/null 2>&1
 sleep 3
 
-$KC apply -f - >/dev/null 2>&1 <<EOF
+kubectl apply -f - >/dev/null 2>&1 <<EOF
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -423,9 +423,9 @@ spec:
 EOF
 sleep 5
 
-accepted=$($KC get httproute mixed-weighted -n "$NS" \
+accepted=$(kubectl get httproute mixed-weighted -n "$NS" \
     -o jsonpath='{.status.parents[0].conditions[?(@.type=="Accepted")].status}' 2>/dev/null || true)
-resolved=$($KC get httproute mixed-weighted -n "$NS" \
+resolved=$(kubectl get httproute mixed-weighted -n "$NS" \
     -o jsonpath='{.status.parents[0].conditions[?(@.type=="ResolvedRefs")].status}' 2>/dev/null || true)
 
 if [[ "$accepted" == "True" ]]; then
@@ -435,7 +435,7 @@ else
 fi
 
 # Check for xDS errors
-xds_error=$($KC logs -n envoy-gateway-system deployment/envoy-gateway --since=10s 2>&1 \
+xds_error=$(kubectl logs -n envoy-gateway-system deployment/envoy-gateway --since=10s 2>&1 \
     | grep -o "at most one inferencepool.*\|skipped publishing.*" | head -1 || true)
 if [[ -n "$xds_error" ]]; then
     info "xDS error: $xds_error"
@@ -472,10 +472,10 @@ fi
 TRACES_FILE="$(dirname "$0")/traces-mixed-backend.md"
 info "Capturing xDS dump to $TRACES_FILE"
 
-proxy_pod=$($KC get pods -n envoy-gateway-system \
+proxy_pod=$(kubectl get pods -n envoy-gateway-system \
     -l app.kubernetes.io/component=proxy -o name 2>/dev/null | head -1)
 if [[ -n "$proxy_pod" ]]; then
-    $KC port-forward -n envoy-gateway-system "$proxy_pod" 19098:19000 &>/dev/null &
+    kubectl port-forward -n envoy-gateway-system "$proxy_pod" 19098:19000 &>/dev/null &
     pf_pid=$!
     sleep 1
 
@@ -508,9 +508,9 @@ for config in data.get('configs', []):
     cat > "$TRACES_FILE" <<TRACES
 # Traces: Mixed Backend (InferencePool + Service) Weighted Split
 
-Stack: EG $($KC get deployment envoy-gateway -n envoy-gateway-system \
+Stack: EG $(kubectl get deployment envoy-gateway -n envoy-gateway-system \
     -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null), \
-AI Gateway $($KC get deployment ai-gateway-controller -n envoy-ai-gateway-system \
+AI Gateway $(kubectl get deployment ai-gateway-controller -n envoy-ai-gateway-system \
     -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null)
 
 Scenario: model-v1 (Service, weight=9) + pool-v2 (InferencePool, weight=1).
@@ -519,7 +519,7 @@ Date: $(date +%Y-%m-%d).
 ## HTTPRoute
 
 \`\`\`yaml
-$($KC get httproute mixed-weighted -n "$NS" -o yaml 2>/dev/null | grep -A50 "spec:")
+$(kubectl get httproute mixed-weighted -n "$NS" -o yaml 2>/dev/null | grep -A50 "spec:")
 \`\`\`
 
 ## Traffic Result
@@ -542,7 +542,7 @@ $cluster_xds
 ## EG Logs (errors)
 
 \`\`\`
-$($KC logs -n envoy-gateway-system deployment/envoy-gateway --since=30s 2>&1 | grep -i "error\|BUG\|skipped" || echo "(none)")
+$(kubectl logs -n envoy-gateway-system deployment/envoy-gateway --since=30s 2>&1 | grep -i "error\|BUG\|skipped" || echo "(none)")
 \`\`\`
 TRACES
     pass "Traces captured to traces-mixed-backend.md"
@@ -550,7 +550,7 @@ else
     fail "No proxy pod found for xDS dump"
 fi
 
-$KC delete httproute mixed-weighted -n "$NS" >/dev/null 2>&1
+kubectl delete httproute mixed-weighted -n "$NS" >/dev/null 2>&1
 sleep 3
 
 echo ""
@@ -559,9 +559,9 @@ echo ""
 # Summary
 # =========================================================================
 
-eg_image=$($KC get deployment envoy-gateway -n envoy-gateway-system \
+eg_image=$(kubectl get deployment envoy-gateway -n envoy-gateway-system \
     -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null)
-aieg_image=$($KC get deployment ai-gateway-controller -n envoy-ai-gateway-system \
+aieg_image=$(kubectl get deployment ai-gateway-controller -n envoy-ai-gateway-system \
     -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null)
 
 echo -e "${BOLD}Summary${NC}"

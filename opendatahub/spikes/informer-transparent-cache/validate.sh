@@ -4,9 +4,9 @@
 set -euo pipefail
 
 CLUSTER_NAME="informer-cache-spike"
-CTX="kind-${CLUSTER_NAME}"
-ADDR="http://localhost:8080"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+export KUBECONFIG="${KUBECONFIG:-${SCRIPT_DIR}/.kubeconfig}"
+ADDR="http://localhost:8080"
 
 info()  { echo -e "\n\033[0;33m--- $1 ---\033[0m"; }
 fail()  { echo -e "\033[0;31mFAIL\033[0m: $1"; exit 1; }
@@ -48,7 +48,7 @@ go build -o "$SCRIPT_DIR/server" "$SCRIPT_DIR/main.go"
 
 apply_model() {
     local name="$1" display="$2" provider="$3"
-    kubectl --context "$CTX" apply -f - <<EOF
+    kubectl apply -f - <<EOF
 apiVersion: spike.example.io/v1alpha1
 kind: Model
 metadata:
@@ -61,7 +61,7 @@ EOF
 
 # -- Seed fixture (idempotent) --------------------------------------------
 info "Seeding test fixture"
-kubectl --context "$CTX" delete models --all 2>/dev/null || true
+kubectl delete models --all 2>/dev/null || true
 apply_model llama-3-70b      "Llama 3 70B"      meta
 apply_model granite-3-8b     "Granite 3.1 8B"   ibm
 apply_model gpt-4o           "GPT-4o"           openai
@@ -98,7 +98,7 @@ echo "$RESULT" | jq -e '.models[] | select(.name == "DeepSeek R1")' >/dev/null \
 
 # -- 4. Delete a model, verify informer reflects it -----------------------
 info "Deleting granite-3-8b"
-kubectl --context "$CTX" delete model granite-3-8b
+kubectl delete model granite-3-8b
 sleep 1
 
 echo "GET /v1/models:"
