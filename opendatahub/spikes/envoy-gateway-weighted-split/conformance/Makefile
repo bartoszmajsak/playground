@@ -22,8 +22,11 @@ GIE_VERSION           ?= v1.4.0
 KUBERNETES_VERSION    ?= v1.36.1
 METALLB_VERSION       ?= v0.13.10
 
-# ── GIE repo ─────────────────────────────────────────────────────────
-GIE_REPO              ?= $(HOME)/code/lab/gateway-api-inference-extension
+# ── GIE repo (auto-cloned into .gie/ if not overridden) ──────────────
+GIE_REPO              ?= $(CURDIR)/.gie
+
+# ── Custom images (set to override helm defaults) ────────────────────
+AIGW_CONTROLLER_IMAGE ?=
 
 # ── Test options ─────────────────────────────────────────────────────
 RUN_TEST              ?=
@@ -275,6 +278,18 @@ _install-aigw:
 		--version $(AIGW_VERSION) -n $(AIGW_NS) --create-namespace 2>&1 | tail -1
 	@echo "    Waiting for AI Gateway..."
 	@$(KC) rollout status deployment -n $(AIGW_NS) --timeout=120s 2>/dev/null || true
+	@if [ -n "$(AIGW_CONTROLLER_IMAGE)" ]; then \
+		echo "    Loading custom controller image: $(AIGW_CONTROLLER_IMAGE)"; \
+		kind load docker-image $(AIGW_CONTROLLER_IMAGE) --name $(CLUSTER); \
+		IMAGE_REPO=$$(echo "$(AIGW_CONTROLLER_IMAGE)" | cut -d: -f1); \
+		IMAGE_TAG=$$(echo "$(AIGW_CONTROLLER_IMAGE)" | cut -d: -f2); \
+		$(HC) upgrade -i ai-eg oci://docker.io/envoyproxy/ai-gateway-helm \
+			--version $(AIGW_VERSION) -n $(AIGW_NS) \
+			--set controller.image.repository=$$IMAGE_REPO \
+			--set controller.image.tag=$$IMAGE_TAG \
+			--set controller.imagePullPolicy=IfNotPresent 2>&1 | tail -1; \
+		$(KC) rollout status deployment -n $(AIGW_NS) --timeout=120s 2>/dev/null || true; \
+	fi
 	@echo ""
 	@echo "==> [4/4] Creating GatewayClass 'inference-pool'"
 	@printf 'apiVersion: gateway.networking.k8s.io/v1\nkind: GatewayClass\nmetadata:\n  name: inference-pool\nspec:\n  controllerName: gateway.envoyproxy.io/gatewayclass-controller\n' | $(KC) apply -f -
