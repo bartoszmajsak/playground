@@ -11,6 +11,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CLUSTER_NAME="${CLUSTER_NAME:-agentgateway-spike}"
+export KUBECONFIG="${KUBECONFIG:-${SCRIPT_DIR}/.kubeconfig}"
 NS="agentgateway-spike"
 MODEL="tiny-llama"
 ENABLE_RATELIMIT=false

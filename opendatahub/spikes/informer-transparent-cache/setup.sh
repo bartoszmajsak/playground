@@ -2,7 +2,9 @@
 # Sets up a kind cluster with a made-up Model CRD.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLUSTER_NAME="informer-cache-spike"
+export KUBECONFIG="${KUBECONFIG:-${SCRIPT_DIR}/.kubeconfig}"
 
 info() { echo -e "\033[0;33mINFO\033[0m: $1"; }
 
@@ -12,8 +14,9 @@ else
     info "Creating kind cluster '${CLUSTER_NAME}'"
     kind create cluster --name "$CLUSTER_NAME" --wait 60s
 fi
+kind get kubeconfig --name "${CLUSTER_NAME}" > "${KUBECONFIG}"
 
-kubectl --context "kind-${CLUSTER_NAME}" apply -f - <<'EOF'
+kubectl apply -f - <<'EOF'
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:

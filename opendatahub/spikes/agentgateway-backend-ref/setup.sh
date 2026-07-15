@@ -17,6 +17,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NS="agentgateway-spike"
 CLUSTER_NAME="${CLUSTER_NAME:-agentgateway-spike}"
+export KUBECONFIG="${KUBECONFIG:-${SCRIPT_DIR}/.kubeconfig}"
 
 KSERVE_REPO="${KSERVE_REPO:-bartoszmajsak/kserve}"
 KSERVE_REF="${KSERVE_REF:-upstream/feat/x-served-by}"
@@ -68,7 +69,7 @@ nodes:
   - role: worker
 KINDEOF
     fi
-    kubectl config use-context "kind-${CLUSTER_NAME}" 2>/dev/null || true
+    kind get kubeconfig --name "${CLUSTER_NAME}" > "${KUBECONFIG}"
 
     info "Installing MetalLB"
     kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.9/config/manifests/metallb-native.yaml
@@ -263,7 +264,7 @@ EOF
 # =========================================================================
 
 echo -e "${BOLD}AgentGateway BackendRef Override Spike - Setup${NC}"
-echo "Cluster: $CLUSTER_NAME"
+echo "Cluster: $CLUSTER_NAME (kubeconfig: $KUBECONFIG)"
 echo "Image: ${LLMISVC_IMAGE:-<required>}"
 echo "KServe ref: $KSERVE_REF"
 echo "AgentGateway: $AGENTGATEWAY_VERSION"
