@@ -14,6 +14,7 @@
 set -euo pipefail
 
 NS="${ROUTE_VALIDATION_NS:-route-validation}"
+GW_CLASS="${GW_CLASS:-}"
 REQUESTS="${ROUTE_VALIDATION_REQUESTS:-100}"
 SETTLE="${ROUTE_VALIDATION_SETTLE:-16}"
 VERBOSE="${ROUTE_VALIDATION_VERBOSE:-false}"
@@ -135,10 +136,60 @@ assert_route_order() {
     return 1
 }
 
+setup_metallb() {
+    if kubectl get ns metallb-system >/dev/null 2>&1; then return; fi
+    info "Installing MetalLB..."
+    kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.9/config/manifests/metallb-native.yaml >/dev/null
+    kubectl wait --timeout=120s --namespace metallb-system \
+        deployment/controller --for=condition=Available || { warn "MetalLB not ready"; return; }
+    local subnet base
+    subnet=$(docker network inspect kind -f '{{range .IPAM.Config}}{{.Subnet}}{{"\n"}}{{end}}' 2>/dev/null | grep -v ':' | head -1)
+    subnet="${subnet:-172.18.0.0/16}"
+    base=$(echo "$subnet" | cut -d. -f1-2)
+    kubectl apply -f - <<METALEOF
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: kind-pool
+  namespace: metallb-system
+spec:
+  addresses:
+    - ${base}.255.200-${base}.255.250
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: kind-l2
+  namespace: metallb-system
+METALEOF
+    info "MetalLB ready"
+}
+
+detect_gateway_class() {
+    if [[ -n "$GW_CLASS" ]]; then return; fi
+    if kubectl get gatewayclass istio >/dev/null 2>&1; then
+        GW_CLASS="istio"
+    elif kubectl get gatewayclass envoy >/dev/null 2>&1; then
+        GW_CLASS="envoy"
+    elif kubectl get gatewayclass openshift-default >/dev/null 2>&1; then
+        GW_CLASS="openshift-default"
+    else
+        GW_CLASS=$(kubectl get gatewayclass -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "istio")
+    fi
+    info "Gateway class: $GW_CLASS"
+}
+
+apply_manifests() {
+    local file="$1"
+    sed "s/__GW_CLASS__/$GW_CLASS/g" "$file" | kubectl apply -f -
+}
+
 setup() {
     header "Setup"
-    info "Deploying base resources..."
-    kubectl apply -f manifests.yaml
+    setup_metallb
+    detect_gateway_class
+    info "Deploying base resources (gatewayClassName=$GW_CLASS)..."
+    apply_manifests manifests.yaml
     kubectl wait -n "$NS" --for=condition=Ready pod -l app=echo --timeout=60s
     kubectl wait -n "$NS" --for=condition=Programmed gateway/test-gateway --timeout=60s 2>/dev/null || \
     kubectl wait -n "$NS" --for=condition=Ready gateway/test-gateway --timeout=60s 2>/dev/null || \
@@ -148,11 +199,11 @@ setup() {
     kubectl delete httproute route-v1 route-v2 -n "$NS" --ignore-not-found=true >/dev/null 2>&1 || true
 
     info "Creating route-v1 (must be oldest)..."
-    kubectl apply -f manifests.yaml
+    apply_manifests manifests.yaml
     sleep 2
 
     info "Applying route-v2 (must be newer standby)..."
-    kubectl apply -f route-v2.yaml
+    apply_manifests route-v2.yaml
     sleep 3
 
     assert_route_order
@@ -161,19 +212,25 @@ setup() {
 discover_gateway() {
     if [[ -n "${1:-}" ]]; then GATEWAY_URL="$1"; info "Using: $GATEWAY_URL"; return; fi
     info "Discovering gateway URL..."
-    local addr
-    addr=$(kubectl get gateway test-gateway -n "$NS" -o jsonpath='{.status.addresses[0].value}' 2>/dev/null || true)
-    if [[ -n "$addr" ]]; then GATEWAY_URL="http://${addr}"; info "Found: $GATEWAY_URL"; return; fi
-    addr=$(kubectl get svc -n "$NS" -l gateway.networking.k8s.io/gateway-name=test-gateway \
-        -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
-    if [[ -n "$addr" ]]; then GATEWAY_URL="http://${addr}"; info "Found LB: $GATEWAY_URL"; return; fi
-    warn "Auto-discovery failed. Starting port-forward..."
-    local svc
+    local addr svc
+    # Wait up to 60s for the gateway to get an address (cloud-provider-kind needs time)
+    for _ in $(seq 1 30); do
+        addr=$(kubectl get gateway test-gateway -n "$NS" -o jsonpath='{.status.addresses[0].value}' 2>/dev/null || true)
+        if [[ -n "$addr" ]]; then GATEWAY_URL="http://${addr}"; info "Found: $GATEWAY_URL"; return; fi
+        addr=$(kubectl get svc -n "$NS" -l gateway.networking.k8s.io/gateway-name=test-gateway \
+            -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+        if [[ -n "$addr" ]]; then GATEWAY_URL="http://${addr}"; info "Found LB: $GATEWAY_URL"; return; fi
+        sleep 2
+    done
+    warn "No external IP. Falling back to port-forward..."
     svc=$(kubectl get svc -n "$NS" -l gateway.networking.k8s.io/gateway-name=test-gateway \
-        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "test-gateway-istio")
+        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+    if [[ -z "$svc" ]]; then
+        svc=$(kubectl get svc -n "$NS" --no-headers 2>/dev/null | grep -v echo | awk '{print $1}' | head -1)
+    fi
     kubectl port-forward -n "$NS" "svc/${svc}" 8888:80 &
     PF_PID=$!; sleep 2; GATEWAY_URL="http://localhost:8888"
-    info "Port-forward PID $PF_PID: $GATEWAY_URL"
+    info "Port-forward PID $PF_PID via $svc: $GATEWAY_URL"
 }
 
 probe_gateway_route() {
@@ -345,7 +402,7 @@ test_failover() {
     check_pinned "/direct/v2 after failover" "v2" "$v1" "$v2" "$errors" 5
 
     info "Restoring route-v1..."
-    kubectl apply -f manifests.yaml
+    apply_manifests manifests.yaml
     sleep "$SETTLE"
 }
 
