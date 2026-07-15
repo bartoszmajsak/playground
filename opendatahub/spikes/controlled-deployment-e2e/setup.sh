@@ -17,7 +17,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NS="controlled-deployment-spike"
 CLUSTER_NAME="${CLUSTER_NAME:-controlled-deployment}"
-export KUBECONFIG="${KUBECONFIG:-${HOME}/.kube/kind-${CLUSTER_NAME}.config}"
+export KUBECONFIG="${KUBECONFIG:-${SCRIPT_DIR}/.kubeconfig}"
 CLUSTER_TYPE="${1:-kind-istio}"
 
 # Upstream refs - defaults to the traffic-splitting branch on the fork
@@ -136,6 +136,7 @@ cfg = json.load(sys.stdin)
 cfg['enableGatewayApi'] = True
 cfg['kserveIngressGateway'] = '${gw_ns}/kserve-ingress-gateway'
 cfg['ingressClassName'] = '${gw_class}'
+cfg['enableServedByHeader'] = True
 print(json.dumps(cfg))
 ")
     kubectl patch configmap inferenceservice-config -n kserve --type merge \
