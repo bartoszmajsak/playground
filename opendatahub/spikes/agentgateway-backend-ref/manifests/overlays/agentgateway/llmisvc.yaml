@@ -1,0 +1,42 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceService
+metadata:
+  name: tiny-llama
+  namespace: agentgateway-spike
+spec:
+  baseRefs:
+    - name: model-tiny-llama
+    - name: workload-single-cpu
+  replicas: 1
+  router:
+    route:
+      http:
+        spec:
+          parentRefs:
+            - group: gateway.networking.k8s.io
+              kind: Gateway
+              name: kserve-ingress-gateway
+              namespace: kserve
+          rules:
+            - backendRefs:
+                - group: agentgateway.dev
+                  kind: AgentgatewayBackend
+                  name: tiny-llama-backend
+              matches:
+                - path:
+                    type: PathPrefix
+                    value: /v1/chat/completions
+              timeouts:
+                backendRequest: 0s
+                request: 0s
+            - backendRefs:
+                - group: agentgateway.dev
+                  kind: AgentgatewayBackend
+                  name: tiny-llama-backend
+              matches:
+                - path:
+                    type: PathPrefix
+                    value: /v1/completions
+              timeouts:
+                backendRequest: 0s
+                request: 0s

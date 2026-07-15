@@ -1,0 +1,30 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceServiceConfig
+metadata:
+  name: workload-single-cpu
+  namespace: agentgateway-spike
+spec:
+  template:
+    containers:
+      - name: main
+        image: public.ecr.aws/q9t5s3a7/vllm-cpu-release-repo:v0.23.0
+        args:
+          - --enforce-eager
+        env:
+          - name: USER
+            value: nonroot
+          - name: TORCHINDUCTOR_CACHE_DIR
+            value: /tmp/torchinductor-cache
+          - name: VLLM_CPU_KVCACHE_SPACE
+            value: "1"
+          - name: VLLM_CPU_OMP_THREADS_BIND
+            value: nobind
+        securityContext:
+          runAsUser: 1000
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "2Gi"
+          limits:
+            cpu: "2"
+            memory: "4Gi"
