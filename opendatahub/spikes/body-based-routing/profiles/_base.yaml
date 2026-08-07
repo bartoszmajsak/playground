@@ -1,0 +1,56 @@
+# Shared bootstrap for every profile. validate-standalone.sh splices one of
+# profiles/<profile>.yaml in place of __FILTERS__ and substitutes
+# __BUFFER_LIMIT__, so the only thing that differs between profiles is the
+# filter chain itself.
+#
+# The two routes stand in for two model backends: the header-matched one can
+# only be selected if the filter chain injected the header from the payload.
+
+admin:
+  address:
+    socket_address: { address: 0.0.0.0, port_value: 9901 }
+static_resources:
+  listeners:
+    - name: listener_0
+      address:
+        socket_address: { address: 0.0.0.0, port_value: 10000 }
+      per_connection_buffer_limit_bytes: __BUFFER_LIMIT__
+      filter_chains:
+        - filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: ingress_http
+                route_config:
+                  name: local_route
+                  virtual_hosts:
+                    - name: local
+                      domains: ["*"]
+                      routes:
+                        - match:
+                            prefix: "/"
+                            headers:
+                              - name: x-gateway-model-name
+                                string_match: { exact: model-b }
+                          route: { cluster: echo }
+                          response_headers_to_add:
+                            - header: { key: x-served-by, value: echo-b }
+                        - match: { prefix: "/" }
+                          route: { cluster: echo }
+                          response_headers_to_add:
+                            - header: { key: x-served-by, value: echo-a }
+                http_filters:
+__FILTERS__
+                  - name: envoy.filters.http.router
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+  clusters:
+    - name: echo
+      type: STRICT_DNS
+      load_assignment:
+        cluster_name: echo
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address: { address: echo, port_value: 8080 }

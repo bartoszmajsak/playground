@@ -1,0 +1,31 @@
+                  # Pure Lua using handle:bodyChunks() - streams instead of
+                  # buffering, so big payloads sail through. It CANNOT inject
+                  # the header: yielding on the first chunk puts the filter in
+                  # state WaitForBodyChunk, which is not one of the three states
+                  # that hold headers back, so headers are already downstream.
+                  # Envoy logs "header map can no longer be modified" and serves
+                  # the request without it. Kept as a profile because the silent
+                  # failure is the point.
+                  - name: envoy.filters.http.lua
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+                      default_source_code:
+                        inline_string: |
+                          function envoy_on_request(handle)
+                            handle:headers():remove("x-gateway-model-name")
+                            local ct = handle:headers():get("content-type")
+                            if ct and string.find(ct, "application/json", 1, true) then
+                              for chunk in handle:bodyChunks() do
+                                local n = chunk:length()
+                                if n > 0 then
+                                  local s = chunk:getBytes(0, n)
+                                  local model = string.match(s, '"model"%s*:%s*"([^"]*)"')
+                                  if model then
+                                    handle:headers():add("x-gateway-model-name", model)
+                                    break
+                                  end
+                                end
+                              end
+                            end
+                            handle:clearRouteCache()
+                          end
