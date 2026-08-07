@@ -1,0 +1,123 @@
+# Body-Based Routing Spike - workloads
+#
+# Two echo backends that reflect the request they received (headers, body,
+# pod hostname). That is all we need: if X-Gateway-Model-Name shows up in
+# the echoed headers, Envoy extracted it from the JSON payload.
+#
+# The HTTPRoute has a header-match rule so we can also tell whether the
+# injected header is visible to *route matching*, not just to the backend.
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echo-a
+  namespace: bbr-spike
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: echo, version: a }
+  template:
+    metadata:
+      labels: { app: echo, version: a }
+    spec:
+      containers:
+        - name: echo
+          image: mendhak/http-https-echo:37
+          env:
+            - { name: HTTP_PORT, value: "8080" }
+            - { name: LOG_WITHOUT_NEWLINE, value: "true" }
+          ports:
+            - containerPort: 8080
+          resources:
+            requests: { cpu: 10m, memory: 64Mi }
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo-a
+  namespace: bbr-spike
+spec:
+  selector: { app: echo, version: a }
+  ports:
+    - port: 80
+      targetPort: 8080
+      appProtocol: http
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echo-b
+  namespace: bbr-spike
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: echo, version: b }
+  template:
+    metadata:
+      labels: { app: echo, version: b }
+    spec:
+      containers:
+        - name: echo
+          image: mendhak/http-https-echo:37
+          env:
+            - { name: HTTP_PORT, value: "8080" }
+            - { name: LOG_WITHOUT_NEWLINE, value: "true" }
+          ports:
+            - containerPort: 8080
+          resources:
+            requests: { cpu: 10m, memory: 64Mi }
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo-b
+  namespace: bbr-spike
+spec:
+  selector: { app: echo, version: b }
+  ports:
+    - port: 80
+      targetPort: 8080
+      appProtocol: http
+
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: model-route
+  namespace: bbr-spike
+spec:
+  parentRefs:
+    - name: spike-gateway
+  rules:
+    # Body-based routing check: nobody sends this header, it can only come
+    # from the EnvoyFilter reading the JSON payload.
+    - matches:
+        - headers:
+            - name: X-Gateway-Model-Name
+              value: model-b
+      filters:
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            set:
+              - name: X-Served-By
+                value: echo-b
+      backendRefs:
+        - name: echo-b
+          port: 80
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            set:
+              - name: X-Served-By
+                value: echo-a
+      backendRefs:
+        - name: echo-a
+          port: 80

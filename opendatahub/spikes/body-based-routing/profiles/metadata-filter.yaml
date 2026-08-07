@@ -1,0 +1,36 @@
+                  # The shipped design - mirrors envoyfilter.yaml.
+                  # Lua strips + clears the route cache, json_to_metadata parses
+                  # the body into metadata, header_mutation turns that into a
+                  # header. Buffers the entire body.
+                  - name: envoy.filters.http.lua
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+                      default_source_code:
+                        inline_string: |
+                          function envoy_on_request(handle)
+                            handle:headers():remove("x-gateway-model-name")
+                            handle:clearRouteCache()
+                          end
+                  - name: envoy.filters.http.json_to_metadata
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.json_to_metadata.v3.JsonToMetadata
+                      request_rules:
+                        rules:
+                          - selectors:
+                              - key: model
+                            on_present:
+                              metadata_namespace: llm
+                              key: model
+                        allow_content_types:
+                          - application/json
+                  - name: envoy.filters.http.header_mutation
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.header_mutation.v3.HeaderMutation
+                      mutations:
+                        request_mutations:
+                          - append:
+                              header:
+                                key: x-gateway-model-name
+                                value: "%DYNAMIC_METADATA(llm:model)%"
+                              append_action: OVERWRITE_IF_EXISTS_OR_ADD
+                              keep_empty_value: false

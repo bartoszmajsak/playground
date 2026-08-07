@@ -1,0 +1,17 @@
+[package]
+name = "model-router"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+proxy-wasm = "0.2.2"
+actson = { version = "2", default-features = false }
+
+[profile.release]
+lto = true
+opt-level = "z"
+strip = true
+panic = "abort"

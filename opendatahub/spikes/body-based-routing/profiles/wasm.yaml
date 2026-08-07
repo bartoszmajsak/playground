@@ -1,0 +1,22 @@
+                  # Compiled proxy-wasm module (profiles/wasm-module/, built by
+                  # build-wasm.sh). The only variant that holds the headers
+                  # while inspecting just the FRONT of the body, so big payloads
+                  # stream through at the default 1MiB limit.
+                  #
+                  # allow_on_headers_stop_iteration is load-bearing. Without it
+                  # the proxy-wasm 0.2.x ABI rewrites the module's StopIteration
+                  # into StopAllIterationAndWatermark, Envoy then buffers data
+                  # without ever calling on_http_request_body, and the request
+                  # deadlocks - it cannot resume because the callback that would
+                  # resume it never fires. The field needs Envoy >= 1.35.
+                  - name: envoy.filters.http.wasm
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.wasm.v3.Wasm
+                      config:
+                        name: model_router
+                        allow_on_headers_stop_iteration: true
+                        vm_config:
+                          runtime: envoy.wasm.runtime.v8
+                          code:
+                            local:
+                              filename: /etc/envoy/model_router.wasm
