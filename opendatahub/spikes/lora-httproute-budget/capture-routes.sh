@@ -197,6 +197,27 @@ if [[ -n "$SWEEP" ]]; then
     sleep 5
 fi
 
+# Each endpoint picker needs a DestinationRule disabling Istio's mTLS
+# origination, or the ext_proc stream is reset and every pool-bound request
+# 500s while the route, the filter and the EPP all report healthy.
+# See setup.sh for the full explanation.
+for eppsvc in $(kubectl get svc -n "$NS" --no-headers 2>/dev/null \
+                | awk '{print $1}' | grep -E -- '-epp-service$'); do
+    kubectl apply -f - >/dev/null 2>&1 <<EOF
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: ${eppsvc}-tls
+  namespace: ${NS}
+spec:
+  host: ${eppsvc}
+  trafficPolicy:
+    tls:
+      mode: SIMPLE
+      insecureSkipVerify: true
+EOF
+done
+
 header "Capturing route shape -> golden/route-${SHAPE}.yaml"
 # Only the controller-generated routes. The neighbour tenant is fixture, not
 # artifact -- capturing it would produce a duplicate copy that competes with the

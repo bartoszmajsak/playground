@@ -604,6 +604,71 @@ status-code check.
   a rule that retains the original coverage, or accept the loud detach and
   migrate policies deliberately.
 
+## 13. The endpoint picker needs a DestinationRule, or everything 500s while looking healthy
+
+Found on a clean rebuild, after the earlier cluster's churn was ruled out as
+the cause.
+
+Istio originates mTLS to workloads in the mesh. The EPP serves **plaintext gRPC**
+on 9002. Without a `DestinationRule` telling Istio not to, the ext_proc stream is
+reset:
+
+```
+Received gRPC error on stream: 14, message upstream connect error or
+disconnect/reset before headers. reset reason: connection termination
+```
+
+and every pool-bound request returns **500** — while the HTTPRoute is
+`Accepted=True`/`ResolvedRefs=True`, the InferencePool is resolved, the
+per-route ext_proc override is correctly attached to the right EPP cluster, that
+cluster has healthy endpoints, and the EPP pod is Running with no restarts. The
+only symptom is the 500 and a warning line in the gateway's log.
+
+The fix is the rule Istio's own inference-extension task documents:
+
+```yaml
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: <epp-service>-tls
+spec:
+  host: <epp-service>
+  trafficPolicy:
+    tls:
+      mode: SIMPLE
+      insecureSkipVerify: true
+```
+
+**Scope it per EPP Service.** A wildcard host (`*.ns.svc.cluster.local`)
+originates TLS to every service in the namespace including the plaintext
+workloads, which trades the 500 for a 503 — measured.
+
+**Why this was easy to miss.** It was applied early in the investigation, on
+Istio 1.28, and appeared to change nothing — because on 1.28 ext_proc is never
+attached at all (section 6), so there was no stream to reset. It only becomes
+load-bearing once the version floor is met. `setup.sh` and `capture-routes.sh`
+now create it per EPP Service.
+
+### Two other reproducibility traps found on the rebuild
+
+**The alpha InferencePool group is transient.** kserve emits
+`inference.networking.x-k8s.io` first and migrates to
+`inference.networking.k8s.io`. Istio 1.30 rejects the alpha group outright
+(`ResolvedRefs=False [InvalidKind]`), so a route captured inside that window
+references a pool Istio will not resolve — no pool Service is synthesised, no
+ext_proc, and every request through it 500s. It self-corrects, but anything that
+snapshots the route can capture the bad state and carry it forward. Wait for
+`group == inference.networking.k8s.io` **and** `ResolvedRefs=True` before
+capturing.
+
+**Adapter files live in a PVC that a cluster rebuild destroys.** The fixtures
+reference `pvc://lora-budget-models/adapter-a*`; without those files vLLM
+CrashLoopBackOffs, the pool has no endpoints, and the failure surfaces as the
+same 500. Regenerate with `hack/gen-tiny-lora.py` and reload after any rebuild.
+
+All three produce an identical symptom — pool-bound requests 500 with every
+status object green — which is worth knowing before diagnosing the next one.
+
 ---
 
 ## Method notes

@@ -260,9 +260,23 @@ if [[ "$WITH_KSERVE" == true ]]; then
     info "Installing kserve llmisvc (${KSERVE_REF})"
     kubectl apply --server-side=true --force-conflicts \
         -k "${KSERVE_KUSTOMIZE}/crd/full/llmisvc?ref=${KSERVE_REF}"
-    kubectl wait --for=condition=established --timeout=60s \
-        crd/llminferenceserviceconfigs.serving.kserve.io \
-        crd/llminferenceservices.serving.kserve.io
+    # A freshly server-side-applied CRD can exist with no .status yet, and
+    # `kubectl wait` errors out on that ("accessor error: <nil>") rather than
+    # retrying -- which under `set -e` aborts the whole install. Poll instead.
+    for crd in llminferenceserviceconfigs.serving.kserve.io \
+               llminferenceservices.serving.kserve.io; do
+        for _ in $(seq 1 30); do
+            if kubectl get "crd/${crd}" \
+                -o jsonpath='{.status.conditions[?(@.type=="Established")].status}' \
+                2>/dev/null | grep -q True; then
+                break
+            fi
+            sleep 2
+        done
+        kubectl get "crd/${crd}" \
+            -o jsonpath='{.status.conditions[?(@.type=="Established")].status}' \
+            2>/dev/null | grep -q True || err "CRD ${crd} never became Established"
+    done
 
     kubectl apply -f "${KSERVE_RAW}/config/configmap/inferenceservice.yaml" 2>/dev/null || true
 
@@ -344,6 +358,39 @@ fi
 # -------------------------------------------------------------------------
 # Observable backends
 # -------------------------------------------------------------------------
+
+# -------------------------------------------------------------------------
+# Endpoint-picker TLS
+#
+# Istio originates mTLS to workloads in the mesh, but the EPP serves plaintext
+# gRPC on 9002. Without a DestinationRule telling Istio otherwise, the ext_proc
+# stream is reset ("upstream connect error or disconnect/reset before headers ...
+# connection termination") and every pool-bound request 500s -- with the route,
+# the filter and the EPP all reporting healthy. Istio's own inference-extension
+# task documents this; it is easy to miss because on Istio < 1.29 ext_proc is
+# never attached at all, so adding the rule appears to change nothing.
+#
+# Scope it per EPP Service. A wildcard host originates TLS to every service in
+# the namespace, including the plaintext workloads, which trades the 500 for a
+# 503.
+# -------------------------------------------------------------------------
+
+epp_destinationrule() {
+    local svc="$1"
+    kubectl apply -f - <<EOF
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: ${svc}-tls
+  namespace: ${NS}
+spec:
+  host: ${svc}
+  trafficPolicy:
+    tls:
+      mode: SIMPLE
+      insecureSkipVerify: true
+EOF
+}
 
 info "Deploying echo backends"
 kubectl apply -f "${SCRIPT_DIR}/manifests/backends.yaml"

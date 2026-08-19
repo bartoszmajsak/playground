@@ -1,13 +1,13 @@
 GET	/health	hdr	200	(empty)
 GET	/metrics	hdr	200	# HELP python_gc_objects_collected_total Objects collected during gc# TYPE python_gc_objects_collected_total counterpyth
-GET	/v1/models	hdr	200	{"object":"list","data":[{"id":"model-a","object":"model","created":1787163351,"owned_by":"vllm","root":"/mnt/models","p
+GET	/v1/models	hdr	200	{"object":"list","data":[{"id":"model-a","object":"model","created":1787173787,"owned_by":"vllm","root":"/mnt/models","p
 POST	/v1/embeddings	hdr	400	inference error: BadRequest - invalid embeddings request: must have input field
 POST	/v1/messages/count_tokens	hdr	200	{"input_tokens":9,"context_management":{"original_input_tokens":9}}
 GET	/v1/responses/resp_abc123	hdr	404	{"error":{"message":"Response with id 'resp_abc123' not found.","type":"invalid_request_error","param":"response_id","co
 POST	/anything/at/all	hdr	400	inference error: BadRequest - no parser registered matching path suffix for: /anything/at/all
 GET	/	hdr	404	{"detail":"Not Found"}
-POST	/v1/chat/completions	hdr	200	{"id":"chatcmpl-4468eac7-adfc-4a58-94a3-87979ed9ca9c","object":"chat.completion","created":1787163351,"model":"model-a",
-POST	/v1/chat/completions	adapter	200	{"id":"chatcmpl-2601f619-d35a-4090-871d-a2f4e0840094","object":"chat.completion","created":1787163351,"model":"publisher
-POST	/lora-budget/svc-a/v1/chat/completions	-	200	{"id":"chatcmpl-1172f091-3d1d-4a08-af99-cb095c56cf29","object":"chat.completion","created":1787163351,"model":"model-a",
+POST	/v1/chat/completions	hdr	200	{"id":"chatcmpl-40db8a9f-caf2-4ad8-8590-06b864b633fa","object":"chat.completion","created":1787173787,"model":"model-a",
+POST	/v1/chat/completions	adapter	200	{"id":"chatcmpl-a621366d-ef0a-4188-badb-74282d4d64d4","object":"chat.completion","created":1787173787,"model":"publisher
+POST	/lora-budget/svc-a/v1/chat/completions	-	200	{"id":"chatcmpl-e7991cd6-9c55-4265-ac82-5881b468459b","object":"chat.completion","created":1787173787,"model":"model-a",
 GET	/lora-budget/svc-a/health	-	200	(empty)
-GET	/lora-budget/svc-a/v1/models	-	200	{"object":"list","data":[{"id":"model-a","object":"model","created":1787163351,"owned_by":"vllm","root":"/mnt/models","p
+GET	/lora-budget/svc-a/v1/models	-	200	{"object":"list","data":[{"id":"model-a","object":"model","created":1787173787,"owned_by":"vllm","root":"/mnt/models","p
