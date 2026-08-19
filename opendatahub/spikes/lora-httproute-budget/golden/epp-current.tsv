@@ -1,13 +1,13 @@
 GET	/health	hdr	200	(empty)
 GET	/metrics	hdr	200	# HELP python_gc_objects_collected_total Objects collected during gc# TYPE python_gc_objects_collected_total counterpyth
-GET	/v1/models	hdr	200	{"object":"list","data":[{"id":"model-a","object":"model","created":1787173737,"owned_by":"vllm","root":"/mnt/models","p
+GET	/v1/models	hdr	200	{"object":"list","data":[{"id":"model-a","object":"model","created":1787176118,"owned_by":"vllm","root":"/mnt/models","p
 POST	/v1/embeddings	hdr	404	{"detail":"Not Found"}
 POST	/v1/messages/count_tokens	hdr	200	{"input_tokens":9,"context_management":{"original_input_tokens":9}}
 GET	/v1/responses/resp_abc123	hdr	404	{"error":{"message":"Response with id 'resp_abc123' not found.","type":"invalid_request_error","param":"response_id","co
 POST	/anything/at/all	hdr	404	{"detail":"Not Found"}
 GET	/	hdr	404	{"detail":"Not Found"}
-POST	/v1/chat/completions	hdr	200	{"id":"chatcmpl-cb176f59-8865-4221-beb4-5780584f537c","object":"chat.completion","created":1787173737,"model":"model-a",
-POST	/v1/chat/completions	adapter	200	{"id":"chatcmpl-0a6af3c4-e4a1-49ff-87b2-5cf9aaaa438e","object":"chat.completion","created":1787173737,"model":"publisher
-POST	/lora-budget/svc-a/v1/chat/completions	-	200	{"id":"chatcmpl-cd2c6260-f2de-4be7-9c8e-e56d2fa7a077","object":"chat.completion","created":1787173737,"model":"model-a",
+POST	/v1/chat/completions	hdr	200	{"id":"chatcmpl-07abca05-a9f9-48bb-b315-26226ec5e22b","object":"chat.completion","created":1787176118,"model":"model-a",
+POST	/v1/chat/completions	adapter	200	{"id":"chatcmpl-3f2bb02d-fc32-4a7d-84bf-b394c486c37e","object":"chat.completion","created":1787176118,"model":"publisher
+POST	/lora-budget/svc-a/v1/chat/completions	-	200	{"id":"chatcmpl-20fd13b5-8170-4f1d-b77c-73f24a13662d","object":"chat.completion","created":1787176118,"model":"model-a",
 GET	/lora-budget/svc-a/health	-	200	(empty)
-GET	/lora-budget/svc-a/v1/models	-	200	{"object":"list","data":[{"id":"model-a","object":"model","created":1787173737,"owned_by":"vllm","root":"/mnt/models","p
+GET	/lora-budget/svc-a/v1/models	-	200	{"object":"list","data":[{"id":"model-a","object":"model","created":1787176118,"owned_by":"vllm","root":"/mnt/models","p

@@ -172,6 +172,59 @@
   .steps h4 { margin: 0 0 .2rem; font-size: 1rem; font-weight: 640; }
   .steps p { margin: 0; font-size: .93rem; color: var(--ink-soft); }
 
+  /* ---- budget explorer ---- */
+  .explorer { display: grid; grid-template-columns: minmax(0, 21rem) minmax(0, 1fr);
+              gap: 1.25rem; align-items: start; margin-bottom: 1.5rem; }
+  @media (max-width: 60rem) { .explorer { grid-template-columns: minmax(0, 1fr); } }
+
+  .tiles { display: grid; gap: .55rem; }
+  .tile {
+    display: grid; gap: .3rem; text-align: left; cursor: pointer;
+    background: var(--surface); border: 1px solid var(--rule);
+    border-radius: 6px; padding: .7rem .85rem; font: inherit; color: inherit;
+    transition: border-color .12s ease, background .12s ease;
+  }
+  @media (prefers-reduced-motion: reduce) { .tile { transition: none; } }
+  .tile:hover { border-color: var(--ink-soft); }
+  .tile.on    { border-color: var(--accent); background: var(--accent-dim); }
+  .tile.pick  { border-left: 3px solid var(--accent); }
+  .tname { font-family: var(--mono); font-size: .84rem; font-weight: 600; }
+  .tmax  { font-family: var(--mono); font-size: 1.35rem; font-weight: 650;
+           font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .tunit { font-size: .68rem; font-weight: 500; color: var(--ink-soft);
+           margin-left: .4rem; letter-spacing: .04em; text-transform: uppercase; }
+  .tbar  { height: 5px; background: var(--bar-track); border-radius: 3px; overflow: hidden; }
+  .tfill { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+  .tfill.warn { background: var(--warn); }
+  .tmeta { display: flex; flex-wrap: wrap; gap: .15rem .7rem; font-family: var(--mono);
+           font-size: .7rem; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+  .tmeta .mv.ok   { color: var(--accent); font-weight: 600; }
+  .tmeta .mv.warn { color: var(--warn); }
+  .tbind { font-size: .72rem; color: var(--ink-soft); }
+
+  .yamlpane { background: var(--surface); border: 1px solid var(--rule);
+              border-radius: 6px; padding: 1rem 1.15rem; position: sticky; top: 1rem;
+              min-width: 0; }
+  @media (max-width: 60rem) { .yamlpane { position: static; } }
+  .yphead { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem 1rem;
+            padding-bottom: .6rem; border-bottom: 1px solid var(--rule-soft); }
+  .yname  { font-family: var(--mono); font-size: .95rem; font-weight: 650; color: var(--accent); }
+  .ystats { font-family: var(--mono); font-size: .72rem; color: var(--ink-soft);
+            font-variant-numeric: tabular-nums; }
+  .ynote  { font-size: .85rem; color: var(--ink-soft); margin: .75rem 0 .85rem; }
+  .ycode  { font-family: var(--mono); font-size: .76rem; line-height: 1.62;
+            overflow-x: auto; margin: 0; white-space: pre; color: var(--ink); }
+  .yfoot  { font-size: .74rem; color: var(--ink-soft); margin: .85rem 0 0;
+            padding-top: .7rem; border-top: 1px solid var(--rule-soft); }
+
+  /* yaml tokens */
+  .y-k { color: var(--accent); }
+  .y-p { color: var(--ink-soft); }
+  .y-v { color: var(--ink); }
+  .y-n { color: var(--warn); }
+  .y-d { color: var(--ink-soft); }
+  .y-c { color: var(--ink-soft); font-style: italic; }
+
   /* ---- figures ---- */
   .fig { margin: 0 0 2rem; }
   .fig svg { width: 100%; max-width: 100%; height: auto; display: block; color: var(--ink); }
@@ -470,6 +523,176 @@
     </div>
   </div>
 </section>
+
+<section>
+  <h2>Explore the budgets</h2>
+  <p class="sub">
+    Each tile is a measured shape: how many adapters it reaches, what stops it, and how
+    many of the 72 probes move. Pick one to see the routing rules it actually generates.
+  </p>
+
+  <div class="explorer">
+    <div class="tiles" role="group" aria-label="Route shapes">
+      <button class="tile" data-shape="current"
+              aria-pressed="false" aria-controls="yamlpane">
+        <span class="tname">current</span>
+        <span class="tmax">7<span class="tunit">adapters</span></span>
+        <span class="tbar"><span class="tfill warn" style="width:4%"></span></span>
+        <span class="tmeta">
+          <span>12 rules</span><span>37 matches</span><span class="mv ">&mdash; moved</span>
+        </span>
+        <span class="tbind">stopped by 64 matches in one rule</span>
+      </button>
+      <button class="tile" data-shape="split"
+              aria-pressed="false" aria-controls="yamlpane">
+        <span class="tname">split</span>
+        <span class="tmax">12<span class="tunit">adapters</span></span>
+        <span class="tbar"><span class="tfill " style="width:4%"></span></span>
+        <span class="tmeta">
+          <span>15 rules</span><span>37 matches</span><span class="mv ok">0 moved</span>
+        </span>
+        <span class="tbind">stopped by 128 matches per route</span>
+      </button>
+      <button class="tile" data-shape="split-noslash"
+              aria-pressed="false" aria-controls="yamlpane">
+        <span class="tname">split-noslash</span>
+        <span class="tmax">22<span class="tunit">adapters</span></span>
+        <span class="tbar"><span class="tfill " style="width:7%"></span></span>
+        <span class="tmeta">
+          <span>15 rules</span><span>25 matches</span><span class="mv ">1 moved</span>
+        </span>
+        <span class="tbind">stopped by 128 matches per route</span>
+      </button>
+      <button class="tile" data-shape="prefix"
+              aria-pressed="false" aria-controls="yamlpane">
+        <span class="tname">prefix</span>
+        <span class="tmax">15<span class="tunit">adapters</span></span>
+        <span class="tbar"><span class="tfill " style="width:5%"></span></span>
+        <span class="tmeta">
+          <span>12 rules</span><span>25 matches</span><span class="mv ">8 moved</span>
+        </span>
+        <span class="tbind">stopped by 64 matches in one rule</span>
+      </button>
+      <button class="tile pick" data-shape="alternation"
+              aria-pressed="false" aria-controls="yamlpane">
+        <span class="tname">alternation</span>
+        <span class="tmax">297<span class="tunit">adapters</span></span>
+        <span class="tbar"><span class="tfill " style="width:99%"></span></span>
+        <span class="tmeta">
+          <span>12 rules</span><span>19 matches</span><span class="mv ok">0 moved</span>
+        </span>
+        <span class="tbind">stopped by 4096-byte header value</span>
+      </button>
+      <button class="tile" data-shape="nested"
+              aria-pressed="false" aria-controls="yamlpane">
+        <span class="tname">nested</span>
+        <span class="tmax">&infin;<span class="tunit">adapters</span></span>
+        <span class="tbar"><span class="tfill " style="width:100%"></span></span>
+        <span class="tmeta">
+          <span>12 rules</span><span>19 matches</span><span class="mv ">7 moved</span>
+        </span>
+        <span class="tbind">stopped by nothing in the route</span>
+      </button>
+      <button class="tile" data-shape="collapse"
+              aria-pressed="false" aria-controls="yamlpane">
+        <span class="tname">collapse</span>
+        <span class="tmax">58<span class="tunit">adapters</span></span>
+        <span class="tbar"><span class="tfill " style="width:19%"></span></span>
+        <span class="tmeta">
+          <span>12 rules</span><span>16 matches</span><span class="mv warn">20 moved</span>
+        </span>
+        <span class="tbind">stopped by 128 matches per route</span>
+      </button>
+      <button class="tile" data-shape="collapse-dedup"
+              aria-pressed="false" aria-controls="yamlpane">
+        <span class="tname">collapse-dedup</span>
+        <span class="tmax">63<span class="tunit">adapters</span></span>
+        <span class="tbar"><span class="tfill " style="width:21%"></span></span>
+        <span class="tmeta">
+          <span>11 rules</span><span>13 matches</span><span class="mv warn">20 moved</span>
+        </span>
+        <span class="tbind">stopped by 64 matches in one rule</span>
+      </button>
+    </div>
+    <div class="yamlpane" id="yamlpane" aria-live="polite">
+      <div class="yphead">
+        <span class="yname" id="yname">current</span>
+        <span class="ystats" id="ystats"></span>
+      </div>
+      <p class="ynote" id="ynote"></p>
+      <pre class="ycode"><code id="ycode"></code></pre>
+      <p class="yfoot">Routing rules only &mdash; the path family (one rule per endpoint to the pool, plus a catch-all to the Service) is identical in every shape. Shown for two adapters.</p>
+    </div>
+  </div>
+</section>
+
+<script>
+(function () {
+  var DATA = {"current": {"yaml": "- name: v1-model-routing\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/completions\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/completions/\n  # ... 22 more matches of the same form\n\n- name: v1-catch-all-model-routing\n  backendRefs:\n  - kind: Service\n    name: svc-a-kserve-workload-svc\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: PathPrefix\n      value: /\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/adapter-a1\n    path:\n      type: PathPrefix\n      value: /\n  # ... 1 more matches of the same form", "note": "Today. The rule holds every path crossed with every model, so the 64-per-rule cap arrives at the seventh adapter.", "rules": 12, "matches": 37, "binds": "64 matches in one rule", "maxA": 7, "moved": null, "routing": [["v1-model-routing", 24], ["v1-catch-all-model-routing", 3]]}, "split": {"yaml": "- name: v1-model-routing-v1-completions\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/completions\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/completions/\n  # ... 4 more matches of the same form\n\n- name: v1-model-routing-v1-chat-completions\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/chat/completions\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/chat/completions/\n  # ... 4 more matches of the same form\n\n- name: v1-model-routing-v1-responses\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/responses\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/responses/\n  # ... 4 more matches of the same form\n\n- name: v1-model-routing-v1-messages\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/messages\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/messages/\n  # ... 4 more matches of the same form\n\n- name: v1-catch-all-model-routing\n  backendRefs:\n  - kind: Service\n    name: svc-a-kserve-workload-svc\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: PathPrefix\n      value: /\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/adapter-a1\n    path:\n      type: PathPrefix\n      value: /\n  # ... 1 more matches of the same form", "note": "The same matches spread over four rules, so the per-rule cap stops binding and the route-wide 128 takes over. Renames a rule one-to-four.", "rules": 15, "matches": 37, "binds": "128 matches per route", "maxA": 12, "moved": 0, "routing": [["v1-model-routing-v1-completions", 6], ["v1-model-routing-v1-chat-completions", 6], ["v1-model-routing-v1-responses", 6], ["v1-model-routing-v1-messages", 6], ["v1-catch-all-model-routing", 3]]}, "split-noslash": {"yaml": "- name: v1-model-routing-v1-completions\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/completions\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/adapter-a1\n    path:\n      type: Exact\n      value: /v1/completions\n  # ... 1 more matches of the same form\n\n- name: v1-model-routing-v1-chat-completions\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/chat/completions\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/adapter-a1\n    path:\n      type: Exact\n      value: /v1/chat/completions\n  # ... 1 more matches of the same form\n\n- name: v1-model-routing-v1-responses\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/responses\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/adapter-a1\n    path:\n      type: Exact\n      value: /v1/responses\n  # ... 1 more matches of the same form\n\n- name: v1-model-routing-v1-messages\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/messages\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/adapter-a1\n    path:\n      type: Exact\n      value: /v1/messages\n  # ... 1 more matches of the same form\n\n- name: v1-catch-all-model-routing\n  backendRefs:\n  - kind: Service\n    name: svc-a-kserve-workload-svc\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: PathPrefix\n      value: /\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/adapter-a1\n    path:\n      type: PathPrefix\n      value: /\n  # ... 1 more matches of the same form", "note": "As split, minus the trailing-slash twins &mdash; which only exist because the header rule uses Exact. One request moves.", "rules": 15, "matches": 25, "binds": "128 matches per route", "maxA": 22, "moved": 1, "routing": [["v1-model-routing-v1-completions", 3], ["v1-model-routing-v1-chat-completions", 3], ["v1-model-routing-v1-responses", 3], ["v1-model-routing-v1-messages", 3], ["v1-catch-all-model-routing", 3]]}, "prefix": {"yaml": "- name: v1-model-routing\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - path:\n      type: PathPrefix\n      value: /v1/completions\n    headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n  - path:\n      type: PathPrefix\n      value: /v1/chat/completions\n    headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n  # ... 10 more matches of the same form\n\n- name: v1-catch-all-model-routing\n  backendRefs:\n  - kind: Service\n    name: svc-a-kserve-workload-svc\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: PathPrefix\n      value: /\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/adapter-a1\n    path:\n      type: PathPrefix\n      value: /\n  # ... 1 more matches of the same form", "note": "PathPrefix makes the twins redundant without splitting. Reaches further down each endpoint&rsquo;s sub-paths, which moves eight requests.", "rules": 12, "matches": 25, "binds": "64 matches in one rule", "maxA": 15, "moved": 8, "routing": [["v1-model-routing", 12], ["v1-catch-all-model-routing", 3]]}, "alternation": {"yaml": "- name: v1-model-routing\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: RegularExpression\n      value: publishers/lora\\-budget/models/(model\\-a|adapter\\-a1|adapter\\-a2)\n    path:\n      type: Exact\n      value: /v1/completions\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: RegularExpression\n      value: publishers/lora\\-budget/models/(model\\-a|adapter\\-a1|adapter\\-a2)\n    path:\n      type: Exact\n      value: /v1/completions/\n  # ... 6 more matches of the same form\n\n- name: v1-catch-all-model-routing\n  backendRefs:\n  - kind: Service\n    name: svc-a-kserve-workload-svc\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: RegularExpression\n      value: publishers/lora\\-budget/models/(model\\-a|adapter\\-a1|adapter\\-a2)\n    path:\n      type: PathPrefix\n      value: /", "note": "One regex listing the names that already exist. Match count stops growing; the pattern grows instead, until the 4096-byte header value cap.", "rules": 12, "matches": 19, "binds": "4096-byte header value", "maxA": 297, "moved": 0, "routing": [["v1-model-routing", 8], ["v1-catch-all-model-routing", 1]]}, "nested": {"yaml": "- name: v1-model-routing\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: RegularExpression\n      value: publishers/lora\\-budget/models/model\\-a(/.*)?\n    path:\n      type: Exact\n      value: /v1/completions\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: RegularExpression\n      value: publishers/lora\\-budget/models/model\\-a(/.*)?\n    path:\n      type: Exact\n      value: /v1/completions/\n  # ... 6 more matches of the same form\n\n- name: v1-catch-all-model-routing\n  backendRefs:\n  - kind: Service\n    name: svc-a-kserve-workload-svc\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: RegularExpression\n      value: publishers/lora\\-budget/models/model\\-a(/.*)?\n    path:\n      type: PathPrefix\n      value: /", "note": "Adapters served beneath the base model, so one prefix covers all of them. The adapter axis leaves the route entirely &mdash; at the cost of the name clients send.", "rules": 12, "matches": 19, "binds": "nothing in the route", "maxA": null, "moved": 7, "routing": [["v1-model-routing", 8], ["v1-catch-all-model-routing", 1]]}, "collapse": {"yaml": "- name: v1-model-routing\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/adapter-a1\n  # ... 1 more matches of the same form\n\n- name: v1-catch-all-model-routing\n  backendRefs:\n  - kind: Service\n    name: svc-a-kserve-workload-svc\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: PathPrefix\n      value: /\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/adapter-a1\n    path:\n      type: PathPrefix\n      value: /\n  # ... 1 more matches of the same form", "note": "Drop the path from the routing rule. Large ceiling, but the rule now matches every path rather than four.", "rules": 12, "matches": 16, "binds": "128 matches per route", "maxA": 58, "moved": 20, "routing": [["v1-model-routing", 3], ["v1-catch-all-model-routing", 3]]}, "collapse-dedup": {"yaml": "- name: v1-model-routing\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/adapter-a1\n  # ... 1 more matches of the same form", "note": "Collapse, plus deleting the catch-all it renders unreachable. Behaviourally identical to collapse.", "rules": 11, "matches": 13, "binds": "64 matches in one rule", "maxA": 63, "moved": 20, "routing": [["v1-model-routing", 3]]}};
+
+  function esc(s) {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  // Minimal YAML colouriser. Works per line on already-escaped text:
+  // split into indent / list dash / body, peel a trailing comment, then split
+  // the body on the first "key:" -- no reaching back into emitted markup.
+  function paint(src) {
+    return esc(src).split("\n").map(function (line) {
+      var whole = line.match(/^(\s*)(#.*)$/);
+      if (whole) return whole[1] + '<span class="y-c">' + whole[2] + '</span>';
+
+      var m = line.match(/^(\s*)(- )?([\s\S]*)$/);
+      var out = m[1] + (m[2] ? '<span class="y-d">' + m[2] + '</span>' : "");
+      var rest = m[3], trail = "";
+
+      var hash = rest.indexOf(" #");
+      if (hash > -1) {
+        trail = '<span class="y-c">' + rest.slice(hash) + '</span>';
+        rest = rest.slice(0, hash);
+      }
+
+      var kv = rest.match(/^([A-Za-z_][\w.\/-]*)(:)(\s*)([\s\S]*)$/);
+      if (kv) {
+        out += '<span class="y-k">' + kv[1] + '</span><span class="y-p">:</span>' + kv[3];
+        if (kv[4].length) {
+          out += '<span class="' + (/^-?\d+$/.test(kv[4]) ? "y-n" : "y-v") + '">' + kv[4] + '</span>';
+        }
+      } else {
+        out += rest;
+      }
+      return out + trail;
+    }).join("\n");
+  }
+
+  var tiles  = Array.prototype.slice.call(document.querySelectorAll(".tile"));
+  var ycode  = document.getElementById("ycode");
+  var yname  = document.getElementById("yname");
+  var ynote  = document.getElementById("ynote");
+  var ystats = document.getElementById("ystats");
+
+  function select(shape) {
+    var d = DATA[shape];
+    if (!d) return;
+    tiles.forEach(function (t) {
+      var on = t.dataset.shape === shape;
+      t.classList.toggle("on", on);
+      t.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    yname.textContent = shape;
+    ynote.innerHTML = d.note;
+    var moved = d.moved === null ? "baseline" : d.moved + " of 72 requests move";
+    ystats.textContent = (d.maxA === null ? "unbounded" : d.maxA + " adapters")
+                       + " · " + d.rules + " rules · " + d.matches + " matches · " + moved;
+    ycode.innerHTML = paint(d.yaml);
+  }
+
+  tiles.forEach(function (t) {
+    t.addEventListener("click", function () { select(t.dataset.shape); });
+  });
+  select("current");
+})();
+</script>
 
 <section>
   <h2>What the shapes actually look like</h2>

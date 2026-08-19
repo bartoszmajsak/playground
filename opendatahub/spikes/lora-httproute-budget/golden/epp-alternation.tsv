@@ -1,0 +1,13 @@
+GET	/health	hdr	200	(empty)
+GET	/metrics	hdr	200	# HELP python_gc_objects_collected_total Objects collected during gc# TYPE python_gc_objects_collected_total counterpyth
+GET	/v1/models	hdr	200	{"object":"list","data":[{"id":"model-a","object":"model","created":1787176137,"owned_by":"vllm","root":"/mnt/models","p
+POST	/v1/embeddings	hdr	404	{"detail":"Not Found"}
+POST	/v1/messages/count_tokens	hdr	200	{"input_tokens":9,"context_management":{"original_input_tokens":9}}
+GET	/v1/responses/resp_abc123	hdr	404	{"error":{"message":"Response with id 'resp_abc123' not found.","type":"invalid_request_error","param":"response_id","co
+POST	/anything/at/all	hdr	404	{"detail":"Not Found"}
+GET	/	hdr	404	{"detail":"Not Found"}
+POST	/v1/chat/completions	hdr	200	{"id":"chatcmpl-03ee1648-0792-4fa1-82aa-7538c6e3c922","object":"chat.completion","created":1787176137,"model":"model-a",
+POST	/v1/chat/completions	adapter	200	{"id":"chatcmpl-a96ec340-8cc8-4201-b6c3-562e9d818d69","object":"chat.completion","created":1787176137,"model":"publisher
+POST	/lora-budget/svc-a/v1/chat/completions	-	200	{"id":"chatcmpl-36263338-65cf-4053-9bc8-d4d203043f99","object":"chat.completion","created":1787176137,"model":"model-a",
+GET	/lora-budget/svc-a/health	-	200	(empty)
+GET	/lora-budget/svc-a/v1/models	-	200	{"object":"list","data":[{"id":"model-a","object":"model","created":1787176137,"owned_by":"vllm","root":"/mnt/models","p

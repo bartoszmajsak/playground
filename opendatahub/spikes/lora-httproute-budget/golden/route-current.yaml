@@ -893,6 +893,62 @@ spec:
       path:
         type: Exact
         value: /v1/messages/
+    - headers:
+      - name: X-Gateway-Model-Name
+        type: Exact
+        value: publishers/lora-budget/models/shared-adapter
+      path:
+        type: Exact
+        value: /v1/completions
+    - headers:
+      - name: X-Gateway-Model-Name
+        type: Exact
+        value: publishers/lora-budget/models/shared-adapter
+      path:
+        type: Exact
+        value: /v1/completions/
+    - headers:
+      - name: X-Gateway-Model-Name
+        type: Exact
+        value: publishers/lora-budget/models/shared-adapter
+      path:
+        type: Exact
+        value: /v1/chat/completions
+    - headers:
+      - name: X-Gateway-Model-Name
+        type: Exact
+        value: publishers/lora-budget/models/shared-adapter
+      path:
+        type: Exact
+        value: /v1/chat/completions/
+    - headers:
+      - name: X-Gateway-Model-Name
+        type: Exact
+        value: publishers/lora-budget/models/shared-adapter
+      path:
+        type: Exact
+        value: /v1/responses
+    - headers:
+      - name: X-Gateway-Model-Name
+        type: Exact
+        value: publishers/lora-budget/models/shared-adapter
+      path:
+        type: Exact
+        value: /v1/responses/
+    - headers:
+      - name: X-Gateway-Model-Name
+        type: Exact
+        value: publishers/lora-budget/models/shared-adapter
+      path:
+        type: Exact
+        value: /v1/messages
+    - headers:
+      - name: X-Gateway-Model-Name
+        type: Exact
+        value: publishers/lora-budget/models/shared-adapter
+      path:
+        type: Exact
+        value: /v1/messages/
     name: v1-model-routing
     timeouts:
       backendRequest: 0s
@@ -1028,6 +1084,13 @@ spec:
       - name: X-Gateway-Model-Name
         type: Exact
         value: publishers/lora-budget/models/model-b
+      path:
+        type: PathPrefix
+        value: /
+    - headers:
+      - name: X-Gateway-Model-Name
+        type: Exact
+        value: publishers/lora-budget/models/shared-adapter
       path:
         type: PathPrefix
         value: /

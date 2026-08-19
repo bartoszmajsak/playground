@@ -18,7 +18,7 @@ export KUBECONFIG="${KUBECONFIG:-${SCRIPT_DIR}/.kubeconfig}"
 GREEN='\033[0;32m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
 
 SHAPES=("${@:-}")
-[[ -z "${SHAPES[*]}" ]] && SHAPES=(current split split-noslash prefix split-prefix nested collapse collapse-dedup)
+[[ -z "${SHAPES[*]}" ]] && SHAPES=(current split split-noslash prefix split-prefix alternation nested collapse collapse-dedup)
 
 render() {  # shape, adapters -> route yaml on stdout
     python3 - "$1" "$2" <<'PY'
@@ -74,6 +74,17 @@ elif shape in ("split", "split-noslash"):
              for p in paths for v in names]
         rules.append({"name": "{}-{}".format(TARGET, slug(ep)),
                       "backendRefs": pool, "timeouts": timeouts, "matches": m})
+elif shape == "alternation":
+    # One regex listing the existing names. Match COUNT is constant; what grows
+    # is the pattern, bounded by the CRD's 4096-byte cap on a header value.
+    pat = re.escape(q(MODEL) + "/") .rsplit("/", 1)[0]
+    prefix = "publishers/" + NS + "/models/"
+    tails = [MODEL] + ["adapter-a%d" % i for i in range(1, n + 1)]
+    pat = re.escape(prefix) + "(" + "|".join(re.escape(t) for t in tails) + ")"
+    m = [{"path": {"type": "Exact", "value": p2}, "headers":
+          [{"type": "RegularExpression", "name": HDR, "value": pat}]}
+         for ep in ENDPOINTS for p2 in (ep, ep + "/")]
+    rules.append({"name": TARGET, "backendRefs": pool, "timeouts": timeouts, "matches": m})
 elif shape == "nested":
     # One regex covers the base model and everything nested beneath it, so the
     # adapter axis disappears from the route entirely: match count is constant.
@@ -115,6 +126,12 @@ if shape != "collapse-dedup":
                   "matches": ([{"headers": [{"type": "RegularExpression", "name": HDR,
                                              "value": re.escape(q(MODEL)) + "(/.*)?"}]}]
                               if shape == "nested" else
+                              [{"headers": [{"type": "RegularExpression", "name": HDR,
+                                             "value": re.escape("publishers/" + NS + "/models/") + "("
+                                                      + "|".join(re.escape(t) for t in
+                                                                 [MODEL] + ["adapter-a%d" % i for i in range(1, n + 1)])
+                                                      + ")"}]}]
+                              if shape == "alternation" else
                               [{"headers": hdr(v)} for v in names])})
 
 print(yaml.safe_dump({
@@ -140,7 +157,7 @@ printf '  %-14s %-6s %-7s %-9s %-7s %s\n' -------------- ------ ------- --------
 
 for shape in "${SHAPES[@]}"; do
     last_ok=-1; reason=""
-    for n in $(seq 0 200); do
+    for n in $(seq 0 400); do
         if render "$shape" "$n" | kubectl apply --dry-run=server -f - >/dev/null 2>/tmp/ceilerr; then
             last_ok=$n
         else
