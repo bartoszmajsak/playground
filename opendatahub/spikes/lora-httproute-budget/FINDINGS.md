@@ -494,6 +494,20 @@ Rehearsed with real Kuadrant 1.5.2 on the kind cluster: an `AuthPolicy` with
 `targetRef.sectionName: v1-model-routing` and a deny-everything rule, then the
 `split` shape applied over it.
 
+**This policy was hand-written for the test — it is not one odh-model-controller
+ships.** odh attaches two AuthPolicies and neither uses `sectionName`: the
+Gateway-level one targets `Kind: Gateway` (`gateway_controller.go:236`) and the
+route-level one targets the whole `Kind: HTTPRoute`
+(`kserve_authpolicy_reconciler.go:86`). Both target whole objects, so **neither
+detaches on a rule rename** — as `llmisvc-httproute-phased-plan.md` Phase 1.5
+already predicted.
+
+So everything below is about **user-attached** policies pinned to kserve rule
+names. That narrows the blast radius: it is not an ODH-shipped-config problem.
+It is also worth noting kserve rule names are not documented API today, so
+pinning to them is undocumented-but-possible rather than supported — WP1.2
+proposes making them API via `status.router`, which would change that.
+
 | step | observed |
 |---|---|
 | policy attached | `Accepted=True`, `Enforced=True` |
