@@ -367,6 +367,11 @@
         <td class="num">8</td><td>yes</td><td><span class="tag warn">yes</span></td>
       </tr>
       <tr class="is-pick">
+        <td><code>alternation</code></td>
+        <td><div class="bar"><div class="track"><div class="fill" style="width:100%"></div></div><span class="val">320</span></div></td>
+        <td class="num"><span class="tag ok">0</span></td><td>yes</td><td>no</td>
+      </tr>
+      <tr>
         <td><code>nested</code></td>
         <td><div class="bar"><div class="track"><div class="fill" style="width:100%"></div></div><span class="val">∞</span></div></td>
         <td class="num">7</td><td>yes</td><td>no</td>
@@ -430,6 +435,18 @@
     </div>
 
     <div class="card pick">
+      <h4><code>alternation</code> <span class="tag ok">7 &rarr; 320</span></h4>
+      <p class="cap">List the existing names in one regex. Change nothing else.</p>
+      <ul>
+        <li class="pro">Zero behaviour change &mdash; byte-identical across all 72 probes</li>
+        <li class="pro">No renamed rule, no renamed model, nothing a client sees</li>
+        <li class="pro">Anchored exactly: <code>adapter-a1</code> matches, <code>adapter-a11</code> does not</li>
+        <li class="con">Tops out at 120&ndash;450 depending on name length, not truly unbounded</li>
+        <li class="con">Pattern is rewritten whenever the adapter set changes, so route churn stays</li>
+      </ul>
+    </div>
+
+    <div class="card">
       <h4><code>nested</code> <span class="tag ok">7 → unbounded</span></h4>
       <p class="cap">Serve adapters beneath the base model; match one prefix.</p>
       <ul>
@@ -908,82 +925,84 @@
       <tr>
         <th></th>
         <th>current</th><th>split</th><th>split-noslash</th>
-        <th>prefix</th><th>nested</th><th>collapse</th>
+        <th>prefix</th><th class="pickcol">alternation</th><th>nested</th><th>collapse</th>
       </tr>
     </thead>
     <tbody>
       <tr>
         <td class="ax">max adapters</td>
-        <td class="num bad">7</td><td class="num">12</td><td class="num good">22</td>
-        <td class="num">15</td><td class="num good">unbounded</td><td class="num good">58</td>
+        <td class="num bad">7</td><td class="num">12</td><td class="num">22</td>
+        <td class="num">15</td><td class="num good">320</td><td class="num good">unbounded</td><td class="num good">58</td>
       </tr>
       <tr>
         <td class="ax">what binds it</td>
         <td>64/rule</td><td>128/route</td><td>128/route</td>
-        <td>64/rule</td><td class="good">nothing</td><td>128/route</td>
+        <td>64/rule</td><td>4096-byte header</td><td class="good">nothing</td><td>128/route</td>
       </tr>
       <tr>
         <td class="ax">rule slots used <span class="hint">of 16</span></td>
         <td class="num">12</td><td class="num warnc">15</td><td class="num warnc">15</td>
-        <td class="num">12</td><td class="num">12</td><td class="num">12</td>
+        <td class="num">12</td><td class="num">12</td><td class="num">12</td><td class="num">12</td>
       </tr>
       <tr>
         <td class="ax">requests that move</td>
-        <td>—</td><td class="good">0</td><td class="good">1</td>
-        <td>8</td><td>7</td><td>20</td>
+        <td>&mdash;</td><td class="good">0</td><td class="good">1</td>
+        <td>8</td><td class="good">0</td><td>7</td><td>20</td>
       </tr>
       <tr>
         <td class="ax">outcomes that change</td>
-        <td>—</td><td class="good">0</td><td>1</td>
-        <td>not measured</td><td>not measured</td><td class="good">2</td>
+        <td>&mdash;</td><td class="good">0</td><td>1</td>
+        <td>not measured</td><td class="good">0</td><td>not measured</td><td class="good">2</td>
       </tr>
       <tr>
         <td class="ax">keeps path scope</td>
         <td>yes</td><td>yes</td><td>yes</td>
-        <td>yes</td><td>yes</td><td class="bad">no</td>
+        <td>yes</td><td>yes</td><td>yes</td><td class="bad">no</td>
       </tr>
       <tr>
         <td class="ax">renames rules</td>
-        <td>—</td><td class="bad">yes, 1→4</td><td class="bad">yes, 1→4</td>
-        <td class="good">no</td><td class="good">no</td><td class="good">no</td>
+        <td>&mdash;</td><td class="bad">yes, 1&rarr;4</td><td class="bad">yes, 1&rarr;4</td>
+        <td class="good">no</td><td class="good">no</td><td class="good">no</td><td class="good">no</td>
       </tr>
       <tr>
         <td class="ax">policy migration</td>
-        <td>—</td><td class="bad">unaliasable</td><td class="bad">unaliasable</td>
-        <td class="good">none</td><td class="good">none</td><td class="good">none</td>
+        <td>&mdash;</td><td class="bad">unaliasable</td><td class="bad">unaliasable</td>
+        <td class="good">none</td><td class="good">none</td><td class="good">none</td><td class="good">none</td>
       </tr>
       <tr>
         <td class="ax">client-visible strings change</td>
-        <td>—</td><td class="good">no</td><td class="good">no</td>
-        <td class="good">no</td><td class="bad">yes</td><td class="good">no</td>
+        <td>&mdash;</td><td class="good">no</td><td class="good">no</td>
+        <td class="good">no</td><td class="good">no</td><td class="bad">yes</td><td class="good">no</td>
       </tr>
       <tr>
-        <td class="ax">needs a body-based router</td>
-        <td>—</td><td class="good">no</td><td class="good">no</td>
-        <td class="good">no</td><td class="good">no</td><td class="good">no</td>
+        <td class="ax">route rewritten per adapter</td>
+        <td class="warnc">yes</td><td class="warnc">yes</td><td class="warnc">yes</td>
+        <td class="warnc">yes</td><td class="warnc">yes</td><td class="good">no</td><td class="warnc">yes</td>
       </tr>
       <tr>
         <td class="ax">uses a header regex</td>
         <td>no</td><td>no</td><td>no</td>
-        <td>no</td><td class="warnc">yes</td><td>no</td>
+        <td>no</td><td class="warnc">yes</td><td class="warnc">yes</td><td>no</td>
       </tr>
       <tr>
         <td class="ax">reversible</td>
-        <td>—</td><td>yes</td><td>yes</td>
-        <td>yes</td><td class="warnc">only before clients adopt</td><td>yes</td>
+        <td>&mdash;</td><td>yes</td><td>yes</td>
+        <td>yes</td><td class="good">yes</td><td class="warnc">only before clients adopt</td><td>yes</td>
       </tr>
     </tbody>
   </table>
   </div>
 
   <div class="note">
-    <span class="lbl">two rows worth reading together</span>
+    <span class="lbl">read these three rows together</span>
     <p>
-      <strong>Renames rules</strong> and <strong>client-visible strings change</strong> are
-      the only two rows that cost anything outside the route object — and no shape has
-      both. <code>split</code> pays in policy migration; <code>nested</code> pays in
-      client naming; <code>prefix</code> and <code>collapse</code> pay in neither, and
-      buy less or give up path scope instead.
+      <strong>Renames rules</strong>, <strong>client-visible strings change</strong> and
+      <strong>route rewritten per adapter</strong> are the only rows that cost anything
+      beyond the route object. <code>split</code> pays in policy migration.
+      <code>nested</code> pays in client naming, and is the only shape that stops the route
+      being rewritten every time an adapter changes. <code>alternation</code> pays in
+      neither — it is the same constant-match trick as <code>nested</code>, applied to the
+      names that already exist.
     </p>
   </div>
 
@@ -1035,6 +1054,21 @@ publishers/&lt;ns&gt;/models/<span class="hi">llama-3-8b/adapters/sql-adapter</s
     model=<span class="c">"publishers/my-ns/models/sql-adapter"</span>,              <span class="c"># before</span>
     model=<span class="hi">"publishers/my-ns/models/llama-3-8b/adapters/sql-adapter"</span>,  <span class="c"># after</span>
 )</pre>
+  </div>
+
+  <div class="note warn">
+    <span class="lbl">check <code>alternation</code> first</span>
+    <p>
+      Both design docs proposed nesting specifically as the alternative to an
+      alternation regex &mdash; <em>&ldquo;a single fixed prefix regex &hellip; unlike an
+      alternation, which is not&rdquo;</em> &mdash; on the grounds that an alternation blows
+      Envoy&rsquo;s RE2 program-size limit. That limit is <strong>32768 on Istio</strong>,
+      not the 100 assumed, and the real bound turns out to be the 4096-byte cap on a header
+      match value: <strong>320 adapters</strong>, measured, with zero behaviour change and
+      no naming migration at all. Everything below is still true, but it is only worth
+      paying if 320 is not enough, or if removing per-adapter route churn matters on its
+      own.
+    </p>
   </div>
 
   <h3>The business ask, concretely</h3>
@@ -1363,7 +1397,7 @@ then:
 
 <section class="col">
   <h2>Recommendation</h2>
-  <p class="sub">Two things worth doing regardless, then one choice that depends on a number nobody has fixed yet.</p>
+  <p class="sub">One no-regret fix, one shape that costs nothing, and a question that decides whether anything else is needed.</p>
 
   <ol class="steps">
     <li>
@@ -1372,42 +1406,59 @@ then:
         <p>
           Removing adapters never shrinks the route, so the budget is sticky — a service
           that once had seven carries that cost after dropping to three. And nothing counts
-          matches before applying. Both are needed under every shape below, and neither
+          matches before applying, which is why the failure arrives as a raw CEL rejection
+          rather than a condition. Both are needed under every shape below, and neither
           changes any behaviour.
         </p>
       </div>
     </li>
     <li>
       <div>
-        <h4>Take <code>prefix</code> or <code>split-noslash</code> for the near term</h4>
+        <h4>Take <code>alternation</code></h4>
         <p>
-          <code>prefix</code> reaches 15 and renames nothing.
-          <code>split-noslash</code> reaches 22 for one moved probe but renames a rule 1→4,
-          which cannot be safely aliased. If nobody has pinned a policy to
-          <code>v1-model-routing</code>, take <code>split-noslash</code>. If you can't be
-          sure, take <code>prefix</code>.
+          <strong>7 → 320 adapters for zero behaviour change.</strong> One regex listing
+          the model names that already exist, in place of one Exact match each. Byte-identical
+          across all 72 probes, no renamed rule so no policy migration, no renamed model so
+          nothing a client sends changes, and anchoring verified exact. It is the same
+          constant-match trick <code>nested</code> uses, applied to today's names instead of
+          new ones.
         </p>
       </div>
     </li>
     <li>
       <div>
-        <h4>Decide whether you need more than ~22</h4>
+        <h4>Only then ask whether 320 is short</h4>
         <p>
-          If yes, <code>nested</code> is the answer and the question becomes a naming
-          decision, not a routing one. If no, stop — the route stops being the constraint
-          and adapter count returns to being a GPU-memory question.
+          If it is — or if per-adapter route churn is a problem in its own right, since
+          <code>alternation</code> still rewrites the pattern on every adapter change —
+          <code>nested</code> is the answer and the question becomes a naming decision
+          rather than a routing one. Otherwise stop: the route is no longer the constraint,
+          and adapter count goes back to being a GPU-memory question.
         </p>
       </div>
     </li>
   </ol>
 
+  <div class="note">
+    <span class="lbl">why this changed</span>
+    <p>
+      Both design docs proposed nested naming <em>specifically as the alternative to an
+      alternation</em>, which they rejected because an alternation would blow Envoy's RE2
+      program-size limit. Measured, that limit is <strong>32768 on Istio</strong> rather
+      than the assumed 100, and the binding constraint is instead the 4096-byte cap on a
+      header match value — which lands at 320 adapters, not two. The option was ruled out
+      on a premise that does not hold here.
+    </p>
+  </div>
+
   <div class="note warn">
     <span class="lbl">the counter-intuitive bit</span>
     <p>
       <code>split</code> looks free — zero behaviour change — and is the <em>only</em>
-      family that triggers the migration hazard. <code>nested</code> looks expensive — a
-      user-visible naming change — and touches no rule name at all. The cheap-looking
-      option carries the migration cost; the expensive-looking one doesn't.
+      family that triggers the migration hazard, because it renames a rule one-to-four and
+      that rename cannot be safely aliased. <code>alternation</code> is also zero behaviour
+      change, renames nothing, and reaches 320 instead of 12. Where <code>split</code> looked
+      like the cheap first step, it is now dominated outright.
     </p>
   </div>
 </section>
