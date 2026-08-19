@@ -556,6 +556,41 @@ Phase 1.5 migration hazard, and its 1:4 rename is precisely the case aliasing
 cannot cover. `nested`, the shape with the largest apparent cost (a served-name
 change), preserves every rule name and has **no** policy-detach problem at all.
 
+### Route replacement does NOT bypass a whole-route policy
+
+The `sectionName` case above is about user-attached policies. odh's own policies
+target whole objects, so the question for them is different: does replacing the
+HTTPRoute detach the policy while traffic is flowing? (The RHOAIENG-56131 class.)
+
+Tested with a whole-route `AuthPolicy` (no `sectionName`, deny-everything,
+odh's shape), polling ~100x/sec through the change:
+
+| scenario | 403 (denied) | 000 (connection failure) | **2xx bypass** |
+|---|---|---|---|
+| in-place update (SSA apply of a different shape) | 2602 | 291 | **0** |
+| delete + recreate | 2346 | 217 | **0** |
+
+**No authorization bypass in either case**, and the policy reports
+`Accepted=True`/`Enforced=True` throughout. What does happen is a short
+availability gap — roughly 10% of a tight polling loop fails to connect while
+the route is being reprogrammed. That is a connection-level failure, not a
+request being wrongly allowed.
+
+So the two policy shapes fail in different directions, and neither the way the
+docs assumed:
+
+| policy | rule rename | route replacement |
+|---|---|---|
+| `sectionName`-pinned (user-attached) | **enforcement lost**, but loud (`TargetNotFound`) | not tested |
+| whole-route (odh's shape) | unaffected — rule names absent from targetRef | **no bypass**; brief unavailability |
+
+*Correction worth recording:* the first run of this test reported a leak in both
+scenarios. That was a probe bug — `curl -w '%{http_code}'` emits `000` on
+connection failure and the script also had a `|| echo 000` fallback, so failures
+were counted as non-403 and read as bypasses. Counting only 2xx as a bypass
+gives zero. Availability blips and authorization gaps look identical to a naive
+status-code check.
+
 ### What this means for Phase 1.5
 
 - A pre-upgrade check is cheap now: enumerate `AuthPolicy` (and
