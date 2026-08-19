@@ -1,0 +1,879 @@
+<title>The Seven-Adapter Ceiling</title>
+<style>
+  :root {
+    --ink:        #10151C;
+    --ink-soft:   #5A6472;
+    --paper:      #F7F8FA;
+    --surface:    #FFFFFF;
+    --rule:       #DDE2E8;
+    --rule-soft:  #EAEEF2;
+    --accent:     #1F6F6B;
+    --accent-dim: #E3EFEE;
+    --warn:       #B45309;
+    --warn-dim:   #FBF0E2;
+    --crit:       #A32B2B;
+    --crit-dim:   #F8E9E9;
+    --bar-track:  #E7EBF0;
+
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, "Cascadia Code", Menlo, Consolas, monospace;
+
+    --measure: 68ch;
+    --pad: clamp(1.25rem, 4vw, 3rem);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ink:        #E4E8ED;
+      --ink-soft:   #98A3B0;
+      --paper:      #0F1319;
+      --surface:    #161B22;
+      --rule:       #2A323C;
+      --rule-soft:  #222932;
+      --accent:     #57B9B3;
+      --accent-dim: #16302F;
+      --warn:       #D98324;
+      --warn-dim:   #33240F;
+      --crit:       #D96565;
+      --crit-dim:   #331A1A;
+      --bar-track:  #232A33;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ink:        #E4E8ED;
+    --ink-soft:   #98A3B0;
+    --paper:      #0F1319;
+    --surface:    #161B22;
+    --rule:       #2A323C;
+    --rule-soft:  #222932;
+    --accent:     #57B9B3;
+    --accent-dim: #16302F;
+    --warn:       #D98324;
+    --warn-dim:   #33240F;
+    --crit:       #D96565;
+    --crit-dim:   #331A1A;
+    --bar-track:  #232A33;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16.5px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 78rem; margin: 0 auto; padding: 0 var(--pad) 6rem; }
+  .col  { max-width: var(--measure); }
+
+  /* ---- masthead ---- */
+  header.mast { padding: clamp(3rem, 8vw, 5.5rem) 0 2.5rem; border-bottom: 1px solid var(--rule); }
+  .eyebrow {
+    font-family: var(--mono); font-size: .72rem; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--accent); margin: 0 0 1.1rem;
+  }
+  h1 {
+    font-size: clamp(2.3rem, 6.2vw, 3.9rem); line-height: 1.02;
+    letter-spacing: -.033em; font-weight: 680; margin: 0 0 1.1rem;
+    text-wrap: balance;
+  }
+  .standfirst { font-size: clamp(1.05rem, 2.2vw, 1.24rem); color: var(--ink-soft); margin: 0; max-width: 62ch; }
+  .meta {
+    display: flex; flex-wrap: wrap; gap: .5rem 1.75rem; margin-top: 2rem;
+    font-family: var(--mono); font-size: .78rem; color: var(--ink-soft);
+  }
+  .meta b { color: var(--ink); font-weight: 600; }
+
+  /* ---- structure ---- */
+  section { padding-top: 3.4rem; }
+  h2 {
+    font-size: clamp(1.35rem, 3vw, 1.75rem); letter-spacing: -.018em;
+    font-weight: 650; margin: 0 0 .35rem; text-wrap: balance;
+  }
+  h2 + .sub { color: var(--ink-soft); margin: 0 0 1.6rem; max-width: 62ch; }
+  h3 { font-size: 1.02rem; font-weight: 650; margin: 2rem 0 .5rem; letter-spacing: -.008em; }
+  p  { margin: 0 0 1.05rem; }
+  ul { margin: 0 0 1.05rem; padding-left: 1.15rem; }
+  li { margin-bottom: .4rem; }
+  a  { color: var(--accent); text-underline-offset: 2px; }
+  code {
+    font-family: var(--mono); font-size: .855em;
+    background: var(--rule-soft); padding: .1em .34em; border-radius: 3px;
+  }
+  strong { font-weight: 640; }
+
+  /* ---- data ---- */
+  .scroll { overflow-x: auto; margin: 0 0 1.4rem; }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+  th, td { text-align: left; padding: .6rem .85rem; border-bottom: 1px solid var(--rule-soft); }
+  th {
+    font-family: var(--mono); font-size: .7rem; letter-spacing: .09em;
+    text-transform: uppercase; color: var(--ink-soft); font-weight: 500;
+    border-bottom: 1px solid var(--rule); white-space: nowrap;
+  }
+  td.num, th.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tbody tr:hover { background: var(--rule-soft); }
+  tr.is-current td { background: var(--warn-dim); }
+  tr.is-pick td { background: var(--accent-dim); }
+
+  .tag {
+    font-family: var(--mono); font-size: .7rem; padding: .12em .45em;
+    border-radius: 3px; white-space: nowrap; font-variant-numeric: tabular-nums;
+  }
+  .tag.ok   { background: var(--accent-dim); color: var(--accent); }
+  .tag.warn { background: var(--warn-dim);   color: var(--warn);   }
+  .tag.crit { background: var(--crit-dim);   color: var(--crit);   }
+
+  /* capacity bar -- the document is about relative headroom, so show it */
+  .bar { display: flex; align-items: center; gap: .5rem; min-width: 11rem; }
+  .bar .track { flex: 1; height: 7px; background: var(--bar-track); border-radius: 4px; overflow: hidden; }
+  .bar .fill  { height: 100%; background: var(--accent); border-radius: 4px; }
+  .bar .fill.warn { background: var(--warn); }
+  .bar .val { font-family: var(--mono); font-size: .8rem; font-variant-numeric: tabular-nums; min-width: 3.4rem; }
+
+  /* ---- callouts ---- */
+  .note {
+    border-left: 2px solid var(--accent); background: var(--surface);
+    padding: 1rem 1.15rem; margin: 0 0 1.4rem; border-radius: 0 4px 4px 0;
+  }
+  .note.warn { border-left-color: var(--warn); }
+  .note p:last-child { margin-bottom: 0; }
+  .note .lbl {
+    font-family: var(--mono); font-size: .7rem; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--ink-soft); display: block; margin-bottom: .35rem;
+  }
+
+  /* ---- option cards ---- */
+  .cards { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr)); margin-bottom: 1.4rem; }
+  .card {
+    background: var(--surface); border: 1px solid var(--rule);
+    border-radius: 6px; padding: 1.1rem 1.2rem;
+  }
+  .card.pick { border-color: var(--accent); }
+  .card h4 {
+    font-family: var(--mono); font-size: .92rem; margin: 0 0 .1rem; font-weight: 600;
+    display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap;
+  }
+  .card .cap { font-family: var(--mono); font-size: .78rem; color: var(--ink-soft); margin: 0 0 .8rem; }
+  .card ul { margin: 0; padding-left: 1.05rem; font-size: .89rem; }
+  .card li { margin-bottom: .3rem; }
+  .card li.pro::marker { content: "+  "; color: var(--accent); }
+  .card li.con::marker { content: "\2212  "; color: var(--warn); }
+
+  .steps { counter-reset: s; list-style: none; padding: 0; margin: 0; display: grid; gap: 1rem; }
+  .steps li { counter-increment: s; display: grid; grid-template-columns: 2rem 1fr; gap: .9rem; margin: 0; }
+  .steps li::before {
+    content: counter(s); font-family: var(--mono); font-size: .8rem; font-weight: 600;
+    color: var(--accent); background: var(--accent-dim);
+    width: 1.7rem; height: 1.7rem; border-radius: 50%;
+    display: grid; place-items: center; margin-top: .12rem;
+  }
+  .steps h4 { margin: 0 0 .2rem; font-size: 1rem; font-weight: 640; }
+  .steps p { margin: 0; font-size: .93rem; color: var(--ink-soft); }
+
+  /* ---- figures ---- */
+  .fig { margin: 0 0 2rem; }
+  .fig svg { width: 100%; max-width: 100%; height: auto; display: block; color: var(--ink); }
+  .fig figcaption {
+    font-size: .87rem; color: var(--ink-soft); margin-top: .85rem;
+    max-width: 66ch; line-height: 1.55;
+  }
+
+  /* ---- code block ---- */
+  pre.code {
+    font-family: var(--mono); font-size: .82rem; line-height: 1.6;
+    background: var(--surface); border: 1px solid var(--rule);
+    border-radius: 6px; padding: 1rem 1.15rem; margin: 0 0 1.4rem;
+    overflow-x: auto; white-space: pre; color: var(--ink);
+  }
+  pre.code .c  { color: var(--ink-soft); }
+  pre.code .hi { color: var(--accent); font-weight: 600; }
+
+  footer { margin-top: 4rem; padding-top: 1.4rem; border-top: 1px solid var(--rule);
+           font-size: .85rem; color: var(--ink-soft); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+
+<div class="wrap">
+
+<header class="mast">
+  <p class="eyebrow">kserve · llmisvc · routing spike</p>
+  <h1>The Seven-Adapter Ceiling</h1>
+  <p class="standfirst">
+    An <code>LLMInferenceService</code> stops accepting LoRA adapters at seven, and fails
+    silently when it does. Here is what actually causes it, what each fix costs, and
+    which one to take.
+  </p>
+  <div class="meta">
+    <span><b>8</b> route shapes measured</span>
+    <span><b>72</b> routing probes</span>
+    <span><b>4</b> issues filed</span>
+    <span><b>3</b> corrections to the design docs</span>
+  </div>
+</header>
+
+<section class="col">
+  <h2>What breaks</h2>
+  <p class="sub">And why it doesn't look broken.</p>
+
+  <p>
+    The generated HTTPRoute encodes each adapter as a set of match rules. Gateway API caps
+    a single rule at <strong>64 matches</strong>, and the template puts eight matches per
+    adapter into one rule:
+  </p>
+
+  <div class="scroll">
+  <table>
+    <thead><tr><th>adapters</th><th class="num">matches in the binding rule</th><th class="num">route total</th><th>result</th></tr></thead>
+    <tbody>
+      <tr><td class="num">0</td><td class="num">8</td><td class="num">19</td><td><span class="tag ok">applied</span></td></tr>
+      <tr><td class="num">3</td><td class="num">32</td><td class="num">46</td><td><span class="tag ok">applied</span></td></tr>
+      <tr><td class="num">6</td><td class="num">56</td><td class="num">73</td><td><span class="tag ok">applied</span></td></tr>
+      <tr class="is-current"><td class="num">7</td><td class="num">64</td><td class="num">82</td><td><span class="tag warn">at the cap</span></td></tr>
+      <tr><td class="num">8</td><td class="num">72</td><td class="num">—</td><td><span class="tag crit">rejected</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>The apiserver's answer, verbatim:</p>
+  <div class="note warn">
+    <span class="lbl">rejection</span>
+    <p><code>spec.rules[4].matches: Too many: 72: must have at most 64 items</code></p>
+  </div>
+
+  <p>
+    The dangerous part is what happens next. The rejection lands inside a dry-run
+    defaulting call <em>before</em> the real apply, so the previously applied route keeps
+    serving. Existing adapters carry on working, the new one is simply invisible, and the
+    only signal is a condition on the CR. A service can sit in that state indefinitely —
+    which is why this reaches production having passed every test with three adapters.
+  </p>
+
+  <h3>The ceiling used to be twelve</h3>
+  <p>
+    kserve <a href="https://github.com/kserve/kserve/pull/5826">#5826</a> consolidated four
+    per-endpoint routing rules into one, to free three rule slots. The reasoning was sound
+    and the change was behaviour-neutral — but it traded the wrong resource. Matches
+    multiply per adapter, so concentrating them into one rule multiplies the growth rate
+    against a cap that is <em>per rule</em>. Rule slots weren't scarce (12 of 16 used).
+    Matches were.
+  </p>
+  <div class="scroll">
+  <table>
+    <thead><tr><th></th><th class="num">rules</th><th>routing layout</th><th class="num">max adapters</th></tr></thead>
+    <tbody>
+      <tr><td>before #5826</td><td class="num">15</td><td>4 rules × 2 matches</td><td class="num">12</td></tr>
+      <tr class="is-current"><td>after #5826 (today)</td><td class="num">12</td><td>1 rule × 8 matches</td><td class="num">7</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>
+    At zero adapters both versions are byte-identical. The damage is entirely in the
+    derivative, which nothing measures — and the PR's own test used two adapters, where
+    24 sits comfortably under 64.
+  </p>
+</section>
+
+<section>
+  <h2>The options</h2>
+  <p class="sub">
+    Every ceiling below was measured by asking the apiserver to validate a synthesised
+    route at rising adapter counts. Every “probes moved” figure is a diff of where 72 real
+    requests actually landed, before and after.
+  </p>
+
+  <div class="scroll">
+  <table>
+    <thead>
+      <tr>
+        <th>shape</th>
+        <th class="num">max adapters</th>
+        <th class="num">probes moved</th>
+        <th>keeps path scope</th>
+        <th>renames rules</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr class="is-current">
+        <td><code>current</code></td>
+        <td><div class="bar"><div class="track"><div class="fill warn" style="width:11%"></div></div><span class="val">7</span></div></td>
+        <td class="num">—</td><td>yes</td><td>—</td>
+      </tr>
+      <tr>
+        <td><code>split</code></td>
+        <td><div class="bar"><div class="track"><div class="fill" style="width:19%"></div></div><span class="val">12</span></div></td>
+        <td class="num"><span class="tag ok">0</span></td><td>yes</td><td><span class="tag warn">yes</span></td>
+      </tr>
+      <tr>
+        <td><code>prefix</code></td>
+        <td><div class="bar"><div class="track"><div class="fill" style="width:23%"></div></div><span class="val">15</span></div></td>
+        <td class="num">8</td><td>yes</td><td>no</td>
+      </tr>
+      <tr>
+        <td><code>split-noslash</code></td>
+        <td><div class="bar"><div class="track"><div class="fill" style="width:34%"></div></div><span class="val">22</span></div></td>
+        <td class="num"><span class="tag ok">1</span></td><td>yes</td><td><span class="tag warn">yes</span></td>
+      </tr>
+      <tr>
+        <td><code>split-prefix</code></td>
+        <td><div class="bar"><div class="track"><div class="fill" style="width:34%"></div></div><span class="val">22</span></div></td>
+        <td class="num">8</td><td>yes</td><td><span class="tag warn">yes</span></td>
+      </tr>
+      <tr class="is-pick">
+        <td><code>nested</code></td>
+        <td><div class="bar"><div class="track"><div class="fill" style="width:100%"></div></div><span class="val">∞</span></div></td>
+        <td class="num">7</td><td>yes</td><td>no</td>
+      </tr>
+      <tr>
+        <td><code>collapse</code></td>
+        <td><div class="bar"><div class="track"><div class="fill" style="width:89%"></div></div><span class="val">58</span></div></td>
+        <td class="num">20</td><td><span class="tag warn">no</span></td><td>no</td>
+      </tr>
+      <tr>
+        <td><code>collapse-dedup</code></td>
+        <td><div class="bar"><div class="track"><div class="fill" style="width:97%"></div></div><span class="val">63</span></div></td>
+        <td class="num">20</td><td><span class="tag warn">no</span></td><td><span class="tag warn">yes</span></td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <span class="lbl">read the “probes moved” column carefully</span>
+    <p>
+      It counts requests whose <em>destination</em> changed, which is not the same as
+      requests that <em>broke</em>. Put a real endpoint picker in the path and the
+      <code>collapse</code>'s 20 moved destinations change only <strong>2 outcomes</strong>
+      — and both were already returning 404. “Moved” is a signal to look, not a cost.
+    </p>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <h4><code>split</code> <span class="tag ok">7 → 12</span></h4>
+      <p class="cap">Revert #5826. Four rules again, one per endpoint.</p>
+      <ul>
+        <li class="pro">Provably zero behaviour change across all 72 probes</li>
+        <li class="pro">Returns to a state that shipped for months</li>
+        <li class="con">Renames a rule 1→4, and that rename cannot be safely aliased</li>
+        <li class="con">Spends 3 of the 4 remaining rule slots</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h4><code>split-noslash</code> <span class="tag ok">7 → 22</span></h4>
+      <p class="cap">Split, and drop the trailing-slash duplicates.</p>
+      <ul>
+        <li class="pro">Triples the ceiling for exactly one moved probe</li>
+        <li class="pro">The twins only exist to compensate for an undocumented <code>Exact</code> match choice</li>
+        <li class="con">Same 1→4 rename problem as <code>split</code></li>
+        <li class="con">Header-addressed <code>/v1/completions/</code> stops reaching the pool</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h4><code>prefix</code> <span class="tag ok">7 → 15</span></h4>
+      <p class="cap">Use <code>PathPrefix</code>, as the path rules already do.</p>
+      <ul>
+        <li class="pro">Renames nothing — no policy migration at all</li>
+        <li class="pro">Closes an addressing inconsistency that has no stated reason</li>
+        <li class="con">Broadens into stateful sub-resources that carry no model</li>
+        <li class="con">Lowest ceiling of the realistic options</li>
+      </ul>
+    </div>
+
+    <div class="card pick">
+      <h4><code>nested</code> <span class="tag ok">7 → unbounded</span></h4>
+      <p class="cap">Serve adapters beneath the base model; match one prefix.</p>
+      <ul>
+        <li class="pro">Adapter count leaves the route arithmetic entirely — 19 matches, constant</li>
+        <li class="pro">Renames nothing, keeps path scope, needs no BBR or ConfigMap</li>
+        <li class="pro">Prefix anchoring proven safe: <code>model-a</code> does not capture <code>model-a-instruct</code></li>
+        <li class="con">Changes the model string clients send — the real cost, and it isn't in any budget table</li>
+        <li class="con">Couples adapter names to the base model name</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h4><code>collapse</code> <span class="tag warn">7 → 58</span></h4>
+      <p class="cap">Drop the path from the routing rule entirely.</p>
+      <ul>
+        <li class="pro">Large ceiling with no naming change</li>
+        <li class="pro">Real cost is smaller than it looks — 2 changed outcomes, not 20</li>
+        <li class="con">Gives up path scope, reversing a deliberate decision in <a href="https://github.com/kserve/kserve/pull/5087">#5087</a></li>
+        <li class="con">Sends <code>/health</code> and <code>/metrics</code> through a scheduler</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>What the shapes actually look like</h2>
+  <p class="sub">
+    Every routing rule in every shape has the same form: a grid of
+    <strong>paths × models</strong>. The models axis is <code>1 + adapters</code>. That one
+    fact explains the ceiling and every option for raising it.
+  </p>
+
+  <figure class="fig">
+    <svg viewBox="0 0 790 330" role="img" preserveAspectRatio="xMidYMid meet"
+         aria-label="A grid of eight API paths by eight model names fills exactly 64 cells, the per-rule cap. An eighth adapter adds a ninth column of eight cells, taking the total to 72 and exceeding the cap.">
+      <defs>
+        <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5"
+                markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+
+      <text x="0" y="14" font-size="11" font-weight="600" fill="currentColor">ONE RULE: v1-model-routing</text>
+      <text x="0" y="30" font-size="10.5" fill="currentColor" opacity=".65">each cell is one match</text>
+
+      <!-- column headers -->
+      <text x="182" y="58" font-size="9.5" fill="currentColor" opacity=".7" text-anchor="middle">base</text>
+      <text x="207" y="58" font-size="9.5" fill="currentColor" opacity=".7" text-anchor="middle">a1</text>
+      <text x="232" y="58" font-size="9.5" fill="currentColor" opacity=".7" text-anchor="middle">a2</text>
+      <text x="257" y="58" font-size="9.5" fill="currentColor" opacity=".7" text-anchor="middle">a3</text>
+      <text x="282" y="58" font-size="9.5" fill="currentColor" opacity=".7" text-anchor="middle">a4</text>
+      <text x="307" y="58" font-size="9.5" fill="currentColor" opacity=".7" text-anchor="middle">a5</text>
+      <text x="332" y="58" font-size="9.5" fill="currentColor" opacity=".7" text-anchor="middle">a6</text>
+      <text x="357" y="58" font-size="9.5" fill="currentColor" opacity=".7" text-anchor="middle">a7</text>
+      <text x="382" y="58" font-size="9.5" fill="var(--crit)" text-anchor="middle" font-weight="600">a8</text>
+
+      <!-- row labels -->
+      <text x="163" y="76"  font-size="9.5" fill="currentColor" opacity=".7" text-anchor="end">/v1/completions</text>
+      <text x="163" y="101" font-size="9.5" fill="currentColor" opacity=".7" text-anchor="end">/v1/completions/</text>
+      <text x="163" y="126" font-size="9.5" fill="currentColor" opacity=".7" text-anchor="end">/v1/chat/completions</text>
+      <text x="163" y="151" font-size="9.5" fill="currentColor" opacity=".7" text-anchor="end">/v1/chat/completions/</text>
+      <text x="163" y="176" font-size="9.5" fill="currentColor" opacity=".7" text-anchor="end">/v1/responses</text>
+      <text x="163" y="201" font-size="9.5" fill="currentColor" opacity=".7" text-anchor="end">/v1/responses/</text>
+      <text x="163" y="226" font-size="9.5" fill="currentColor" opacity=".7" text-anchor="end">/v1/messages</text>
+      <text x="163" y="251" font-size="9.5" fill="currentColor" opacity=".7" text-anchor="end">/v1/messages/</text>
+
+      <!-- 8 x 8 grid of accepted cells -->
+      <g fill="var(--accent)" opacity=".55">
+        <rect x="171" y="64" width="22" height="18" rx="2"/><rect x="196" y="64" width="22" height="18" rx="2"/><rect x="221" y="64" width="22" height="18" rx="2"/><rect x="246" y="64" width="22" height="18" rx="2"/><rect x="271" y="64" width="22" height="18" rx="2"/><rect x="296" y="64" width="22" height="18" rx="2"/><rect x="321" y="64" width="22" height="18" rx="2"/><rect x="346" y="64" width="22" height="18" rx="2"/>
+        <rect x="171" y="89" width="22" height="18" rx="2"/><rect x="196" y="89" width="22" height="18" rx="2"/><rect x="221" y="89" width="22" height="18" rx="2"/><rect x="246" y="89" width="22" height="18" rx="2"/><rect x="271" y="89" width="22" height="18" rx="2"/><rect x="296" y="89" width="22" height="18" rx="2"/><rect x="321" y="89" width="22" height="18" rx="2"/><rect x="346" y="89" width="22" height="18" rx="2"/>
+        <rect x="171" y="114" width="22" height="18" rx="2"/><rect x="196" y="114" width="22" height="18" rx="2"/><rect x="221" y="114" width="22" height="18" rx="2"/><rect x="246" y="114" width="22" height="18" rx="2"/><rect x="271" y="114" width="22" height="18" rx="2"/><rect x="296" y="114" width="22" height="18" rx="2"/><rect x="321" y="114" width="22" height="18" rx="2"/><rect x="346" y="114" width="22" height="18" rx="2"/>
+        <rect x="171" y="139" width="22" height="18" rx="2"/><rect x="196" y="139" width="22" height="18" rx="2"/><rect x="221" y="139" width="22" height="18" rx="2"/><rect x="246" y="139" width="22" height="18" rx="2"/><rect x="271" y="139" width="22" height="18" rx="2"/><rect x="296" y="139" width="22" height="18" rx="2"/><rect x="321" y="139" width="22" height="18" rx="2"/><rect x="346" y="139" width="22" height="18" rx="2"/>
+        <rect x="171" y="164" width="22" height="18" rx="2"/><rect x="196" y="164" width="22" height="18" rx="2"/><rect x="221" y="164" width="22" height="18" rx="2"/><rect x="246" y="164" width="22" height="18" rx="2"/><rect x="271" y="164" width="22" height="18" rx="2"/><rect x="296" y="164" width="22" height="18" rx="2"/><rect x="321" y="164" width="22" height="18" rx="2"/><rect x="346" y="164" width="22" height="18" rx="2"/>
+        <rect x="171" y="189" width="22" height="18" rx="2"/><rect x="196" y="189" width="22" height="18" rx="2"/><rect x="221" y="189" width="22" height="18" rx="2"/><rect x="246" y="189" width="22" height="18" rx="2"/><rect x="271" y="189" width="22" height="18" rx="2"/><rect x="296" y="189" width="22" height="18" rx="2"/><rect x="321" y="189" width="22" height="18" rx="2"/><rect x="346" y="189" width="22" height="18" rx="2"/>
+        <rect x="171" y="214" width="22" height="18" rx="2"/><rect x="196" y="214" width="22" height="18" rx="2"/><rect x="221" y="214" width="22" height="18" rx="2"/><rect x="246" y="214" width="22" height="18" rx="2"/><rect x="271" y="214" width="22" height="18" rx="2"/><rect x="296" y="214" width="22" height="18" rx="2"/><rect x="321" y="214" width="22" height="18" rx="2"/><rect x="346" y="214" width="22" height="18" rx="2"/>
+        <rect x="171" y="239" width="22" height="18" rx="2"/><rect x="196" y="239" width="22" height="18" rx="2"/><rect x="221" y="239" width="22" height="18" rx="2"/><rect x="246" y="239" width="22" height="18" rx="2"/><rect x="271" y="239" width="22" height="18" rx="2"/><rect x="296" y="239" width="22" height="18" rx="2"/><rect x="321" y="239" width="22" height="18" rx="2"/><rect x="346" y="239" width="22" height="18" rx="2"/>
+      </g>
+
+      <!-- the 8th adapter's column: over the cap -->
+      <g fill="none" stroke="var(--crit)" stroke-width="1.2" stroke-dasharray="3 2">
+        <rect x="371" y="64" width="22" height="18" rx="2"/><rect x="371" y="89" width="22" height="18" rx="2"/>
+        <rect x="371" y="114" width="22" height="18" rx="2"/><rect x="371" y="139" width="22" height="18" rx="2"/>
+        <rect x="371" y="164" width="22" height="18" rx="2"/><rect x="371" y="189" width="22" height="18" rx="2"/>
+        <rect x="371" y="214" width="22" height="18" rx="2"/><rect x="371" y="239" width="22" height="18" rx="2"/>
+      </g>
+
+      <!-- cap line -->
+      <line x1="367" y1="52" x2="367" y2="268" stroke="var(--warn)" stroke-width="1.5"/>
+      <text x="367" y="282" font-size="10" fill="var(--warn)" text-anchor="middle" font-weight="600">64-match cap</text>
+
+      <!-- annotations -->
+      <line x1="400" y1="150" x2="446" y2="150" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar)" opacity=".6"/>
+      <text x="454" y="140" font-size="11.5" fill="currentColor" font-weight="600">8 paths × 8 models = 64</text>
+      <text x="454" y="157" font-size="10.5" fill="currentColor" opacity=".7">7 adapters. Exactly at the cap.</text>
+      <text x="454" y="180" font-size="11.5" fill="var(--crit)" font-weight="600">adapter 8 → 72 matches</text>
+      <text x="454" y="197" font-size="10.5" fill="currentColor" opacity=".7">apiserver rejects the whole route.</text>
+      <text x="454" y="221" font-size="10.5" fill="currentColor" opacity=".7">The previous route keeps serving,</text>
+      <text x="454" y="236" font-size="10.5" fill="currentColor" opacity=".7">so nothing appears to break.</text>
+    </svg>
+    <figcaption>
+      Today's shape. The routing rule holds every path crossed with every model, in
+      <em>one</em> rule — so the per-rule cap of 64 is reached at the seventh adapter.
+    </figcaption>
+  </figure>
+
+  <p>
+    Read that grid and the options stop being a list — each one attacks a different axis
+    of the same multiplication.
+  </p>
+
+  <figure class="fig">
+    <svg viewBox="0 0 790 300" role="img" preserveAspectRatio="xMidYMid meet"
+         aria-label="Three strategies compared. Split cuts the same grid into four rules so the per-rule cap applies to each separately. Nested replaces the model columns with a single regular expression, removing the adapter axis. Collapse removes the path rows, leaving one match per model.">
+      <!-- SPLIT -->
+      <text x="0" y="14" font-size="11" font-weight="600" fill="currentColor">SPLIT</text>
+      <text x="0" y="30" font-size="10" fill="currentColor" opacity=".65">same cells, four rules</text>
+      <g fill="var(--accent)" opacity=".5">
+        <rect x="8"  y="52" width="16" height="13" rx="2"/><rect x="27" y="52" width="16" height="13" rx="2"/><rect x="46" y="52" width="16" height="13" rx="2"/>
+        <rect x="8"  y="69" width="16" height="13" rx="2"/><rect x="27" y="69" width="16" height="13" rx="2"/><rect x="46" y="69" width="16" height="13" rx="2"/>
+      </g>
+      <rect x="2" y="46" width="66" height="42" rx="3" fill="none" stroke="currentColor" stroke-width="1" opacity=".45"/>
+      <g fill="var(--accent)" opacity=".5">
+        <rect x="8"  y="102" width="16" height="13" rx="2"/><rect x="27" y="102" width="16" height="13" rx="2"/><rect x="46" y="102" width="16" height="13" rx="2"/>
+        <rect x="8"  y="119" width="16" height="13" rx="2"/><rect x="27" y="119" width="16" height="13" rx="2"/><rect x="46" y="119" width="16" height="13" rx="2"/>
+      </g>
+      <rect x="2" y="96" width="66" height="42" rx="3" fill="none" stroke="currentColor" stroke-width="1" opacity=".45"/>
+      <g fill="var(--accent)" opacity=".5">
+        <rect x="8"  y="152" width="16" height="13" rx="2"/><rect x="27" y="152" width="16" height="13" rx="2"/><rect x="46" y="152" width="16" height="13" rx="2"/>
+        <rect x="8"  y="169" width="16" height="13" rx="2"/><rect x="27" y="169" width="16" height="13" rx="2"/><rect x="46" y="169" width="16" height="13" rx="2"/>
+      </g>
+      <rect x="2" y="146" width="66" height="42" rx="3" fill="none" stroke="currentColor" stroke-width="1" opacity=".45"/>
+      <g fill="var(--accent)" opacity=".5">
+        <rect x="8"  y="202" width="16" height="13" rx="2"/><rect x="27" y="202" width="16" height="13" rx="2"/><rect x="46" y="202" width="16" height="13" rx="2"/>
+        <rect x="8"  y="219" width="16" height="13" rx="2"/><rect x="27" y="219" width="16" height="13" rx="2"/><rect x="46" y="219" width="16" height="13" rx="2"/>
+      </g>
+      <rect x="2" y="196" width="66" height="42" rx="3" fill="none" stroke="currentColor" stroke-width="1" opacity=".45"/>
+      <text x="2" y="258" font-size="10.5" fill="currentColor" opacity=".8">cap now applies per rule,</text>
+      <text x="2" y="272" font-size="10.5" fill="currentColor" opacity=".8">so the route total binds</text>
+      <text x="2" y="290" font-size="11" font-weight="600" fill="var(--accent)">→ 12 adapters</text>
+
+      <line x1="120" y1="40" x2="120" y2="290" stroke="currentColor" stroke-width="1" opacity=".18"/>
+
+      <!-- NESTED -->
+      <text x="146" y="14" font-size="11" font-weight="600" fill="currentColor">NESTED</text>
+      <text x="146" y="30" font-size="10" fill="currentColor" opacity=".65">models axis → one regex</text>
+      <g fill="var(--accent)" opacity=".5">
+        <rect x="152" y="52"  width="26" height="13" rx="2"/><rect x="152" y="69"  width="26" height="13" rx="2"/>
+        <rect x="152" y="86"  width="26" height="13" rx="2"/><rect x="152" y="103" width="26" height="13" rx="2"/>
+        <rect x="152" y="120" width="26" height="13" rx="2"/><rect x="152" y="137" width="26" height="13" rx="2"/>
+        <rect x="152" y="154" width="26" height="13" rx="2"/><rect x="152" y="171" width="26" height="13" rx="2"/>
+      </g>
+      <rect x="146" y="46" width="38" height="144" rx="3" fill="none" stroke="currentColor" stroke-width="1" opacity=".45"/>
+      <g fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="2 2" opacity=".3">
+        <rect x="190" y="52" width="26" height="13" rx="2"/><rect x="221" y="52" width="26" height="13" rx="2"/>
+        <rect x="190" y="69" width="26" height="13" rx="2"/><rect x="221" y="69" width="26" height="13" rx="2"/>
+      </g>
+      <text x="190" y="100" font-size="10" fill="currentColor" opacity=".5">columns</text>
+      <text x="190" y="113" font-size="10" fill="currentColor" opacity=".5">gone</text>
+      <text x="146" y="212" font-size="9.5" font-family="ui-monospace, monospace" fill="var(--accent)">…/model-a(/.*)?</text>
+      <text x="146" y="240" font-size="10.5" fill="currentColor" opacity=".8">one match covers the base</text>
+      <text x="146" y="254" font-size="10.5" fill="currentColor" opacity=".8">and every adapter under it</text>
+      <text x="146" y="272" font-size="10.5" fill="currentColor" opacity=".8">8 matches, forever</text>
+      <text x="146" y="290" font-size="11" font-weight="600" fill="var(--accent)">→ unbounded</text>
+
+      <line x1="290" y1="40" x2="290" y2="290" stroke="currentColor" stroke-width="1" opacity=".18"/>
+
+      <!-- COLLAPSE -->
+      <text x="316" y="14" font-size="11" font-weight="600" fill="currentColor">COLLAPSE</text>
+      <text x="316" y="30" font-size="10" fill="currentColor" opacity=".65">paths axis → removed</text>
+      <g fill="var(--accent)" opacity=".5">
+        <rect x="322" y="52" width="26" height="13" rx="2"/><rect x="353" y="52" width="26" height="13" rx="2"/><rect x="384" y="52" width="26" height="13" rx="2"/>
+      </g>
+      <rect x="316" y="46" width="100" height="25" rx="3" fill="none" stroke="currentColor" stroke-width="1" opacity=".45"/>
+      <g fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="2 2" opacity=".3">
+        <rect x="322" y="78" width="26" height="13" rx="2"/><rect x="353" y="78" width="26" height="13" rx="2"/><rect x="384" y="78" width="26" height="13" rx="2"/>
+        <rect x="322" y="95" width="26" height="13" rx="2"/><rect x="353" y="95" width="26" height="13" rx="2"/><rect x="384" y="95" width="26" height="13" rx="2"/>
+        <rect x="322" y="112" width="26" height="13" rx="2"/><rect x="353" y="112" width="26" height="13" rx="2"/><rect x="384" y="112" width="26" height="13" rx="2"/>
+      </g>
+      <text x="316" y="140" font-size="10" fill="currentColor" opacity=".5">no path match at all</text>
+      <text x="316" y="168" font-size="10.5" fill="currentColor" opacity=".8">one match per model</text>
+      <text x="316" y="186" font-size="11" font-weight="600" fill="var(--accent)">→ 58 adapters</text>
+      <text x="316" y="214" font-size="10.5" fill="var(--warn)" font-weight="600">but the rule now matches</text>
+      <text x="316" y="228" font-size="10.5" fill="var(--warn)" font-weight="600">every path, not just four</text>
+
+      <line x1="440" y1="40" x2="440" y2="290" stroke="currentColor" stroke-width="1" opacity=".18"/>
+
+      <!-- summary -->
+      <text x="466" y="14" font-size="11" font-weight="600" fill="currentColor">WHAT EACH TRADES</text>
+      <text x="466" y="44"  font-size="10.5" fill="currentColor"><tspan font-weight="600">split</tspan> — nothing behavioural.</text>
+      <text x="466" y="59"  font-size="10.5" fill="currentColor" opacity=".75">Costs 3 rule slots, and renames</text>
+      <text x="466" y="73"  font-size="10.5" fill="currentColor" opacity=".75">a rule 1→4, which cannot be aliased.</text>
+
+      <text x="466" y="105" font-size="10.5" fill="currentColor"><tspan font-weight="600">nested</tspan> — the model string</text>
+      <text x="466" y="119" font-size="10.5" fill="currentColor" opacity=".75">clients send changes. Renames no</text>
+      <text x="466" y="133" font-size="10.5" fill="currentColor" opacity=".75">rules, keeps path scope, needs no BBR.</text>
+
+      <text x="466" y="165" font-size="10.5" fill="currentColor"><tspan font-weight="600">collapse</tspan> — gives up path scope.</text>
+      <text x="466" y="179" font-size="10.5" fill="currentColor" opacity=".75">/health and /metrics start going</text>
+      <text x="466" y="193" font-size="10.5" fill="currentColor" opacity=".75">through the scheduler.</text>
+
+      <text x="466" y="228" font-size="10.5" fill="currentColor" opacity=".75">The path family — one rule per</text>
+      <text x="466" y="242" font-size="10.5" fill="currentColor" opacity=".75">endpoint to the pool, plus a</text>
+      <text x="466" y="256" font-size="10.5" fill="currentColor" opacity=".75">catch-all to the Service — is</text>
+      <text x="466" y="270" font-size="10.5" fill="currentColor" opacity=".75">identical in all three.</text>
+    </svg>
+    <figcaption>
+      The same multiplication, attacked three ways: cut the grid across rules, collapse the
+      model columns into one pattern, or delete the path rows.
+    </figcaption>
+  </figure>
+
+  <h3>The rules themselves</h3>
+  <p>
+    Only the model-routing rules differ. Shown for two adapters, so the models axis is
+    <code>base, adapter-a1, adapter-a2</code>.
+  </p>
+
+  <div class="scroll">
+  <table>
+    <thead>
+      <tr><th>shape</th><th>routing rules</th><th>each holds</th><th class="num">matches</th><th class="num">max adapters</th></tr>
+    </thead>
+    <tbody>
+      <tr class="is-current">
+        <td><code>current</code></td><td class="num">1</td>
+        <td>8 Exact paths × 3 models</td><td class="num">24</td><td class="num">7</td>
+      </tr>
+      <tr>
+        <td><code>split</code></td><td class="num">4</td>
+        <td>2 Exact paths × 3 models</td><td class="num">6 each</td><td class="num">12</td>
+      </tr>
+      <tr>
+        <td><code>split-noslash</code></td><td class="num">4</td>
+        <td>1 Exact path × 3 models</td><td class="num">3 each</td><td class="num">22</td>
+      </tr>
+      <tr>
+        <td><code>prefix</code></td><td class="num">1</td>
+        <td>4 PathPrefix × 3 models</td><td class="num">12</td><td class="num">15</td>
+      </tr>
+      <tr class="is-pick">
+        <td><code>nested</code></td><td class="num">1</td>
+        <td>8 Exact paths × <strong>1 regex</strong></td><td class="num">8</td><td class="num">∞</td>
+      </tr>
+      <tr>
+        <td><code>collapse</code></td><td class="num">1</td>
+        <td><strong>no path</strong> × 3 models</td><td class="num">3</td><td class="num">58</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>Side by side</h3>
+  <p>One match from each, showing exactly what changes:</p>
+
+  <div class="scroll">
+  <pre class="code"><span class="c"># current — path AND header, one pair per (path, model)</span>
+- path:    { type: Exact, value: /v1/chat/completions }
+  headers: [{ type: Exact, name: X-Gateway-Model-Name,
+              value: publishers/&lt;ns&gt;/models/<span class="hi">adapter-a1</span> }]
+
+<span class="c"># split / split-noslash — identical match, just distributed across four rules</span>
+- path:    { type: Exact, value: /v1/chat/completions }
+  headers: [{ type: Exact, name: X-Gateway-Model-Name,
+              value: publishers/&lt;ns&gt;/models/<span class="hi">adapter-a1</span> }]
+
+<span class="c"># prefix — PathPrefix makes the trailing-slash twin redundant</span>
+- path:    { type: <span class="hi">PathPrefix</span>, value: /v1/chat/completions }
+  headers: [{ type: Exact, name: X-Gateway-Model-Name,
+              value: publishers/&lt;ns&gt;/models/adapter-a1 }]
+
+<span class="c"># nested — one regex replaces every per-adapter value, forever</span>
+- path:    { type: Exact, value: /v1/chat/completions }
+  headers: [{ type: <span class="hi">RegularExpression</span>, name: X-Gateway-Model-Name,
+              value: <span class="hi">publishers/&lt;ns&gt;/models/model-a(/.*)?</span> }]
+
+<span class="c"># collapse — no path at all; matches any request carrying the header</span>
+- headers: [{ type: Exact, name: X-Gateway-Model-Name,
+              value: publishers/&lt;ns&gt;/models/adapter-a1 }]</pre>
+  </div>
+
+  <div class="note">
+    <span class="lbl">why the trailing-slash twins exist</span>
+    <p>
+      Only because the header rules use <code>Exact</code>.
+      <code>PathPrefix /v1/completions</code> already matches
+      <code>/v1/completions/</code> and everything below it; <code>Exact</code> matches one
+      literal string, so it needs a twin. The path rules have used
+      <code>PathPrefix</code> since the start and never needed one. Nothing documents the
+      choice — and it is what doubles the paths axis.
+    </p>
+  </div>
+
+  <h3>Where a request actually lands</h3>
+  <p>
+    The grid explains the budget. This explains the one behavioural difference that matters
+    — what happens to a request carrying a model header on a path that isn't an inference
+    endpoint.
+  </p>
+
+  <figure class="fig">
+    <svg viewBox="0 0 790 250" role="img" preserveAspectRatio="xMidYMid meet"
+         aria-label="A GET /health request carrying a model routing header. Under today's shape it falls past the routing rule to the catch-all and reaches the workload Service. Under the collapse it matches the header-only routing rule and reaches the InferencePool and endpoint picker instead.">
+      <defs>
+        <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5"
+                markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+
+      <rect x="0" y="42" width="150" height="46" rx="4" fill="none" stroke="currentColor" stroke-width="1.3"/>
+      <text x="75" y="62" font-size="10.5" font-family="ui-monospace, monospace" fill="currentColor" text-anchor="middle">GET /health</text>
+      <text x="75" y="78" font-size="9.5" fill="currentColor" text-anchor="middle" opacity=".7">+ model header</text>
+
+      <line x1="150" y1="65" x2="190" y2="65" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar2)" opacity=".6"/>
+
+      <!-- current lane -->
+      <text x="196" y="22" font-size="11" font-weight="600" fill="currentColor">TODAY</text>
+      <rect x="196" y="42" width="176" height="46" rx="4" fill="none" stroke="currentColor" stroke-width="1.1" opacity=".45" stroke-dasharray="3 2"/>
+      <text x="284" y="60" font-size="10" font-family="ui-monospace, monospace" fill="currentColor" text-anchor="middle" opacity=".6">v1-model-routing</text>
+      <text x="284" y="76" font-size="9.5" fill="currentColor" text-anchor="middle" opacity=".6">no match — path isn't one of the 4</text>
+      <line x1="284" y1="88" x2="284" y2="112" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar2)" opacity=".6"/>
+      <rect x="196" y="112" width="176" height="42" rx="4" fill="none" stroke="currentColor" stroke-width="1.3"/>
+      <text x="284" y="130" font-size="10" font-family="ui-monospace, monospace" fill="currentColor" text-anchor="middle">v1-catch-all-model-routing</text>
+      <text x="284" y="145" font-size="9.5" fill="currentColor" text-anchor="middle" opacity=".7">header only, no path</text>
+      <line x1="284" y1="154" x2="284" y2="178" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar2)" opacity=".6"/>
+      <rect x="212" y="178" width="144" height="38" rx="4" fill="var(--accent-dim)" stroke="var(--accent)" stroke-width="1.3"/>
+      <text x="284" y="195" font-size="10.5" fill="var(--accent)" text-anchor="middle" font-weight="600">workload Service</text>
+      <text x="284" y="209" font-size="9.5" fill="currentColor" text-anchor="middle" opacity=".75">vLLM answers · 200</text>
+
+      <line x1="410" y1="40" x2="410" y2="230" stroke="currentColor" stroke-width="1" opacity=".18"/>
+
+      <!-- collapse lane -->
+      <text x="440" y="22" font-size="11" font-weight="600" fill="var(--warn)">AFTER THE COLLAPSE</text>
+      <rect x="440" y="42" width="176" height="46" rx="4" fill="var(--warn-dim)" stroke="var(--warn)" stroke-width="1.3"/>
+      <text x="528" y="60" font-size="10" font-family="ui-monospace, monospace" fill="currentColor" text-anchor="middle">v1-model-routing</text>
+      <text x="528" y="76" font-size="9.5" fill="var(--warn)" text-anchor="middle" font-weight="600">matches — no path to fail on</text>
+      <line x1="528" y1="88" x2="528" y2="112" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar2)" opacity=".6"/>
+      <rect x="440" y="112" width="176" height="42" rx="4" fill="none" stroke="currentColor" stroke-width="1.3"/>
+      <text x="528" y="130" font-size="10.5" fill="currentColor" text-anchor="middle">InferencePool</text>
+      <text x="528" y="145" font-size="9.5" fill="currentColor" text-anchor="middle" opacity=".7">→ endpoint picker</text>
+      <line x1="528" y1="154" x2="528" y2="178" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar2)" opacity=".6"/>
+      <rect x="456" y="178" width="144" height="38" rx="4" fill="var(--accent-dim)" stroke="var(--accent)" stroke-width="1.3"/>
+      <text x="528" y="195" font-size="10.5" fill="var(--accent)" text-anchor="middle" font-weight="600">workload Service</text>
+      <text x="528" y="209" font-size="9.5" fill="currentColor" text-anchor="middle" opacity=".75">vLLM answers · 200</text>
+
+      <text x="640" y="128" font-size="10.5" fill="currentColor" opacity=".8">Different route.</text>
+      <text x="640" y="144" font-size="10.5" fill="currentColor" opacity=".8">Same answer — measured.</text>
+      <text x="640" y="168" font-size="10.5" fill="currentColor" opacity=".8">Of 13 probes, only 2</text>
+      <text x="640" y="183" font-size="10.5" fill="currentColor" opacity=".8">outcomes change, and both</text>
+      <text x="640" y="198" font-size="10.5" fill="currentColor" opacity=".8">were already 404s.</text>
+    </svg>
+    <figcaption>
+      The collapse's real cost, drawn. <code>/health</code> stops falling through to the
+      catch-all and goes through the scheduler instead — and still returns 200, because the
+      endpoint picker passes bodyless non-inference paths straight through.
+    </figcaption>
+  </figure>
+</section>
+
+<section class="col">
+  <h2>Recommendation</h2>
+  <p class="sub">Two things worth doing regardless, then one choice that depends on a number nobody has fixed yet.</p>
+
+  <ol class="steps">
+    <li>
+      <div>
+        <h4>Fix the pruning bug and add a pre-flight check</h4>
+        <p>
+          Removing adapters never shrinks the route, so the budget is sticky — a service
+          that once had seven carries that cost after dropping to three. And nothing counts
+          matches before applying. Both are needed under every shape below, and neither
+          changes any behaviour.
+        </p>
+      </div>
+    </li>
+    <li>
+      <div>
+        <h4>Take <code>prefix</code> or <code>split-noslash</code> for the near term</h4>
+        <p>
+          <code>prefix</code> reaches 15 and renames nothing.
+          <code>split-noslash</code> reaches 22 for one moved probe but renames a rule 1→4,
+          which cannot be safely aliased. If nobody has pinned a policy to
+          <code>v1-model-routing</code>, take <code>split-noslash</code>. If you can't be
+          sure, take <code>prefix</code>.
+        </p>
+      </div>
+    </li>
+    <li>
+      <div>
+        <h4>Decide whether you need more than ~22</h4>
+        <p>
+          If yes, <code>nested</code> is the answer and the question becomes a naming
+          decision, not a routing one. If no, stop — the route stops being the constraint
+          and adapter count returns to being a GPU-memory question.
+        </p>
+      </div>
+    </li>
+  </ol>
+
+  <div class="note warn">
+    <span class="lbl">the counter-intuitive bit</span>
+    <p>
+      <code>split</code> looks free — zero behaviour change — and is the <em>only</em>
+      family that triggers the migration hazard. <code>nested</code> looks expensive — a
+      user-visible naming change — and touches no rule name at all. The cheap-looking
+      option carries the migration cost; the expensive-looking one doesn't.
+    </p>
+  </div>
+</section>
+
+<section class="col">
+  <h2>What else this turned up</h2>
+  <p class="sub">Four filed issues, three of which have nothing to do with the budget.</p>
+
+  <h3>Filed</h3>
+  <ul>
+    <li>
+      <strong>Identical rule names cross-wire the endpoint picker.</strong> Istio keys its
+      inference-pool wiring by bare rule name; kserve names every service's rules
+      identically. With three services on one gateway, <strong>17 of 26 routes</strong>
+      were scheduled by another service's picker, and every request with a body returned
+      500. Non-deterministic and sticky. <em>(p1)</em>
+    </li>
+    <li>
+      <strong>Istio below 1.29 never invokes the endpoint picker.</strong> It is deployed,
+      healthy, resolved — and silently bypassed, with traffic round-robining instead of
+      being scheduled. Bisected: 1.28 broken, 1.29 and 1.30 correct. <em>(p2)</em>
+    </li>
+    <li>
+      <strong>Removing adapters never prunes the route.</strong> Clear the LoRA spec
+      entirely and 18 matches naming non-existent adapters remain, with the route reporting
+      ready. <em>(p2)</em>
+    </li>
+    <li>
+      <strong><code>MaxAdapters</code> documents a default that is never applied.</strong>
+      Confirmed live: two adapters configured, vLLM running with <code>max_lora=1</code>.
+      <em>(p3)</em>
+    </li>
+  </ul>
+
+  <h3>Corrections to the design docs</h3>
+  <ul>
+    <li>
+      The collapse reaches <strong>63</strong>, not ~122 — the estimate conflated the
+      per-rule cap with the route-wide one.
+    </li>
+    <li>
+      The regex objection that closed that track assumes Envoy's default program-size limit
+      of 100. <strong>Istio sets it to 32768.</strong> A 932-character pattern works with no
+      blast radius.
+    </li>
+    <li>
+      A renamed rule does <em>not</em> detach policies silently — Kuadrant reports
+      <code>TargetNotFound</code> and names the section. But re-adding the old name on a
+      1→4 split restores a <em>green</em> policy covering a quarter of its former traffic,
+      which is worse than the loud failure.
+    </li>
+  </ul>
+</section>
+
+<section class="col">
+  <h2>What this doesn't prove</h2>
+  <p class="sub">Stated plainly, because the numbers above are otherwise easy to over-read.</p>
+  <ul>
+    <li>
+      <strong>Everything is Istio-only.</strong> The endpoint-picker findings, the 32768
+      regex limit and the rule-name collision were not retested on another data plane. None
+      of them transfer to an upstream recommendation without that.
+    </li>
+    <li>
+      <strong>The ODH authorization analysis is read, not run.</strong> Its policy denies
+      header-addressed traffic outright, which would make the header family dead weight
+      there — but that is source-reading, not observation.
+    </li>
+    <li>
+      <strong>The adapter target is still unset.</strong> Every ceiling here is measured
+      against a requirement nobody has fixed. If the answer is “under 20”, most of this
+      document is moot and step&nbsp;2 is the whole fix.
+    </li>
+  </ul>
+</section>
+
+<footer class="col">
+  <p>
+    Measured on kind: Gateway API v1.5.1, GIE v1.5.0, Istio 1.30.3, Kuadrant 1.5.2,
+    kserve <code>master</code>, real vLLM with two LoRA adapters. Full evidence,
+    reproduction steps and the probe matrix live in the spike's
+    <code>FINDINGS.md</code> and <code>golden/</code>.
+  </p>
+</footer>
+
+</div>
