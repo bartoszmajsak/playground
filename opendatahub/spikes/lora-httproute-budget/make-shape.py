@@ -23,6 +23,12 @@ Shapes:
                   Buys the largest ceiling and moves every header-addressed
                   path from the workload Service to the InferencePool.
 
+  alternation     per-adapter header values -> one RegularExpression listing
+                  them: .../(model-a|adapter-a1|...). One match per path
+                  regardless of adapter count, and NO name changes -- the
+                  existing flat names are what the pattern lists. Bounded by
+                  the 4096-byte cap on a header match value.
+
   nested          per-adapter header values -> one RegularExpression covering
                   the base model and everything nested under it. Constant size:
                   the adapter axis leaves the route entirely, path scope is
@@ -40,6 +46,7 @@ that is the only way to find out what actually answers a request the collapse
 newly sends to the pool.
 """
 import sys
+import os
 import copy
 import re
 import yaml
@@ -115,6 +122,47 @@ def prefix_rule(rule, split):
     return out
 
 
+def alternation_rule(rule):
+    """Collapse the per-adapter header VALUES into one alternation regex, and
+    change nothing else.
+
+        publishers/{ns}/models/(model-a|adapter-a1|adapter-a2|...)
+
+    The budget is match *count*, not pattern length, so this is one match per
+    path however many adapters exist -- the same constant shape `nested` gets,
+    without renaming anything a client sends. The pattern still has to be
+    rewritten when the adapter set changes, so per-adapter route churn remains;
+    only the ceiling moves.
+
+    Bounded by HTTPHeaderMatch.Value, which the CRD caps at 4096 bytes.
+    """
+    names, by_path = [], {}
+    for m in rule["matches"]:
+        v = m["headers"][0]["value"]
+        if v not in names:
+            names.append(v)
+        key = m.get("path", {}).get("value")
+        by_path.setdefault(key, m)
+
+    prefix = os.path.commonprefix(names)
+    # cut the shared prefix back to the last path separator so the alternation
+    # holds whole name segments, not arbitrary character runs
+    prefix = prefix[:prefix.rfind("/") + 1] if "/" in prefix else ""
+    tails = [n[len(prefix):] for n in names]
+    pattern = re.escape(prefix) + "(" + "|".join(re.escape(t) for t in tails) + ")"
+
+    matches = []
+    for _, m in by_path.items():
+        new = copy.deepcopy(m)
+        new["headers"][0]["type"] = "RegularExpression"
+        new["headers"][0]["value"] = pattern
+        matches.append(new)
+
+    out = copy.deepcopy(rule)
+    out["matches"] = matches
+    return [out]
+
+
 def nested_rule(rule):
     """Replace the enumerated per-adapter header values with ONE regex.
 
@@ -175,6 +223,8 @@ def transform(shape, rule):
         return split_rule(rule, drop_slashes=False)
     if shape == "split-noslash":
         return split_rule(rule, drop_slashes=True)
+    if shape == "alternation":
+        return alternation_rule(rule)
     if shape == "nested":
         return nested_rule(rule)
     if shape == "prefix":
@@ -210,12 +260,13 @@ def main():
         for rule in doc["spec"]["rules"]:
             if rule.get("name") == TARGET_RULE:
                 rules.extend(transform(shape, rule))
-            elif (shape == "nested"
+            elif (shape in ("nested", "alternation")
                   and rule.get("name") == "v1-catch-all-model-routing"):
                 # nested has to cover BOTH header rules -- leaving the catch-all
                 # enumerated would keep the adapter axis in the budget and
                 # defeat the point.
-                rules.extend(nested_rule(rule))
+                rules.extend(alternation_rule(rule) if shape == "alternation"
+                             else nested_rule(rule))
             elif (shape == "collapse-dedup"
                   and rule.get("name") == "v1-catch-all-model-routing"):
                 # Unreachable once TARGET_RULE is header-only: identical match
