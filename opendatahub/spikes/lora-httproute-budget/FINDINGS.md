@@ -488,6 +488,73 @@ reaches the pool; a prefix scheme cannot tell a real adapter from a made-up one.
 The runtime rejects it rather than the gateway. Minor, but it is a change in
 which component answers.
 
+## 12. S10: the rename detach is real, loud, and only affects one shape family
+
+Rehearsed with real Kuadrant 1.5.2 on the kind cluster: an `AuthPolicy` with
+`targetRef.sectionName: v1-model-routing` and a deny-everything rule, then the
+`split` shape applied over it.
+
+| step | observed |
+|---|---|
+| policy attached | `Accepted=True`, `Enforced=True` |
+| request hitting the pinned rule | **403** |
+| request hitting a different rule | 200 (section scoping works) |
+| **after the rename** | **200 within 15s** — previously denied traffic now passes |
+| policy status after | `Accepted=False [TargetNotFound]`, naming `<route>#v1-model-routing` |
+| events emitted | **none** — condition only |
+
+**The docs' premise is half wrong.** `llmisvc-httproute-phased-plan.md` Phase 1.5
+says such a policy "silently stops applying — for auth, a security regression
+with no error". The regression is real and fast, but it is **not silent**:
+Kuadrant reports `TargetNotFound` and names the exact dangling section. Anything
+watching AuthPolicy conditions sees it. Nothing watching *events* does.
+
+### The alias mitigation is a trap when the rename is 1:N
+
+Re-adding the legacy name does restore enforcement — within 15s, back to
+`Accepted=True`, `Enforced=True`, request back to 403. But `split` turns one rule
+into four, and a single alias can only carry one of them:
+
+| path | after aliasing one slice |
+|---|---|
+| `/v1/chat/completions` (slice carrying the legacy name) | **403** |
+| `/v1/completions` | **200 — gap** |
+| `/v1/responses` | **200 — gap** |
+| `/v1/messages` | **200 — gap** |
+
+The policy reports `Accepted=True`/`Enforced=True` while covering **one quarter**
+of the traffic it used to. That is strictly worse than the clean detach, which at
+least announces itself. **Aliasing is only safe when the rename is 1:1.**
+
+### Which shapes actually rename anything
+
+| shape | renames | policy detach risk |
+|---|---|---|
+| `split`, `split-noslash`, `split-prefix` | `v1-model-routing` → 4 rules | **yes, and aliasing is unsafe (1:4)** |
+| `prefix` | none | **no** |
+| `nested` | none | **no** |
+| `collapse` | none | **no** |
+| `collapse-dedup` | deletes `v1-catch-all-model-routing` | yes (1:0) |
+
+This inverts the earlier read. `split` is free in *routing* — zero behaviour
+change across 72 probes — but it is the **only** family that triggers the
+Phase 1.5 migration hazard, and its 1:4 rename is precisely the case aliasing
+cannot cover. `nested`, the shape with the largest apparent cost (a served-name
+change), preserves every rule name and has **no** policy-detach problem at all.
+
+### What this means for Phase 1.5
+
+- A pre-upgrade check is cheap now: enumerate `AuthPolicy` (and
+  `RateLimitPolicy`) with `Accepted=False`/`TargetNotFound`, no bespoke old→new
+  name mapping required.
+- But detection is post-hoc, and enforcement drops in under 15 seconds. For auth
+  that window is the whole problem, so detection alone is not a mitigation.
+- If a 1:1 rename is unavoidable, ship the alias **in the same route update** as
+  the rename — the route applies atomically, so there is no window.
+- For a 1:N rename there is no safe alias. Either keep the original rule name on
+  a rule that retains the original coverage, or accept the loud detach and
+  migrate policies deliberately.
+
 ---
 
 ## Method notes
