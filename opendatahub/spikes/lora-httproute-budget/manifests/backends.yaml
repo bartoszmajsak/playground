@@ -1,0 +1,157 @@
+# Observable backends for the characterization harness.
+#
+# The real route sends traffic to an InferencePool (scheduled through the EPP)
+# or to the workload Service. Both end at the same pods, so "which backend"
+# is not directly observable. swap-backends.sh rewrites the generated route's
+# backendRefs to point here instead -- two distinct Deployments that report
+# their own hostname and the path they received.
+#
+# This is deliberate: what is under characterization is HTTPRoute *matching*,
+# and matching does not depend on what sits behind the ref. Dropping the EPP,
+# vLLM, the LoRA mounts and metrics scraping from the loop makes every probe
+# unambiguous and lets the same matrix run against a hand-written candidate
+# shape with no controller involved.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lora-budget
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echo-pool
+  namespace: lora-budget
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: echo-pool }
+  template:
+    metadata:
+      labels: { app: echo-pool }
+    spec:
+      containers:
+        - name: echo
+          image: mendhak/http-https-echo:37
+          env:
+            - name: HTTP_PORT
+              value: "8000"
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            httpGet: { path: /, port: 8000 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo-pool
+  namespace: lora-budget
+spec:
+  selector: { app: echo-pool }
+  ports:
+    - port: 8000
+      targetPort: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echo-service
+  namespace: lora-budget
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: echo-service }
+  template:
+    metadata:
+      labels: { app: echo-service }
+    spec:
+      containers:
+        - name: echo
+          image: mendhak/http-https-echo:37
+          env:
+            - name: HTTP_PORT
+              value: "8000"
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            httpGet: { path: /, port: 8000 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo-service
+  namespace: lora-budget
+spec:
+  selector: { app: echo-service }
+  ports:
+    - port: 8000
+      targetPort: 8000
+---
+# An unrelated tenant on the same gateway. Two rules on purpose:
+#   /docs  -- longer prefix, should beat the header rules on path precedence
+#   /      -- ties on path, so the tie breaks on header-match count
+# The second is where a model header can capture traffic that was never
+# addressed to any LLMInferenceService. That is true of today's shipped
+# template (v1-catch-all-model-routing has no path match either), so it is
+# a baseline to record, not a regression the collapse introduces.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echo-neighbour
+  namespace: lora-budget
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: echo-neighbour }
+  template:
+    metadata:
+      labels: { app: echo-neighbour }
+    spec:
+      containers:
+        - name: echo
+          image: mendhak/http-https-echo:37
+          env:
+            - name: HTTP_PORT
+              value: "8000"
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            httpGet: { path: /, port: 8000 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo-neighbour
+  namespace: lora-budget
+spec:
+  selector: { app: echo-neighbour }
+  ports:
+    - port: 8000
+      targetPort: 8000
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: neighbour
+  namespace: lora-budget
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: kserve-ingress-gateway
+      namespace: kserve
+  rules:
+    - name: docs
+      matches:
+        - path: { type: PathPrefix, value: /docs }
+      backendRefs:
+        - kind: Service
+          name: echo-neighbour
+          port: 8000
+    - name: root
+      matches:
+        - path: { type: PathPrefix, value: / }
+      backendRefs:
+        - kind: Service
+          name: echo-neighbour
+          port: 8000

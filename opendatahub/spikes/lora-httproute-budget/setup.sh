@@ -1,0 +1,372 @@
+#!/usr/bin/env bash
+# LoRA HTTPRoute budget spike - cluster setup.
+#
+# Two modes, because the two tiers need different things:
+#
+#   ./setup.sh                 kind + MetalLB + Gateway API + Istio + Gateway.
+#                              Enough for tier 2 (characterize.sh) once
+#                              golden/route-*.yaml exists. No kserve.
+#
+#   ./setup.sh --with-kserve   the above plus GIE CRDs and the kserve llmisvc
+#                              controller, so tier 1 (capture-routes.sh) can
+#                              generate routes from real LLMInferenceServices.
+#
+# The Gateway is deliberately named kserve/kserve-ingress-gateway in both
+# modes, so a route captured with kserve installed still attaches on a cluster
+# without it. That is what lets candidate shapes be characterized by hand.
+#
+# Scoped kubeconfig; does not touch ~/.kube/config's current context.
+#
+# Environment:
+#   CLUSTER_NAME    kind cluster name (default: lora-budget-spike)
+#   ISTIO_VERSION   Istio helm chart version (default: 1.30.3 -- see FINDINGS.md 6)
+#   GWAPI_VERSION   Gateway API CRD version (default: v1.5.1)
+#   CERTMGR_VERSION cert-manager version (default: v1.17.0)
+#   GIE_VERSION     inference-extension version (default: v1.5.0)
+#   KSERVE_REF      kserve git ref for manifests (default: master)
+#   LLMISVC_IMAGE   controller image (default: the ref's published image)
+#
+# Versions track kserve's own kserve-deps.env, so the cluster matches what
+# kserve tests against. That matters here more than usual: the whole point of
+# the spike is what the installed HTTPRoute CRD allows.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+CLUSTER_NAME="${CLUSTER_NAME:-lora-budget-spike}"
+NS="${NS:-lora-budget}"
+KSERVE_REPO="${KSERVE_REPO:-kserve/kserve}"
+KSERVE_REF="${KSERVE_REF:-master}"
+KSERVE_RAW="https://raw.githubusercontent.com/${KSERVE_REPO}/${KSERVE_REF}"
+KSERVE_KUSTOMIZE="https://github.com/${KSERVE_REPO}/config"
+
+# Pull the pinned versions from kserve itself rather than hardcoding a set that
+# silently drifts. Matters here more than usual: the spike's whole subject is
+# what the installed HTTPRoute CRD allows, so testing against a Gateway API
+# version kserve does not use would measure the wrong thing.
+load_kserve_deps() {
+    local deps
+    deps=$(curl -sf "${KSERVE_RAW}/kserve-deps.env" 2>/dev/null || true)
+    if [[ -z "$deps" ]]; then
+        echo "WARNING: could not fetch kserve-deps.env, using fallback versions" >&2
+        return
+    fi
+    eval "$(echo "$deps" | grep -E '^[A-Z_]+=' | grep -v '^OVERRIDE_' | sed 's/^/export /')"
+}
+load_kserve_deps
+
+GWAPI_VERSION="${GWAPI_VERSION:-${GATEWAY_API_VERSION:-v1.5.1}}"
+CERTMGR_VERSION="${CERTMGR_VERSION:-${CERT_MANAGER_VERSION:-v1.17.0}}"
+GIE_VERSION="${GIE_VERSION:-v1.5.0}"
+LWS_VERSION="${LWS_VERSION:-v0.8.0}"
+# Does NOT track kserve-deps.env (still 1.27.1). InferencePool v1 needs >= 1.28,
+# but 1.28.x installs the ext_proc filter as a placeholder pointing at cluster
+# "dummy" and never attaches the per-route override -- so the endpoint picker is
+# deployed, healthy, resolved, and silently never invoked, with traffic
+# round-robining instead of being scheduled. Nothing reports a problem.
+# 1.30.3 wires it correctly. See FINDINGS.md section 6. 1.29 not bisected.
+ISTIO_VERSION="${ISTIO_VERSION_OVERRIDE:-1.30.3}"
+
+WITH_KSERVE=false
+[[ "${1:-}" == "--with-kserve" ]] && WITH_KSERVE=true
+
+export KUBECONFIG="${SCRIPT_DIR}/.kubeconfig"
+
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'; BOLD='\033[1m'; NC='\033[0m'
+info() { echo -e "${YELLOW}INFO${NC}: $1"; }
+ok()   { echo -e "${GREEN}  OK${NC}: $1"; }
+err()  { echo -e "${RED}FAIL${NC}: $1"; exit 1; }
+
+# -------------------------------------------------------------------------
+# Kind
+# -------------------------------------------------------------------------
+
+if kind get clusters 2>/dev/null | grep -q "^${CLUSTER_NAME}$"; then
+    info "Kind cluster '${CLUSTER_NAME}' already exists"
+else
+    info "Creating kind cluster '${CLUSTER_NAME}'"
+    kind create cluster --name "$CLUSTER_NAME"
+fi
+kind get kubeconfig --name "${CLUSTER_NAME}" > "${KUBECONFIG}"
+
+default_kubeconfig="${HOME}/.kube/config"
+if [[ -f "$default_kubeconfig" ]]; then
+    prev_ctx=$(KUBECONFIG="$default_kubeconfig" kubectl config current-context 2>/dev/null || true)
+    KUBECONFIG="$default_kubeconfig" kind export kubeconfig --name "${CLUSTER_NAME}" >/dev/null
+    [[ -n "$prev_ctx" ]] && KUBECONFIG="$default_kubeconfig" \
+        kubectl config use-context "$prev_ctx" >/dev/null 2>&1 || true
+    info "Context available: kubectl --context kind-${CLUSTER_NAME} ..."
+fi
+
+# -------------------------------------------------------------------------
+# MetalLB
+#
+# Every kind cluster shares the docker network, so a fixed pool gets handed
+# out by every cluster's MetalLB and whichever ARPs first wins. Derive the
+# address from this cluster's control-plane node IP, which docker guarantees
+# is unique among running containers.
+# -------------------------------------------------------------------------
+
+info "Installing MetalLB"
+kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.9/config/manifests/metallb-native.yaml
+kubectl wait --timeout=180s -n metallb-system deployment/controller \
+    --for=condition=Available || err "MetalLB controller not ready"
+
+subnet=$(docker network inspect kind \
+    -f '{{range .IPAM.Config}}{{.Subnet}}{{"\n"}}{{end}}' | grep -v ':' | head -1)
+base=$(echo "${subnet:-172.18.0.0/16}" | cut -d. -f1-2)
+node_ip=$(docker inspect "${CLUSTER_NAME}-control-plane" \
+    -f '{{.NetworkSettings.Networks.kind.IPAddress}}')
+lb_ip="${base}.255.${node_ip##*.}"
+info "MetalLB pool for '${CLUSTER_NAME}': ${lb_ip}"
+
+kubectl apply -f - <<EOF
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: kind-pool
+  namespace: metallb-system
+spec:
+  addresses:
+    - ${lb_ip}/32
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: kind-l2
+  namespace: metallb-system
+EOF
+
+# -------------------------------------------------------------------------
+# Gateway API
+# -------------------------------------------------------------------------
+
+# --server-side: the HTTPRoute CRD's CEL rules push it past the annotation size
+# limit that a client-side apply has to fit the last-applied-configuration into.
+info "Installing Gateway API CRDs ${GWAPI_VERSION}"
+kubectl apply --server-side=true --force-conflicts \
+    -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/${GWAPI_VERSION}/standard-install.yaml"
+
+# The pre-flight check this spike argues for is only as good as the limits it
+# checks against, and those ship with whichever CRD the cluster installed --
+# not with kserve's go.mod. Print them so every run records what it tested on.
+info "HTTPRoute limits on the installed CRD:"
+kubectl get crd httproutes.gateway.networking.k8s.io -o json 2>/dev/null | python3 -c '
+import json, sys
+crd = json.load(sys.stdin)
+for ver in crd["spec"]["versions"]:
+    if not ver.get("storage"):
+        continue
+    rules = ver["schema"]["openAPIV3Schema"]["properties"]["spec"]["properties"]["rules"]
+    matches = rules["items"]["properties"]["matches"]
+    total = next((r["message"] for r in rules.get("x-kubernetes-validations", [])
+                  if "total number of matches" in r.get("message", "")), "no CEL total rule")
+    print("       version           %s" % ver["name"])
+    print("       max rules         %s" % rules.get("maxItems", "unset"))
+    print("       max matches/rule  %s" % matches.get("maxItems", "unset"))
+    print("       route-wide        %s" % total)
+' || info "  (could not read CRD schema)"
+
+# -------------------------------------------------------------------------
+# Istio
+# -------------------------------------------------------------------------
+
+if kubectl get deployment istiod -n istio-system >/dev/null 2>&1; then
+    info "Istio already installed"
+else
+    info "Installing Istio ${ISTIO_VERSION}"
+    helm repo add istio https://istio-release.storage.googleapis.com/charts 2>/dev/null || true
+    helm repo update istio
+
+    kubectl create namespace istio-system 2>/dev/null || true
+    helm upgrade -i istio-base istio/base \
+        --namespace istio-system --version "${ISTIO_VERSION}" --wait
+    # Without these, Istio refuses every InferencePool backendRef with
+    # ResolvedRefs=InvalidKind ("InferencePool is not enabled. To enable, set
+    # ENABLE_GATEWAY_API_INFERENCE_EXTENSION to true in istiod") and no llmisvc
+    # route ever becomes ready.
+    helm upgrade -i istiod istio/istiod \
+        --namespace istio-system --version "${ISTIO_VERSION}" \
+        --set resources.requests.cpu=5m \
+        --set resources.requests.memory=32Mi \
+        --set pilot.env.ENABLE_GATEWAY_API_INFERENCE_EXTENSION=true \
+        --set pilot.env.SUPPORT_GATEWAY_API_INFERENCE_EXTENSION=true \
+        --wait
+fi
+kubectl wait --timeout=180s -n istio-system deployment/istiod \
+    --for=condition=Available || err "istiod not ready"
+
+# -------------------------------------------------------------------------
+# Gateway
+#
+# allowedRoutes from All: the fixtures and the neighbour tenant live in
+# lora-budget while the Gateway lives in kserve, and cross-namespace parentRef
+# attachment needs the Gateway to opt in.
+# -------------------------------------------------------------------------
+
+kubectl create namespace kserve 2>/dev/null || true
+kubectl create namespace "$NS" 2>/dev/null || true
+
+info "Creating Gateway kserve/kserve-ingress-gateway"
+kubectl apply -f - <<EOF
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: kserve-ingress-gateway
+  namespace: kserve
+spec:
+  gatewayClassName: istio
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: All
+  infrastructure:
+    labels:
+      serving.kserve.io/gateway: kserve-ingress-gateway
+EOF
+
+# -------------------------------------------------------------------------
+# kserve (tier 1 only)
+# -------------------------------------------------------------------------
+
+if [[ "$WITH_KSERVE" == true ]]; then
+    # config/llmisvc ships a cert-manager Certificate for the webhook serving
+    # cert. Without cert-manager the kustomize apply fails on an unknown kind,
+    # the controller pod never leaves ContainerCreating waiting for the secret,
+    # and every subsequent LLMInferenceServiceConfig apply is refused by a
+    # webhook whose backend is not listening.
+    if kubectl get deployment cert-manager-webhook -n cert-manager >/dev/null 2>&1; then
+        info "cert-manager already installed"
+    else
+        info "Installing cert-manager ${CERTMGR_VERSION}"
+        kubectl apply -f "https://github.com/cert-manager/cert-manager/releases/download/${CERTMGR_VERSION}/cert-manager.yaml"
+    fi
+    kubectl wait --timeout=300s -n cert-manager --for=condition=Available \
+        deployment/cert-manager deployment/cert-manager-webhook deployment/cert-manager-cainjector \
+        || err "cert-manager not ready"
+
+    info "Installing inference-extension CRDs ${GIE_VERSION}"
+    kubectl apply -f "https://github.com/kubernetes-sigs/gateway-api-inference-extension/releases/download/${GIE_VERSION}/manifests.yaml"
+
+    info "Installing LWS ${LWS_VERSION}"
+    kubectl apply --server-side -f "https://github.com/kubernetes-sigs/lws/releases/download/${LWS_VERSION}/manifests.yaml"
+    kubectl wait --timeout=180s -n lws-system deployment/lws-controller-manager \
+        --for=condition=Available || err "LWS controller not ready"
+
+    info "Installing kserve llmisvc (${KSERVE_REF})"
+    kubectl apply --server-side=true --force-conflicts \
+        -k "${KSERVE_KUSTOMIZE}/crd/full/llmisvc?ref=${KSERVE_REF}"
+    kubectl wait --for=condition=established --timeout=60s \
+        crd/llminferenceserviceconfigs.serving.kserve.io \
+        crd/llminferenceservices.serving.kserve.io
+
+    kubectl apply -f "${KSERVE_RAW}/config/configmap/inferenceservice.yaml" 2>/dev/null || true
+
+    # The webhook Certificate references a self-signed Issuer that lives in a
+    # different kustomize root (config/certmanager). Without it the Certificate
+    # stays Ready=False forever, the serving-cert Secret is never created, and
+    # the controller pod hangs in ContainerCreating on the volume mount.
+    info "Installing cert-manager Issuer"
+    kubectl apply -f "${KSERVE_RAW}/config/certmanager/issuer.yaml" \
+        || err "failed to install the selfsigned issuer"
+
+    info "Pointing kserve at the Gateway"
+    ingress_json=$(kubectl get configmap inferenceservice-config -n kserve \
+        -o jsonpath='{.data.ingress}' 2>/dev/null || echo '{}')
+    patched=$(python3 - <<PY
+import json
+cfg = json.loads('''${ingress_json}''' or '{}')
+cfg['kserveIngressGateway'] = 'kserve/kserve-ingress-gateway'
+cfg['enableGatewayApi'] = True
+print(json.dumps(cfg))
+PY
+)
+    kubectl patch configmap inferenceservice-config -n kserve --type merge \
+        -p "{\"data\":{\"ingress\":$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$patched")}}"
+
+    # The rolebinding in this kustomize uses kustomize vars and fails to
+    # validate standalone -- known and harmless. Anything else is not, so
+    # filter that one line rather than swallowing the whole exit status.
+    apply_out=$(kubectl apply --server-side=true --force-conflicts \
+        -k "${KSERVE_KUSTOMIZE}/llmisvc?ref=${KSERVE_REF}" 2>&1) || true
+    echo "$apply_out" | grep -v 'is invalid' || true
+    if echo "$apply_out" | grep -q 'no matches for kind'; then
+        err "kserve kustomize needs a CRD that is not installed (see above)"
+    fi
+
+    if [[ -n "${LLMISVC_IMAGE:-}" ]]; then
+        info "Patching controller image to ${LLMISVC_IMAGE}"
+        kubectl set image -n kserve deployment/llmisvc-controller-manager \
+            manager="$LLMISVC_IMAGE"
+    fi
+
+    # cert-manager issues the serving cert asynchronously. A pod created before
+    # the Secret lands sits in ContainerCreating and kubelet backs off on the
+    # mount retry, so it can stay stuck long after the Secret appears -- which
+    # reads as "the controller is broken" rather than "it was started too
+    # early". Wait for the Secret, then evict anything still waiting on it.
+    info "Waiting for the webhook serving cert"
+    kubectl wait --timeout=180s -n kserve --for=condition=Ready \
+        certificate/llmisvc-serving-cert || err "serving cert never issued"
+
+    if kubectl get pods -n kserve -l control-plane=llmisvc-controller-manager \
+        -o jsonpath='{.items[*].status.phase}' 2>/dev/null | grep -q Pending; then
+        info "Restarting the controller: it predates the serving cert"
+        kubectl delete pods -n kserve -l control-plane=llmisvc-controller-manager --wait=false
+    fi
+
+    kubectl rollout status deployment/llmisvc-controller-manager -n kserve --timeout=300s \
+        || err "llmisvc controller not ready"
+
+    # The presets below go through a validating webhook served by the pod we
+    # just rolled out. Deployment Available is not the same as the webhook
+    # endpoint accepting connections, and applying too early fails with a
+    # connection-refused that looks like a manifest problem.
+    info "Waiting for the llmisvc webhook endpoint"
+    for _ in $(seq 1 60); do
+        ready=$(kubectl get endpointslice -n kserve \
+            -l kubernetes.io/service-name=llmisvc-webhook-server-service \
+            -o jsonpath='{.items[*].endpoints[*].conditions.ready}' 2>/dev/null || echo "")
+        [[ "$ready" == *true* ]] && break
+        sleep 2
+    done
+    [[ "$ready" == *true* ]] || err "webhook endpoint never became ready"
+
+    kubectl apply --server-side=true --force-conflicts \
+        -k "${KSERVE_KUSTOMIZE}/llmisvcconfig?ref=${KSERVE_REF}" \
+        || err "failed to install llmisvcconfig presets"
+fi
+
+# -------------------------------------------------------------------------
+# Observable backends
+# -------------------------------------------------------------------------
+
+info "Deploying echo backends"
+kubectl apply -f "${SCRIPT_DIR}/manifests/backends.yaml"
+kubectl wait --timeout=120s -n "$NS" --for=condition=Available \
+    deployment/echo-pool deployment/echo-service deployment/echo-neighbour \
+    || err "echo backends not ready"
+
+# -------------------------------------------------------------------------
+
+info "Waiting for gateway address..."
+for _ in $(seq 1 45); do
+    gw_addr=$(kubectl get gateway kserve-ingress-gateway -n kserve \
+        -o jsonpath='{.status.addresses[0].value}' 2>/dev/null || echo "")
+    if [[ -n "$gw_addr" ]]; then
+        ok "Gateway address: ${gw_addr}"
+        echo
+        if [[ "$WITH_KSERVE" == true ]]; then
+            echo -e "  ${BOLD}./capture-routes.sh --sweep 0,3,6,7,8,12,13${NC}   # tier 1: shape + budget"
+            echo -e "  ${BOLD}./swap-backends.sh golden/route-current.yaml | kubectl apply -f -${NC}"
+        fi
+        echo -e "  ${BOLD}./characterize.sh --update${NC}                       # tier 2: freeze behaviour"
+        exit 0
+    fi
+    sleep 2
+done
+err "Gateway has no address after 90s"

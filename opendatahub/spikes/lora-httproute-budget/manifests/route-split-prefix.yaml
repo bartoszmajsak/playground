@@ -1,0 +1,1097 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  labels:
+    app.kubernetes.io/component: llminferenceservice-router
+    app.kubernetes.io/name: svc-a
+    app.kubernetes.io/part-of: llminferenceservice
+  name: svc-a-kserve-route-characterize
+  namespace: lora-budget
+spec:
+  parentRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: kserve-ingress-gateway
+    namespace: kserve
+  rules:
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /v1/completions
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /lora-budget/svc-a/v1/completions
+    name: v1-completions-path
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /v1/chat/completions
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /lora-budget/svc-a/v1/chat/completions
+    name: v1-chat-completions-path
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /v1/responses
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /lora-budget/svc-a/v1/responses
+    name: v1-responses-path
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /v1/messages
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /lora-budget/svc-a/v1/messages
+    name: v1-messages-path
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    matches:
+    - path:
+        type: PathPrefix
+        value: /v1/completions
+      headers:
+      - name: X-Gateway-Model-Name
+        type: Exact
+        value: publishers/lora-budget/models/model-a
+    - path:
+        type: PathPrefix
+        value: /v1/completions
+      headers:
+      - name: X-Gateway-Model-Name
+        type: Exact
+        value: publishers/lora-budget/models/adapter-a1
+    - path:
+        type: PathPrefix
+        value: /v1/completions
+      headers:
+      - name: X-Gateway-Model-Name
+        type: Exact
+        value: publishers/lora-budget/models/adapter-a2
+    name: v1-model-routing-v1-completions
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    matches:
+    - path:
+        type: PathPrefix
+        value: /v1/chat/completions
+      headers:
+      - name: X-Gateway-Model-Name
+        type: Exact
+        value: publishers/lora-budget/models/model-a
+    - path:
+        type: PathPrefix
+        value: /v1/chat/completions
+      headers:
+      - name: X-Gateway-Model-Name
+        type: Exact
+        value: publishers/lora-budget/models/adapter-a1
+    - path:
+        type: PathPrefix
+        value: /v1/chat/completions
+      headers:
+      - name: X-Gateway-Model-Name
+        type: Exact
+        value: publishers/lora-budget/models/adapter-a2
+    name: v1-model-routing-v1-chat-completions
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    matches:
+    - path:
+        type: PathPrefix
+        value: /v1/responses
+      headers:
+      - name: X-Gateway-Model-Name
+        type: Exact
+        value: publishers/lora-budget/models/model-a
+    - path:
+        type: PathPrefix
+        value: /v1/responses
+      headers:
+      - name: X-Gateway-Model-Name
+        type: Exact
+        value: publishers/lora-budget/models/adapter-a1
+    - path:
+        type: PathPrefix
+        value: /v1/responses
+      headers:
+      - name: X-Gateway-Model-Name
+        type: Exact
+        value: publishers/lora-budget/models/adapter-a2
+    name: v1-model-routing-v1-responses
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    matches:
+    - path:
+        type: PathPrefix
+        value: /v1/messages
+      headers:
+      - name: X-Gateway-Model-Name
+        type: Exact
+        value: publishers/lora-budget/models/model-a
+    - path:
+        type: PathPrefix
+        value: /v1/messages
+      headers:
+      - name: X-Gateway-Model-Name
+        type: Exact
+        value: publishers/lora-budget/models/adapter-a1
+    - path:
+        type: PathPrefix
+        value: /v1/messages
+      headers:
+      - name: X-Gateway-Model-Name
+        type: Exact
+        value: publishers/lora-budget/models/adapter-a2
+    name: v1-model-routing-v1-messages
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /v1/completions
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /publishers/lora-budget/models/model-a/v1/completions
+    name: v1-completions-publisher-path
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /v1/chat/completions
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /publishers/lora-budget/models/model-a/v1/chat/completions
+    name: v1-chat-completions-publisher-path
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /v1/responses
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /publishers/lora-budget/models/model-a/v1/responses
+    name: v1-responses-publisher-path
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /v1/messages
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /publishers/lora-budget/models/model-a/v1/messages
+    name: v1-messages-publisher-path
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-service
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /publishers/lora-budget/models/model-a
+    name: v1-publisher-path-catch-all
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-service
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /lora-budget/svc-a
+    name: v1-catch-all-path
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-service
+      port: 8000
+    matches:
+    - headers:
+      - name: X-Gateway-Model-Name
+        type: Exact
+        value: publishers/lora-budget/models/model-a
+      path:
+        type: PathPrefix
+        value: /
+    - headers:
+      - name: X-Gateway-Model-Name
+        type: Exact
+        value: publishers/lora-budget/models/adapter-a1
+      path:
+        type: PathPrefix
+        value: /
+    - headers:
+      - name: X-Gateway-Model-Name
+        type: Exact
+        value: publishers/lora-budget/models/adapter-a2
+      path:
+        type: PathPrefix
+        value: /
+    name: v1-catch-all-model-routing
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  labels:
+    app.kubernetes.io/component: llminferenceservice-router
+    app.kubernetes.io/name: svc-ai
+    app.kubernetes.io/part-of: llminferenceservice
+  name: svc-ai-kserve-route-characterize
+  namespace: lora-budget
+spec:
+  parentRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: kserve-ingress-gateway
+    namespace: kserve
+  rules:
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /v1/completions
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /lora-budget/svc-ai/v1/completions
+    name: v1-completions-path
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /v1/chat/completions
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /lora-budget/svc-ai/v1/chat/completions
+    name: v1-chat-completions-path
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /v1/responses
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /lora-budget/svc-ai/v1/responses
+    name: v1-responses-path
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /v1/messages
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /lora-budget/svc-ai/v1/messages
+    name: v1-messages-path
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    matches:
+    - path:
+        type: PathPrefix
+        value: /v1/completions
+      headers:
+      - name: X-Gateway-Model-Name
+        type: Exact
+        value: publishers/lora-budget/models/model-a-instruct
+    name: v1-model-routing-v1-completions
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    matches:
+    - path:
+        type: PathPrefix
+        value: /v1/chat/completions
+      headers:
+      - name: X-Gateway-Model-Name
+        type: Exact
+        value: publishers/lora-budget/models/model-a-instruct
+    name: v1-model-routing-v1-chat-completions
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    matches:
+    - path:
+        type: PathPrefix
+        value: /v1/responses
+      headers:
+      - name: X-Gateway-Model-Name
+        type: Exact
+        value: publishers/lora-budget/models/model-a-instruct
+    name: v1-model-routing-v1-responses
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    matches:
+    - path:
+        type: PathPrefix
+        value: /v1/messages
+      headers:
+      - name: X-Gateway-Model-Name
+        type: Exact
+        value: publishers/lora-budget/models/model-a-instruct
+    name: v1-model-routing-v1-messages
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /v1/completions
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /publishers/lora-budget/models/model-a-instruct/v1/completions
+    name: v1-completions-publisher-path
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /v1/chat/completions
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /publishers/lora-budget/models/model-a-instruct/v1/chat/completions
+    name: v1-chat-completions-publisher-path
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /v1/responses
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /publishers/lora-budget/models/model-a-instruct/v1/responses
+    name: v1-responses-publisher-path
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /v1/messages
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /publishers/lora-budget/models/model-a-instruct/v1/messages
+    name: v1-messages-publisher-path
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-service
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /publishers/lora-budget/models/model-a-instruct
+    name: v1-publisher-path-catch-all
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-service
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /lora-budget/svc-ai
+    name: v1-catch-all-path
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-service
+      port: 8000
+    matches:
+    - headers:
+      - name: X-Gateway-Model-Name
+        type: Exact
+        value: publishers/lora-budget/models/model-a-instruct
+      path:
+        type: PathPrefix
+        value: /
+    name: v1-catch-all-model-routing
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  labels:
+    app.kubernetes.io/component: llminferenceservice-router
+    app.kubernetes.io/name: svc-b
+    app.kubernetes.io/part-of: llminferenceservice
+  name: svc-b-kserve-route-characterize
+  namespace: lora-budget
+spec:
+  parentRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: kserve-ingress-gateway
+    namespace: kserve
+  rules:
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /v1/completions
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /lora-budget/svc-b/v1/completions
+    name: v1-completions-path
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /v1/chat/completions
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /lora-budget/svc-b/v1/chat/completions
+    name: v1-chat-completions-path
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /v1/responses
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /lora-budget/svc-b/v1/responses
+    name: v1-responses-path
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /v1/messages
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /lora-budget/svc-b/v1/messages
+    name: v1-messages-path
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    matches:
+    - path:
+        type: PathPrefix
+        value: /v1/completions
+      headers:
+      - name: X-Gateway-Model-Name
+        type: Exact
+        value: publishers/lora-budget/models/model-b
+    name: v1-model-routing-v1-completions
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    matches:
+    - path:
+        type: PathPrefix
+        value: /v1/chat/completions
+      headers:
+      - name: X-Gateway-Model-Name
+        type: Exact
+        value: publishers/lora-budget/models/model-b
+    name: v1-model-routing-v1-chat-completions
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    matches:
+    - path:
+        type: PathPrefix
+        value: /v1/responses
+      headers:
+      - name: X-Gateway-Model-Name
+        type: Exact
+        value: publishers/lora-budget/models/model-b
+    name: v1-model-routing-v1-responses
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    matches:
+    - path:
+        type: PathPrefix
+        value: /v1/messages
+      headers:
+      - name: X-Gateway-Model-Name
+        type: Exact
+        value: publishers/lora-budget/models/model-b
+    name: v1-model-routing-v1-messages
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /v1/completions
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /publishers/lora-budget/models/model-b/v1/completions
+    name: v1-completions-publisher-path
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /v1/chat/completions
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /publishers/lora-budget/models/model-b/v1/chat/completions
+    name: v1-chat-completions-publisher-path
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /v1/responses
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /publishers/lora-budget/models/model-b/v1/responses
+    name: v1-responses-publisher-path
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /v1/messages
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /publishers/lora-budget/models/model-b/v1/messages
+    name: v1-messages-publisher-path
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-service
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /publishers/lora-budget/models/model-b
+    name: v1-publisher-path-catch-all
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-service
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /lora-budget/svc-b
+    name: v1-catch-all-path
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-service
+      port: 8000
+    matches:
+    - headers:
+      - name: X-Gateway-Model-Name
+        type: Exact
+        value: publishers/lora-budget/models/model-b
+      path:
+        type: PathPrefix
+        value: /
+    name: v1-catch-all-model-routing
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  labels:
+    app.kubernetes.io/component: llminferenceservice-router
+    app.kubernetes.io/name: svc-c
+    app.kubernetes.io/part-of: llminferenceservice
+  name: svc-c-kserve-route-characterize
+  namespace: lora-budget
+spec:
+  parentRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: kserve-ingress-gateway
+    namespace: kserve
+  rules:
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /v1/completions
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /lora-budget/svc-c/v1/completions
+    name: v1-completions-path
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /v1/chat/completions
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /lora-budget/svc-c/v1/chat/completions
+    name: v1-chat-completions-path
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /v1/responses
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /lora-budget/svc-c/v1/responses
+    name: v1-responses-path
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /v1/messages
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /lora-budget/svc-c/v1/messages
+    name: v1-messages-path
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /v1/completions
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /publishers/lora-budget/models/model-c/v1/completions
+    name: v1-completions-publisher-path
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /v1/chat/completions
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /publishers/lora-budget/models/model-c/v1/chat/completions
+    name: v1-chat-completions-publisher-path
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /v1/responses
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /publishers/lora-budget/models/model-c/v1/responses
+    name: v1-responses-publisher-path
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-pool
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /v1/messages
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /publishers/lora-budget/models/model-c/v1/messages
+    name: v1-messages-publisher-path
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-service
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /publishers/lora-budget/models/model-c
+    name: v1-publisher-path-catch-all
+    timeouts:
+      backendRequest: 0s
+      request: 0s
+  - backendRefs:
+    - kind: Service
+      name: echo-service
+      port: 8000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: PathPrefix
+        value: /lora-budget/svc-c
+    name: v1-catch-all-path
+    timeouts:
+      backendRequest: 0s
+      request: 0s

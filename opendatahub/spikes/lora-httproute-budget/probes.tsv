@@ -1,0 +1,144 @@
+# Routing characterization probes.
+#
+# Columns:  family  method  path  header-value
+# header-value "-" means no X-Gateway-Model-Name header is sent.
+#
+# Fixtures (see manifests/fixtures.yaml):
+#   ns        lora-budget
+#   svc-a     model name "model-a", adapters "adapter-a1" "adapter-a2"
+#   svc-b     model name "model-b", no adapters
+#   svc-c     model name "model-c", model-based routing DISABLED
+#   neighbour plain HTTPRoute on the same gateway: PathPrefix /docs and PathPrefix /
+#
+# Qualified model name form: publishers/{ns}/models/{model}
+#
+# Nothing here asserts an expectation. The harness records what actually
+# happens and diffs it against golden/. Probes marked ">> " in a trailing
+# comment are the ones a shape change is expected to move.
+
+# ---------------------------------------------------------------------------
+# name-path family:  /{ns}/{name}/...   PathPrefix + URLRewrite
+# ---------------------------------------------------------------------------
+name-path   POST  /lora-budget/svc-a/v1/completions                 -
+name-path   POST  /lora-budget/svc-a/v1/chat/completions            -
+name-path   POST  /lora-budget/svc-a/v1/responses                   -
+name-path   POST  /lora-budget/svc-a/v1/messages                    -
+name-path   POST  /lora-budget/svc-a/v1/completions/                -
+# PathPrefix is segment-based: these ride the prefix rule, not the catch-all
+name-path   POST  /lora-budget/svc-a/v1/messages/count_tokens       -
+name-path   GET   /lora-budget/svc-a/v1/responses/resp_abc123       -
+# stateful sub-resources -- already pool-addressable here, since the path family
+# has always used PathPrefix. The header family's twins are what differ.
+name-path   POST  /lora-budget/svc-a/v1/responses/resp_abc123/cancel        -
+name-path   GET   /lora-budget/svc-a/v1/responses/resp_abc123/input_items   -
+name-path   GET   /lora-budget/svc-a/v1/messages/batches/batch_123          -
+# ...but a partial segment must NOT match the prefix rule
+name-path   POST  /lora-budget/svc-a/v1/completions-extra           -
+# not in the endpoint list -> workload Service via the catch-all
+name-path   POST  /lora-budget/svc-a/v1/embeddings                  -
+name-path   GET   /lora-budget/svc-a/v1/models                      -
+name-path   GET   /lora-budget/svc-a/health                         -
+name-path   GET   /lora-budget/svc-a/metrics                        -
+name-path   POST  /lora-budget/svc-a/score                          -
+name-path   POST  /lora-budget/svc-a/v2/rerank                      -
+name-path   GET   /lora-budget/svc-a/                               -
+name-path   GET   /lora-budget/svc-a                                -
+# a name that merely starts with an existing service name
+name-path   POST  /lora-budget/svc-abc/v1/completions               -
+
+# ---------------------------------------------------------------------------
+# publisher-path family:  /publishers/{ns}/models/{model}/...
+# ---------------------------------------------------------------------------
+pub-path    POST  /publishers/lora-budget/models/model-a/v1/completions        -
+pub-path    POST  /publishers/lora-budget/models/model-a/v1/chat/completions   -
+pub-path    POST  /publishers/lora-budget/models/model-a/v1/embeddings         -
+pub-path    GET   /publishers/lora-budget/models/model-a/v1/models             -
+pub-path    GET   /publishers/lora-budget/models/model-a/health                -
+pub-path    GET   /publishers/lora-budget/models/model-a                       -
+# adapters get no publisher path of their own
+pub-path    POST  /publishers/lora-budget/models/adapter-a1/v1/chat/completions -
+
+# ---------------------------------------------------------------------------
+# header family: root path + X-Gateway-Model-Name
+# v1-model-routing uses Exact paths; v1-catch-all-model-routing has no path.
+# ---------------------------------------------------------------------------
+header      POST  /v1/completions              publishers/lora-budget/models/model-a
+header      POST  /v1/completions/             publishers/lora-budget/models/model-a
+header      POST  /v1/chat/completions         publishers/lora-budget/models/model-a
+header      POST  /v1/responses                publishers/lora-budget/models/model-a
+header      POST  /v1/messages                 publishers/lora-budget/models/model-a
+# Exact, so sub-paths fall through -- asymmetric with the name-path family.
+# These are exactly what a switch from Exact to PathPrefix would broaden into,
+# so each one is a line item in that decision rather than an argument about it.
+header      POST  /v1/messages/count_tokens    publishers/lora-budget/models/model-a
+header      GET   /v1/responses/resp_abc123    publishers/lora-budget/models/model-a
+# stateful Responses sub-resources: no body, so no producer can set the header.
+# Reaching the pool at all means a client set it by hand -- and the EPP answers
+# 400 "model not found in request body" (director.go:246, no bodyless guard).
+header      POST  /v1/responses/resp_abc123/cancel       publishers/lora-budget/models/model-a
+header      GET   /v1/responses/resp_abc123/input_items  publishers/lora-budget/models/model-a
+# Anthropic Message Batches: POST nests model per-request, GET carries none
+header      POST  /v1/messages/batches                   publishers/lora-budget/models/model-a
+header      GET   /v1/messages/batches/batch_123         publishers/lora-budget/models/model-a
+# arbitrary depth under a pool endpoint -- nothing in the API spec lives here,
+# but PathPrefix would accept it and Exact does not
+header      POST  /v1/completions/anything               publishers/lora-budget/models/model-a
+header      POST  /v1/chat/completions/deep/path         publishers/lora-budget/models/model-a
+# segment boundary must hold for PathPrefix too: this is NOT under /v1/completions
+header      POST  /v1/completions-extra                  publishers/lora-budget/models/model-a
+# >> these reach the workload Service today; the header-only collapse moves them to the pool
+header      POST  /v1/embeddings               publishers/lora-budget/models/model-a
+header      GET   /v1/models                   publishers/lora-budget/models/model-a
+header      GET   /health                      publishers/lora-budget/models/model-a
+header      GET   /metrics                     publishers/lora-budget/models/model-a
+header      POST  /score                       publishers/lora-budget/models/model-a
+header      POST  /v2/rerank                   publishers/lora-budget/models/model-a
+header      GET   /                            publishers/lora-budget/models/model-a
+header      POST  /anything/at/all             publishers/lora-budget/models/model-a
+# no header at all -> no header rule can match
+header      POST  /v1/chat/completions         -
+
+# ---------------------------------------------------------------------------
+# adapter header values (expandLoRAAdapterMatches output)
+# ---------------------------------------------------------------------------
+adapter     POST  /v1/chat/completions         publishers/lora-budget/models/adapter-a1
+adapter     POST  /v1/chat/completions         publishers/lora-budget/models/adapter-a2
+adapter     POST  /v1/embeddings               publishers/lora-budget/models/adapter-a1
+# bare (unqualified) adapter name -- vLLM serves it, the route does not match it
+adapter     POST  /v1/chat/completions         adapter-a1
+# header values are case-sensitive
+adapter     POST  /v1/chat/completions         publishers/lora-budget/models/Adapter-A1
+# a name nested under the base -- pins that today's flat scheme does not match it
+adapter     POST  /v1/chat/completions         publishers/lora-budget/models/model-a/adapters/adapter-a1
+
+# ---------------------------------------------------------------------------
+# cross-service precedence and capture
+# ---------------------------------------------------------------------------
+cross       POST  /lora-budget/svc-a/v1/chat/completions   publishers/lora-budget/models/model-b
+cross       POST  /v1/chat/completions                     publishers/lora-budget/models/model-b
+cross       POST  /v1/chat/completions                     publishers/lora-budget/models/model-nope
+# >> neighbour route at a longer prefix should win on path precedence
+cross       GET   /docs                                    publishers/lora-budget/models/model-a
+cross       GET   /docs/index.html                         publishers/lora-budget/models/model-a
+# >> neighbour route at "/" ties on path, loses on header count
+cross       GET   /                                        publishers/lora-budget/models/model-b
+cross       GET   /some/neighbour/page                     publishers/lora-budget/models/model-a
+
+# ---------------------------------------------------------------------------
+# model-based routing disabled (svc-c) -- stripModelBasedRoutingRules
+# ---------------------------------------------------------------------------
+disabled    POST  /lora-budget/svc-c/v1/chat/completions   -
+disabled    POST  /lora-budget/svc-c/v1/embeddings         -
+disabled    POST  /v1/chat/completions                     publishers/lora-budget/models/model-c
+disabled    GET   /v1/models                               publishers/lora-budget/models/model-c
+
+# ---------------------------------------------------------------------------
+# nested-naming anchoring (H3). svc-ai's qualified name extends svc-a's, so a
+# regex like publishers/ns/models/model-a(/.*)? must not capture it. Recorded
+# under every shape so the before/after is visible when nested lands.
+# ---------------------------------------------------------------------------
+nested      POST  /v1/chat/completions   publishers/lora-budget/models/model-a-instruct
+nested      POST  /v1/chat/completions   publishers/lora-budget/models/model-a/adapters/adapter-a1
+nested      POST  /v1/chat/completions   publishers/lora-budget/models/model-a/adapters/nope
+nested      POST  /v1/chat/completions   publishers/lora-budget/models/model-a-instruct/adapters/x
+nested      POST  /lora-budget/svc-ai/v1/chat/completions  -
