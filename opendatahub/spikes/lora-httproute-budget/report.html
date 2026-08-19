@@ -180,6 +180,51 @@
     max-width: 66ch; line-height: 1.55;
   }
 
+  /* ---- landing matrix ---- */
+  table.matrix td.m, table.beforeafter td { font-size: .84rem; }
+  table.matrix td.m {
+    font-family: var(--mono); font-size: .78rem; text-align: center;
+    white-space: nowrap; position: relative;
+  }
+  table.matrix td.pool { background: var(--accent-dim); color: var(--accent); }
+  table.matrix td.svc  { background: var(--rule-soft);  color: var(--ink-soft); }
+  table.matrix td.none { background: transparent;       color: var(--ink-soft); opacity: .6; }
+  table.matrix td.chg  { font-weight: 700; box-shadow: inset 0 0 0 1.5px var(--warn); }
+  table.matrix tr.grp td {
+    font-size: .78rem; letter-spacing: .04em; color: var(--ink-soft);
+    background: transparent; border-bottom: 1px solid var(--rule);
+    padding-top: 1.15rem; font-family: var(--sans);
+  }
+  table.matrix tbody tr:hover { background: transparent; }
+  .hint { font-size: .75rem; color: var(--ink-soft); font-family: var(--sans); }
+  .legend { display: flex; flex-wrap: wrap; gap: .35rem 1.4rem; align-items: center;
+            font-size: .82rem; color: var(--ink-soft); margin: -.6rem 0 1.5rem; }
+  .key { width: .85rem; height: .85rem; border-radius: 3px; display: inline-block;
+         vertical-align: -2px; margin-right: .3rem; }
+  .key.pool { background: var(--accent-dim); box-shadow: inset 0 0 0 1px var(--accent); }
+  .key.svc  { background: var(--rule-soft);  box-shadow: inset 0 0 0 1px var(--rule); }
+  .key.none { background: transparent;       box-shadow: inset 0 0 0 1px var(--rule); }
+  .key.chg  { background: transparent;       box-shadow: inset 0 0 0 1.5px var(--warn); }
+
+  /* ---- trade-off + before/after ---- */
+  table.tradeoff td, table.beforeafter td { font-size: .85rem; }
+  table.tradeoff td.ax, table.beforeafter td.ax {
+    color: var(--ink-soft); font-size: .8rem; white-space: nowrap;
+  }
+  table.tradeoff td.good { color: var(--accent); font-weight: 600; }
+  table.tradeoff td.bad  { color: var(--crit);   font-weight: 600; }
+  table.tradeoff td.warnc{ color: var(--warn);   font-weight: 600; }
+  table.beforeafter td.chg  { background: var(--accent-dim); }
+  table.beforeafter td.same { color: var(--ink-soft); font-style: italic; }
+
+  /* ---- business asks ---- */
+  .asks { display: grid; gap: .9rem; grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+          margin: 0 0 1.5rem; }
+  .ask { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px;
+         padding: 1rem 1.15rem; }
+  .ask h4 { margin: 0 0 .35rem; font-size: .95rem; font-weight: 650; }
+  .ask p  { margin: 0; font-size: .88rem; color: var(--ink-soft); line-height: 1.55; }
+
   /* ---- code block ---- */
   pre.code {
     font-family: var(--mono); font-size: .82rem; line-height: 1.6;
@@ -677,6 +722,112 @@
     </p>
   </div>
 
+  <h3>Which requests land where</h3>
+  <p>
+    The grid explains the budget; this explains the behaviour. Every cell is a real
+    request replayed against that shape and recorded — not a prediction. Read down a
+    column to see what a shape changes; read across a row to see which shapes disagree
+    about a request.
+  </p>
+
+  <div class="scroll">
+  <table class="matrix">
+    <thead>
+      <tr>
+        <th>request</th>
+        <th>current</th><th>split</th><th>split-noslash</th>
+        <th>prefix</th><th>nested</th><th>collapse</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr class="grp"><td colspan="7">path-addressed — <em>identical in every shape</em></td></tr>
+      <tr>
+        <td><code>/{ns}/{name}/v1/chat/completions</code></td>
+        <td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td>
+        <td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td>
+      </tr>
+      <tr>
+        <td><code>/{ns}/{name}/v1/embeddings</code></td>
+        <td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td>
+        <td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td>
+      </tr>
+
+      <tr class="grp"><td colspan="7">header-addressed — where the shapes diverge</td></tr>
+      <tr>
+        <td><code>/v1/chat/completions</code></td>
+        <td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td>
+        <td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td>
+      </tr>
+      <tr>
+        <td><code>/v1/completions/</code> <span class="hint">trailing slash</span></td>
+        <td class="m pool">pool</td><td class="m pool">pool</td><td class="m svc chg">service</td>
+        <td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td>
+      </tr>
+      <tr>
+        <td><code>/v1/messages/count_tokens</code> <span class="hint">sub-path</span></td>
+        <td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td>
+        <td class="m pool chg">pool</td><td class="m svc">service</td><td class="m pool chg">pool</td>
+      </tr>
+      <tr>
+        <td><code>/v1/completions/anything</code> <span class="hint">deeper</span></td>
+        <td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td>
+        <td class="m pool chg">pool</td><td class="m svc">service</td><td class="m pool chg">pool</td>
+      </tr>
+      <tr>
+        <td><code>/v1/embeddings</code> <span class="hint">not an endpoint</span></td>
+        <td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td>
+        <td class="m svc">service</td><td class="m svc">service</td><td class="m pool chg">pool</td>
+      </tr>
+      <tr>
+        <td><code>/health</code></td>
+        <td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td>
+        <td class="m svc">service</td><td class="m svc">service</td><td class="m pool chg">pool</td>
+      </tr>
+      <tr>
+        <td><code>/</code></td>
+        <td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td>
+        <td class="m svc">service</td><td class="m svc">service</td><td class="m pool chg">pool</td>
+      </tr>
+      <tr>
+        <td><code>/anything/at/all</code></td>
+        <td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td>
+        <td class="m svc">service</td><td class="m svc">service</td><td class="m pool chg">pool</td>
+      </tr>
+
+      <tr class="grp"><td colspan="7">adapter naming — only <code>nested</code> moves these</td></tr>
+      <tr>
+        <td><code>…/models/adapter-a1</code> <span class="hint">flat</span></td>
+        <td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td>
+        <td class="m pool">pool</td><td class="m none chg">no match</td><td class="m pool">pool</td>
+      </tr>
+      <tr>
+        <td><code>…/models/model-a/adapters/adapter-a1</code> <span class="hint">nested</span></td>
+        <td class="m none">no match</td><td class="m none">no match</td><td class="m none">no match</td>
+        <td class="m none">no match</td><td class="m pool chg">pool</td><td class="m none">no match</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p class="legend">
+    <span class="key pool"></span> InferencePool, through the scheduler
+    <span class="key svc"></span> workload Service, direct
+    <span class="key none"></span> no rule matched
+    <span class="key chg"></span> differs from today
+  </p>
+
+  <div class="note">
+    <span class="lbl">what the columns say</span>
+    <p>
+      <code>split</code> is byte-identical to today — every cell matches, which is what
+      “zero behaviour change” means concretely. <code>split-noslash</code> differs in
+      exactly one cell. <code>prefix</code> reaches further down each endpoint's sub-paths.
+      <code>collapse</code> turns the whole header column into pool traffic.
+      <code>nested</code> touches nothing about paths at all — it only changes which
+      <em>names</em> match, which is why its cost sits outside this table entirely.
+    </p>
+  </div>
+
   <h3>Where a request actually lands</h3>
   <p>
     The grid explains the budget. This explains the one behavioural difference that matters
@@ -744,6 +895,472 @@
   </figure>
 </section>
 
+<section>
+  <h2>Trade-offs, exactly</h2>
+  <p class="sub">
+    Same six shapes, every axis that costs something. Blank means the shape does not
+    touch that axis at all.
+  </p>
+
+  <div class="scroll">
+  <table class="tradeoff">
+    <thead>
+      <tr>
+        <th></th>
+        <th>current</th><th>split</th><th>split-noslash</th>
+        <th>prefix</th><th>nested</th><th>collapse</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="ax">max adapters</td>
+        <td class="num bad">7</td><td class="num">12</td><td class="num good">22</td>
+        <td class="num">15</td><td class="num good">unbounded</td><td class="num good">58</td>
+      </tr>
+      <tr>
+        <td class="ax">what binds it</td>
+        <td>64/rule</td><td>128/route</td><td>128/route</td>
+        <td>64/rule</td><td class="good">nothing</td><td>128/route</td>
+      </tr>
+      <tr>
+        <td class="ax">rule slots used <span class="hint">of 16</span></td>
+        <td class="num">12</td><td class="num warnc">15</td><td class="num warnc">15</td>
+        <td class="num">12</td><td class="num">12</td><td class="num">12</td>
+      </tr>
+      <tr>
+        <td class="ax">requests that move</td>
+        <td>—</td><td class="good">0</td><td class="good">1</td>
+        <td>8</td><td>7</td><td>20</td>
+      </tr>
+      <tr>
+        <td class="ax">outcomes that change</td>
+        <td>—</td><td class="good">0</td><td>1</td>
+        <td>not measured</td><td>not measured</td><td class="good">2</td>
+      </tr>
+      <tr>
+        <td class="ax">keeps path scope</td>
+        <td>yes</td><td>yes</td><td>yes</td>
+        <td>yes</td><td>yes</td><td class="bad">no</td>
+      </tr>
+      <tr>
+        <td class="ax">renames rules</td>
+        <td>—</td><td class="bad">yes, 1→4</td><td class="bad">yes, 1→4</td>
+        <td class="good">no</td><td class="good">no</td><td class="good">no</td>
+      </tr>
+      <tr>
+        <td class="ax">policy migration</td>
+        <td>—</td><td class="bad">unaliasable</td><td class="bad">unaliasable</td>
+        <td class="good">none</td><td class="good">none</td><td class="good">none</td>
+      </tr>
+      <tr>
+        <td class="ax">client-visible strings change</td>
+        <td>—</td><td class="good">no</td><td class="good">no</td>
+        <td class="good">no</td><td class="bad">yes</td><td class="good">no</td>
+      </tr>
+      <tr>
+        <td class="ax">needs a body-based router</td>
+        <td>—</td><td class="good">no</td><td class="good">no</td>
+        <td class="good">no</td><td class="good">no</td><td class="good">no</td>
+      </tr>
+      <tr>
+        <td class="ax">uses a header regex</td>
+        <td>no</td><td>no</td><td>no</td>
+        <td>no</td><td class="warnc">yes</td><td>no</td>
+      </tr>
+      <tr>
+        <td class="ax">reversible</td>
+        <td>—</td><td>yes</td><td>yes</td>
+        <td>yes</td><td class="warnc">only before clients adopt</td><td>yes</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <span class="lbl">two rows worth reading together</span>
+    <p>
+      <strong>Renames rules</strong> and <strong>client-visible strings change</strong> are
+      the only two rows that cost anything outside the route object — and no shape has
+      both. <code>split</code> pays in policy migration; <code>nested</code> pays in
+      client naming; <code>prefix</code> and <code>collapse</code> pay in neither, and
+      buy less or give up path scope instead.
+    </p>
+  </div>
+
+  <div class="note warn">
+    <span class="lbl">why “unaliasable” is the sharp word</span>
+    <p>
+      Renaming a rule detaches any Kuadrant policy pinned to it by
+      <code>sectionName</code>. That is recoverable when the rename is one-to-one — put the
+      old name back and enforcement returns. But <code>split</code> turns one rule into
+      four, so a single alias can only cover one of them. Tested: the policy came back
+      reporting <code>Accepted=True</code>, <code>Enforced=True</code> while actually
+      covering <strong>a quarter</strong> of its former traffic. A green policy with a 75%
+      hole is worse than the clean break, which at least reports
+      <code>TargetNotFound</code>.
+    </p>
+    <p>
+      This only affects policies someone wrote themselves against our rule names.
+      odh-model-controller's own policies target whole objects and are unaffected.
+    </p>
+  </div>
+</section>
+
+<section>
+  <h2>What adopting <code>nested</code> would actually ask for</h2>
+  <p class="sub">
+    It is the only shape that removes the ceiling permanently, and the only one whose cost
+    is not a routing decision. Worth being precise about what you would be signing up to.
+  </p>
+
+  <p>
+    Today an adapter is registered with vLLM under a name that sits <em>beside</em> the base
+    model. <code>nested</code> puts it <em>underneath</em>:
+  </p>
+
+  <div class="scroll">
+  <pre class="code"><span class="c"># today — base and adapter are siblings, so the route must list both</span>
+publishers/&lt;ns&gt;/models/llama-3-8b
+publishers/&lt;ns&gt;/models/<span class="hi">sql-adapter</span>
+
+<span class="c"># nested — one prefix covers the base and everything under it</span>
+publishers/&lt;ns&gt;/models/llama-3-8b
+publishers/&lt;ns&gt;/models/<span class="hi">llama-3-8b/adapters/sql-adapter</span></pre>
+  </div>
+
+  <p>That string is what a caller puts in the request body:</p>
+
+  <div class="scroll">
+  <pre class="code">client.chat.completions.create(
+    model=<span class="c">"publishers/my-ns/models/sql-adapter"</span>,              <span class="c"># before</span>
+    model=<span class="hi">"publishers/my-ns/models/llama-3-8b/adapters/sql-adapter"</span>,  <span class="c"># after</span>
+)</pre>
+  </div>
+
+  <h3>The business ask, concretely</h3>
+
+  <div class="asks">
+    <div class="ask">
+      <h4>A one-time public naming change</h4>
+      <p>
+        Every caller that names an adapter changes one string. Notebooks, saved app
+        configs, eval harnesses, benchmark scripts — anything with a model name written
+        down. No CRD conversion reaches a string a client hard-coded, so this is
+        communication, not migration tooling.
+      </p>
+    </div>
+    <div class="ask">
+      <h4>A changed <code>/v1/models</code> response</h4>
+      <p>
+        Anything doing discovery — a dashboard, a catalogue, a downstream router — sees new
+        identifiers. If something stores a model name, it needs to be re-fetched rather
+        than assumed stable.
+      </p>
+    </div>
+    <div class="ask">
+      <h4>Accepting a new coupling</h4>
+      <p>
+        Adapter identity now contains base-model identity, so renaming
+        <code>spec.model.name</code> renames every adapter with it. Today those are
+        independent. After nesting, a base-model rename becomes a breaking change for all
+        adapter clients — worth a policy, not a surprise.
+      </p>
+    </div>
+    <div class="ask">
+      <h4>A deprecation window, and someone to own it</h4>
+      <p>
+        The migration is additive if sequenced: kserve already registers two names per
+        adapter, so register three and both old and new work at once. Nothing breaks until
+        the route stops matching the legacy names — but the budget win only arrives when
+        they are dropped. Someone has to decide when that is, and tell people.
+      </p>
+    </div>
+  </div>
+
+  <h3>What you get for it</h3>
+  <ul>
+    <li>Adapter count leaves the route arithmetic entirely — <strong>19 matches, constant</strong>, at any number of adapters</li>
+    <li>No body-based router, no mapping ConfigMap, no sync window, no extra component to operate</li>
+    <li>Path scope preserved, so <code>/health</code> and <code>/metrics</code> stay off the scheduler</li>
+    <li>No rule renamed, so no policy migration</li>
+    <li>Per-adapter route churn disappears — adding an adapter stops rewriting the HTTPRoute</li>
+  </ul>
+
+  <h3>The questions that decide it</h3>
+  <ol class="steps">
+    <li>
+      <div>
+        <h4>Do we need more than roughly twenty adapters on one service?</h4>
+        <p>
+          If no, <code>split-noslash</code> reaches 22 without touching a public name and
+          this conversation ends. Nothing else here matters until that number exists.
+        </p>
+      </div>
+    </li>
+    <li>
+      <div>
+        <h4>Are we willing to change a public model identifier once?</h4>
+        <p>
+          That is the entire cost. Not a routing risk — anchoring and blast radius were
+          measured and are clean — a product one.
+        </p>
+      </div>
+    </li>
+    <li>
+      <div>
+        <h4>Can we reach the callers we have?</h4>
+        <p>
+          Header-addressed adapter routing has close to no adoption today, and on
+          OpenShift AI that traffic is refused outright by the authorization policy. The
+          cheapest moment to change a public name is before anyone depends on it, and that
+          window is open now — it closes as adoption grows.
+        </p>
+      </div>
+    </li>
+  </ol>
+
+  <div class="note">
+    <span class="lbl">the honest summary</span>
+    <p>
+      <code>nested</code> is cheap technically and expensive socially. Everything that
+      could have made it risky — prefix anchoring against a neighbouring model name, regex
+      program size, blast radius on the data plane — was tested and came back clean. What
+      is left is a naming decision, and that is not a routing call to make.
+    </p>
+  </div>
+</section>
+
+<section>
+  <h2>What OpenShift AI's authorization policy already decides</h2>
+  <p class="sub">
+    Read from <code>odh-model-controller</code>, not run — but it changes which of the
+    shapes above can matter, so it belongs before the recommendation.
+  </p>
+
+  <p>
+    The design docs describe this policy as one <code>SubjectAccessReview</code> that
+    parses the URL. It is now five rules, and one of them settles the header question
+    outright: <code>deny-misrouted-model-header</code> is an immediate local 403 — no API
+    round-trip — whenever a valid-looking model routing header appears on a path that is
+    not a publisher path and not a batch path.
+  </p>
+
+  <div class="scroll">
+  <pre class="code"><span class="c"># deny-misrouted-model-header — priority 0, fires before the SAR rules</span>
+when:
+  - <span class="hi">!request.path.matches('^/publishers/[^/]+/models/')</span>
+  - !(path is /v1/files* or /v1/batches*)
+  - <span class="hi">'x-gateway-model-name' in request.headers</span>
+    && headers['x-gateway-model-name'].matches('^publishers/[^/]+/models/.+$')
+then:
+  patternMatching: { patterns: [ { predicate: <span class="hi">"false"</span> } ] }   <span class="c"># always deny</span></pre>
+  </div>
+
+  <div class="scroll">
+  <table class="matrix">
+    <thead>
+      <tr><th>request</th><th>model header</th><th>rule</th><th>outcome on ODH</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>/publishers/{ns}/models/{m}/v1/…</code></td><td>any</td>
+        <td><code>model-access-path</code></td><td class="m pool">model SAR</td>
+      </tr>
+      <tr>
+        <td><code>/{ns}/{name}/…</code></td><td>none</td>
+        <td><code>inference-access</code></td><td class="m pool">instance SAR</td>
+      </tr>
+      <tr>
+        <td><code>/{ns}/{name}/…</code></td><td>present</td>
+        <td><code>deny-misrouted</code></td><td class="m none">403</td>
+      </tr>
+      <tr>
+        <td><code>/v1/chat/completions</code></td><td>present</td>
+        <td><code>deny-misrouted</code></td><td class="m none">403</td>
+      </tr>
+      <tr>
+        <td><code>/v1/chat/completions</code></td><td>none</td>
+        <td>—</td><td class="m svc">authn only</td>
+      </tr>
+      <tr>
+        <td><code>/health</code></td><td>present</td>
+        <td><code>deny-misrouted</code></td><td class="m none">403</td>
+      </tr>
+      <tr>
+        <td><code>/v1/models</code></td><td>any</td>
+        <td>—</td><td class="m svc">authn only</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note warn">
+    <span class="lbl">the consequence for this decision</span>
+    <p>
+      <strong>Header addressing does not work on OpenShift AI today.</strong> Every request
+      in the header column of the earlier matrix is refused before routing. So
+      <code>v1-model-routing</code> — the rule that causes the entire seven-adapter
+      ceiling — currently serves only traffic ODH rejects. The budget it consumes is real;
+      the traffic is not.
+    </p>
+    <p>
+      That reprices two options. <code>collapse</code> and <code>prefix</code> only change
+      header-addressed behaviour, so on ODH they change nothing observable — their
+      “20 probes moved” and “8 probes moved” are moves within traffic that is already
+      denied. <code>nested</code> is the exception: it changes the model identifier itself,
+      which the <em>live</em> addressing modes carry in the request body.
+    </p>
+  </div>
+
+  <p>
+    Worth noting the same cross-tenant hole this spike measured was found independently on
+    that side and closed there — the deny rule exists because a per-participant path
+    carrying another tenant's model header would be “authorized by the path (tenant-A) but
+    routed by the header (tenant-B)”. Upstream kserve without odh-model-controller still
+    has it open.
+  </p>
+  <p>
+    Their stated plan is body-based routing with <code>resolvedPath</code> normalization,
+    rewriting <code>/v1/…</code> plus a header into publisher form so it can be authorized
+    rather than denied. That is the route by which header addressing becomes supported —
+    and it makes the header family a cross-repo dependency rather than a kserve-local
+    choice.
+  </p>
+</section>
+
+<section>
+  <h2>Nested: every place the name appears</h2>
+  <p class="sub">
+    The adapter identifier is not only a routing key. Here is the full surface, before and
+    after — which is the real scope of the change, and it is wider than the route.
+  </p>
+
+  <div class="scroll">
+  <table class="beforeafter">
+    <thead>
+      <tr><th>where</th><th>today</th><th>with <code>nested</code></th><th>who sees it</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="ax">request body <code>model</code></td>
+        <td><code>publishers/{ns}/models/sql-adapter</code></td>
+        <td class="chg"><code>publishers/{ns}/models/<b>llama-3-8b/adapters/</b>sql-adapter</code></td>
+        <td>every caller</td>
+      </tr>
+      <tr>
+        <td class="ax"><code>GET /v1/models</code></td>
+        <td><code>…/models/sql-adapter</code></td>
+        <td class="chg"><code>…/models/llama-3-8b/adapters/sql-adapter</code></td>
+        <td>discovery, dashboards</td>
+      </tr>
+      <tr>
+        <td class="ax">routing header value</td>
+        <td><code>publishers/{ns}/models/sql-adapter</code></td>
+        <td class="chg">same nested string</td>
+        <td>header-addressed clients</td>
+      </tr>
+      <tr>
+        <td class="ax">vLLM <code>--lora-modules</code></td>
+        <td>bare + qualified name</td>
+        <td class="chg">bare + qualified + nested <span class="hint">3 names, additive</span></td>
+        <td>nobody — internal</td>
+      </tr>
+      <tr>
+        <td class="ax">URL path for an adapter</td>
+        <td colspan="2" class="same">none — adapters have never had a path of their own</td>
+        <td>—</td>
+      </tr>
+      <tr>
+        <td class="ax">URL path for the base model</td>
+        <td colspan="2" class="same"><code>/{ns}/{name}/v1/…</code> and <code>/publishers/{ns}/models/{base}/v1/…</code> — unchanged</td>
+        <td>—</td>
+      </tr>
+      <tr>
+        <td class="ax">HTTPRoute rule names</td>
+        <td colspan="2" class="same">unchanged — no policy migration</td>
+        <td>—</td>
+      </tr>
+      <tr>
+        <td class="ax">adapter file paths, PVC volumes</td>
+        <td colspan="2" class="same">unchanged — derived from the bare name</td>
+        <td>—</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <span class="lbl">the part that surprised me</span>
+    <p>
+      <strong>No URL changes.</strong> Adapters have never been addressable by path — an
+      adapter lives on the same pool as its base model, so
+      <code>/{ns}/{name}/v1/chat/completions</code> with
+      <code>{"model": "…sql-adapter"}</code> already reaches it. Nesting changes the
+      <em>identifier in the body</em>, not the address. That is why it survives ODH's
+      authorization policy untouched, and why the change is narrower than “rename the
+      routing scheme” suggests — but also why it still bites on ODH, where the body is
+      exactly what the live addressing modes carry.
+    </p>
+  </div>
+
+  <figure class="fig">
+    <svg viewBox="0 0 790 234" role="img" preserveAspectRatio="xMidYMid meet"
+         aria-label="Before and after nesting. The URL path is unchanged in both cases; only the model identifier carried in the request body and returned by the models endpoint gains the base model as a prefix.">
+      <defs>
+        <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5"
+                markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+
+      <text x="0" y="14" font-size="11" font-weight="600" fill="currentColor">TODAY</text>
+      <rect x="0" y="26" width="330" height="70" rx="5" fill="none" stroke="currentColor" stroke-width="1.2"/>
+      <text x="14" y="46" font-size="10" font-family="ui-monospace, monospace" fill="currentColor" opacity=".55">POST</text>
+      <text x="48" y="46" font-size="10" font-family="ui-monospace, monospace" fill="currentColor">/{ns}/{name}/v1/chat/completions</text>
+      <text x="14" y="68" font-size="10" font-family="ui-monospace, monospace" fill="currentColor" opacity=".55">body</text>
+      <text x="48" y="68" font-size="10" font-family="ui-monospace, monospace" fill="currentColor">{"model": "</text>
+      <text x="126" y="68" font-size="10" font-family="ui-monospace, monospace" fill="var(--warn)" font-weight="600">…/models/sql-adapter</text>
+      <text x="268" y="68" font-size="10" font-family="ui-monospace, monospace" fill="currentColor">"}</text>
+      <text x="14" y="87" font-size="9.5" fill="currentColor" opacity=".6">route picks the pool · body picks the adapter</text>
+
+      <line x1="345" y1="61" x2="392" y2="61" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar3)" opacity=".55"/>
+      <text x="368" y="52" font-size="9.5" fill="currentColor" text-anchor="middle" opacity=".6">nest</text>
+
+      <text x="406" y="14" font-size="11" font-weight="600" fill="var(--accent)">WITH NESTED</text>
+      <rect x="406" y="26" width="384" height="70" rx="5" fill="none" stroke="var(--accent)" stroke-width="1.4"/>
+      <text x="420" y="46" font-size="10" font-family="ui-monospace, monospace" fill="currentColor" opacity=".55">POST</text>
+      <text x="454" y="46" font-size="10" font-family="ui-monospace, monospace" fill="currentColor">/{ns}/{name}/v1/chat/completions</text>
+      <text x="666" y="46" font-size="9.5" fill="currentColor" opacity=".55">unchanged</text>
+      <text x="420" y="68" font-size="10" font-family="ui-monospace, monospace" fill="currentColor" opacity=".55">body</text>
+      <text x="454" y="68" font-size="10" font-family="ui-monospace, monospace" fill="currentColor">{"model": "</text>
+      <text x="532" y="68" font-size="10" font-family="ui-monospace, monospace" fill="var(--accent)" font-weight="600">…/models/llama-3-8b/adapters/sql-adapter</text>
+      <text x="420" y="87" font-size="9.5" fill="var(--accent)" opacity=".9">only this string moves</text>
+
+      <line x1="0" y1="118" x2="790" y2="118" stroke="currentColor" stroke-width="1" opacity=".15"/>
+
+      <text x="0" y="140" font-size="11" font-weight="600" fill="currentColor">WHAT THE ROUTE HOLDS</text>
+      <text x="0" y="164" font-size="10" fill="currentColor" opacity=".7">today — one match per adapter, added on every reconcile</text>
+      <g fill="var(--warn)" opacity=".5">
+        <rect x="0" y="172" width="30" height="12" rx="2"/><rect x="34" y="172" width="30" height="12" rx="2"/>
+        <rect x="68" y="172" width="30" height="12" rx="2"/><rect x="102" y="172" width="30" height="12" rx="2"/>
+        <rect x="136" y="172" width="30" height="12" rx="2"/><rect x="170" y="172" width="30" height="12" rx="2"/>
+        <rect x="204" y="172" width="30" height="12" rx="2"/>
+      </g>
+      <text x="242" y="182" font-size="10" fill="var(--warn)" font-weight="600">… stops at 7</text>
+
+      <text x="406" y="164" font-size="10" fill="currentColor" opacity=".7">nested — one match, whatever the adapter count</text>
+      <rect x="406" y="172" width="30" height="12" rx="2" fill="var(--accent)" opacity=".6"/>
+      <text x="446" y="182" font-size="10" font-family="ui-monospace, monospace" fill="var(--accent)">…/llama-3-8b(/.*)?</text>
+      <text x="406" y="204" font-size="10" fill="currentColor" opacity=".7">adding an adapter stops rewriting the HTTPRoute</text>
+      <text x="406" y="220" font-size="10" fill="currentColor" opacity=".7">entirely — no reconcile churn, no ceiling</text>
+    </svg>
+    <figcaption>
+      Nesting changes the identifier a client sends, not the address it sends it to. The
+      URL is identical before and after; the route stops growing with adapter count.
+    </figcaption>
+  </figure>
+</section>
+
 <section class="col">
   <h2>Recommendation</h2>
   <p class="sub">Two things worth doing regardless, then one choice that depends on a number nobody has fixed yet.</p>
@@ -796,51 +1413,23 @@
 </section>
 
 <section class="col">
-  <h2>What else this turned up</h2>
-  <p class="sub">Four filed issues, three of which have nothing to do with the budget.</p>
-
-  <h3>Filed</h3>
+  <h2>Corrections to the design docs</h2>
+  <p class="sub">Three numbers in the existing analysis do not survive measurement.</p>
   <ul>
     <li>
-      <strong>Identical rule names cross-wire the endpoint picker.</strong> Istio keys its
-      inference-pool wiring by bare rule name; kserve names every service's rules
-      identically. With three services on one gateway, <strong>17 of 26 routes</strong>
-      were scheduled by another service's picker, and every request with a body returned
-      500. Non-deterministic and sticky. <em>(p1)</em>
+      The collapse reaches <strong>63 adapters</strong>, not the ~122 estimated — the
+      figure conflated the per-rule cap of 64 with the route-wide 128. Getting past 63
+      needs a match-splitter on top of the collapse.
     </li>
     <li>
-      <strong>Istio below 1.29 never invokes the endpoint picker.</strong> It is deployed,
-      healthy, resolved — and silently bypassed, with traffic round-robining instead of
-      being scheduled. Bisected: 1.28 broken, 1.29 and 1.30 correct. <em>(p2)</em>
+      <strong>#5826 lowered the ceiling from 12 to 7.</strong> It consolidated four rules
+      into one to free three rule slots, trading match budget — the binding constraint —
+      for rule budget, which was not scarce.
     </li>
     <li>
-      <strong>Removing adapters never prunes the route.</strong> Clear the LoRA spec
-      entirely and 18 matches naming non-existent adapters remain, with the route reporting
-      ready. <em>(p2)</em>
-    </li>
-    <li>
-      <strong><code>MaxAdapters</code> documents a default that is never applied.</strong>
-      Confirmed live: two adapters configured, vLLM running with <code>max_lora=1</code>.
-      <em>(p3)</em>
-    </li>
-  </ul>
-
-  <h3>Corrections to the design docs</h3>
-  <ul>
-    <li>
-      The collapse reaches <strong>63</strong>, not ~122 — the estimate conflated the
-      per-rule cap with the route-wide one.
-    </li>
-    <li>
-      The regex objection that closed that track assumes Envoy's default program-size limit
-      of 100. <strong>Istio sets it to 32768.</strong> A 932-character pattern works with no
-      blast radius.
-    </li>
-    <li>
-      A renamed rule does <em>not</em> detach policies silently — Kuadrant reports
-      <code>TargetNotFound</code> and names the section. But re-adding the old name on a
-      1→4 split restores a <em>green</em> policy covering a quarter of its former traffic,
-      which is worse than the loud failure.
+      The regex objection that closed that track assumes Envoy's default program-size
+      limit of 100. <strong>Istio sets it to 32768.</strong> A 932-character pattern is
+      accepted, routes correctly, and leaves neighbouring routes untouched.
     </li>
   </ul>
 </section>
