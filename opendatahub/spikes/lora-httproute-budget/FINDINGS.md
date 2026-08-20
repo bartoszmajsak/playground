@@ -987,13 +987,83 @@ generated, and real adapter names do not. Optimising against the benchmark's
 naming would inflate the published number without helping any real deployment.
 
 **Trying to make 4KB of regex readable.** It cannot be done. RE2 has no
-free-spacing mode - it supports `i`, `m`, `s` and `U`, not `x` - so the pattern
-is one unbroken line in `kubectl get httproute -o yaml` whatever we do. The fix
+free-spacing mode - tested in section 19, Envoy answers `invalid perl operator:
+(?x` and drops the whole RouteConfiguration - so the pattern is one unbroken line
+in `kubectl get httproute -o yaml` whatever we do. The fix
 is not to prettify an artifact nobody should be reading. It is to make reading it
 unnecessary: the adapter list already lives in the CR spec, and what is missing is
 a pre-flight count check so that exceeding the budget produces a condition naming
 the adapter that did not fit, instead of a raw CEL string about
 `spec.rules[4].matches[0].headers[0].value`.
+
+## 19. Living with the route: diffs, greppability, and an inversion
+
+Section 18 treated the pattern as a byte budget. This is the other half: an
+HTTPRoute is reviewed in pull requests, `kubectl diff`ed before apply, and
+grepped when routing does not work. None of those operations appear in a ceiling
+table and they are what decides whether a shape is pleasant to own.
+
+`hack/diff-shapes.py` measures adding **one** adapter to a service that already
+has 100, using realistic names rather than generated ones.
+
+| shape | lines + | lines - | bytes rewritten | longest line | new name legible in the diff? |
+|---|---|---|---|---|---|
+| `current` | 56 | 0 | 1,420 | 59 | yes |
+| `alternation` | 8 | 8 | **23,032** | **1,445** | no, buried mid-line |
+| `nested` | **0** | **0** | **0** | 58 | absent entirely |
+
+And the question an operator actually asks - *is `sql-coder-v2` routable?* -
+answered from the route object alone:
+
+| shape | answer |
+|---|---|
+| `current` | yes: 8 lines, each readable |
+| `alternation` | grep matches, and hands back a 1,445-byte line |
+| `nested` | **no: the name never appears in the route at all** |
+
+### The inversion
+
+These two tables are the same axis read in opposite directions. **The more
+constant the route, the less it tells you.** Route churn and route
+informativeness are not independent properties to be optimised separately; they
+are the same property.
+
+- `current` churns the most and is the most legible. Adding an adapter is 56
+  readable lines and the name appears eight times. This is a real cost of moving
+  away from it, and no ceiling table shows it.
+- `alternation` is the worst of both. It rewrites 23KB for one adapter *and*
+  buries the name mid-line. It gets the churn of the flat form with the opacity
+  of the regex form.
+- `nested` has a perfect diff - adding an adapter does not touch the route at
+  all - and pays for it by making the route opaque. The route stops being the
+  place you can learn which adapters exist.
+
+### What follows from it
+
+Under `nested`, a status field listing routable adapters stops being a
+nice-to-have and becomes **required**, because nothing else can answer the
+question. The route object no longer knows. That is not an argument against
+nesting; it is a line item that belongs in its cost alongside the naming change,
+and it was missing from section 11's decision brief.
+
+Sorting the names (section 18) helps stability but not this: the alternation's
+line is rewritten in full either way.
+
+### Free-spacing mode does not exist in RE2
+
+Section 18 asserted that a long pattern cannot be broken across readable lines.
+Now tested rather than asserted - Istio, verbatim:
+
+```
+rejected: invalid perl operator: (?x
+```
+
+RE2 supports `i`, `m`, `s` and `U`, not `x`. A `(?x)` pattern takes the whole
+RouteConfiguration down with it, which is the same silent-failure shape as
+section 16: route `Accepted=True`, proxy serving stale config.
+
+So there is no way to make 4KB of regex readable in place, and the only real
+mitigation is to make reading it unnecessary.
 
 ---
 

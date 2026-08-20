@@ -1627,6 +1627,14 @@ publishers/&lt;ns&gt;/models/<span class="hi">llama-3-8b/adapters/sql-adapter</s
       </p>
     </div>
     <div class="ask">
+      <h4>A status field listing routable adapters</h4>
+      <p>
+        Under nesting the adapter name never appears in the HTTPRoute, so the route stops
+        being the place you can learn which adapters are actually routable. Nothing else
+        answers that today. This is small, but it is real work and it is not optional.
+      </p>
+    </div>
+    <div class="ask">
       <h4>A deprecation window, and someone to own it</h4>
       <p>
         The migration is additive if sequenced: kserve already registers two names per
@@ -1643,7 +1651,7 @@ publishers/&lt;ns&gt;/models/<span class="hi">llama-3-8b/adapters/sql-adapter</s
     <li>No body-based router, no mapping ConfigMap, no sync window, no extra component to operate</li>
     <li>Path scope preserved, so <code>/health</code> and <code>/metrics</code> stay off the scheduler</li>
     <li>No rule renamed, so no policy migration</li>
-    <li>Per-adapter route churn disappears: adding an adapter stops rewriting the HTTPRoute</li>
+    <li>Per-adapter route churn disappears entirely: adding an adapter does not touch the HTTPRoute at all, measured as a zero-line diff</li>
   </ul>
 
   <h3>The questions that decide it</h3>
@@ -2199,14 +2207,15 @@ set for the error level threshold.</span></pre>
   </p>
 
   <p>
-    <strong>Do not try to make it readable.</strong> RE2 has no free-spacing mode - it
-    supports <code>i</code>, <code>m</code>, <code>s</code> and <code>U</code>, not
-    <code>x</code> - so a 4KB pattern is one unbroken line in
-    <code>kubectl get httproute -o yaml</code> whatever we do. The fix is not to prettify an
-    artifact nobody should read. It is to make reading it unnecessary: the adapter list
-    already lives in the CR spec, and what is missing is a pre-flight check that fails with
-    a condition naming the adapter that did not fit.
+    <strong>You cannot make it readable in place.</strong> RE2 has no free-spacing mode.
+    Tested rather than assumed - a <code>(?x)</code> pattern takes the whole
+    RouteConfiguration down, and Istio says so:
   </p>
+
+  <div class="panel">
+    <div class="panel-hd"><span class="kb muted">!</span> istio proxy, verbatim</div>
+    <pre class="code"><span class="er">rejected: invalid perl operator: (?x</span></pre>
+  </div>
 
   <div class="note warn">
     <span class="lbl">and do not factor the alternation into a trie</span>
@@ -2219,6 +2228,96 @@ set for the error level threshold.</span></pre>
       without helping any real deployment.
     </p>
   </div>
+  <p>
+    So a 4KB pattern is one unbroken line in <code>kubectl get httproute -o yaml</code>
+    whatever we do, and the only mitigation is to make reading it unnecessary. Which raises
+    a question the ceiling tables cannot answer.
+  </p>
+</section>
+
+<section>
+  <h2>Living with the route</h2>
+  <p class="sub">
+    An HTTPRoute is reviewed in pull requests, <code>kubectl diff</code>ed before apply, and
+    grepped when routing does not work. None of that appears in a budget table, and it is
+    what decides whether a shape is pleasant to own.
+  </p>
+
+  <div class="panel">
+    <div class="panel-hd"><span class="kb">HR</span> adding <em>one</em> adapter to a service that has 100
+      <span class="rt">realistic names, not generated</span></div>
+    <div class="scroll">
+    <table>
+      <thead>
+        <tr><th>shape</th><th class="num">lines +</th><th class="num">lines -</th><th class="num">bytes rewritten</th><th class="num">longest line</th><th>new name legible in the diff?</th></tr>
+      </thead>
+      <tbody>
+        <tr class="is-current">
+          <td class="name">current</td><td class="num">56</td><td class="num">0</td>
+          <td class="num">1,420</td><td class="num">59</td><td><span class="st ok">yes</span></td>
+        </tr>
+        <tr>
+          <td class="name">alternation</td><td class="num">8</td><td class="num">8</td>
+          <td class="num"><span class="st crit">23,032</span></td><td class="num"><span class="st crit">1,445</span></td>
+          <td><span class="st crit">no, buried mid-line</span></td>
+        </tr>
+        <tr class="is-pick">
+          <td class="name">nested</td><td class="num"><span class="st ok">0</span></td><td class="num"><span class="st ok">0</span></td>
+          <td class="num"><span class="st ok">0</span></td><td class="num">58</td>
+          <td><span class="st warn">absent entirely</span></td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <p>
+    And the question an operator actually asks, <em>is <code>sql-coder-v2</code>
+    routable?</em>, answered from the route object alone:
+  </p>
+
+  <div class="panel">
+    <div class="panel-hd"><span class="kb muted">?</span> grep the route</div>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>shape</th><th>answer</th></tr></thead>
+      <tbody>
+        <tr><td class="name">current</td><td><span class="st ok">yes</span> 8 lines, each readable</td></tr>
+        <tr><td class="name">alternation</td><td><span class="st warn">grep matches</span>, and hands back a 1,445-byte line</td></tr>
+        <tr><td class="name">nested</td><td><span class="st crit">no</span> the name never appears in the route at all</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="note crit">
+    <span class="lbl">these two tables are the same axis</span>
+    <p>
+      <strong>The more constant the route, the less it tells you.</strong> Churn and
+      informativeness are not independent properties to optimise separately; they are the
+      same property read in opposite directions.
+    </p>
+    <p>
+      <code>current</code> churns the most and is the most legible - 56 readable lines, the
+      name eight times. That is a real cost of moving away from it and no ceiling table
+      shows it. <code>alternation</code> is the worst of both: it rewrites 23KB for one
+      adapter <em>and</em> buries the name, taking the churn of the flat form with the
+      opacity of the regex form. <code>nested</code> has a perfect diff and pays for it by
+      making the route opaque.
+    </p>
+  </div>
+
+  <div class="note">
+    <span class="lbl">what follows for <code>nested</code></span>
+    <p>
+      A status field listing routable adapters stops being a nice-to-have and becomes
+      <strong>required</strong>, because nothing else can answer the question - the route
+      object no longer knows. That is not an argument against nesting. It is a line item
+      that belongs in its cost alongside the naming change, and it was missing from the
+      decision brief above.
+    </p>
+  </div>
+
 </section>
 
 

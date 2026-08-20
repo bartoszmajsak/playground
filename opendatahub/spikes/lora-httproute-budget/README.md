@@ -158,6 +158,7 @@ different questions. The collapse moves 20 destinations and changes 2 outcomes.
 | `probe-epp.sh` | with a real endpoint picker in the path, what actually changes? |
 | `probe-latency.sh` | throughput per shape. **Too noisy to conclude from** - kept because the failure is instructive |
 | `probe-regex-cost.sh` | what does ONE header-regex evaluation cost? (answer: under 0.145 us, i.e. nothing) |
+| `hack/diff-shapes.py` | what does adding ONE adapter look like to a reviewer? (no cluster needed) |
 | `probe-dataplane.sh` | do the regex findings hold on kgateway as well as Istio? (answer: the semantics do, the ceiling does not) |
 
 `probe-dataplane.sh install` needs `v1alpha2` served on the TLSRoute CRD, which
