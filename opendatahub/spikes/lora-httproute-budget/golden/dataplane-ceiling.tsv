@@ -1,0 +1,21 @@
+# Alternation ceiling by data plane and by whether adapter names share a prefix.
+# Measured with hack/render-scale-route.py; "programs" means the proxy accepted
+# the RouteConfiguration and the last listed name actually routed.
+#
+# The binding limit differs by data plane:
+#   istio      re2.max_program_size.error_level = 32768 -> the CRD's 4096-byte
+#              cap on a header match value binds first
+#   kgateway   unset, so Envoy's compiled-in default of 100 binds first
+dataplane	names	adapters	pattern-bytes	re2-program-size	programs
+istio	shared	297	4091	-	yes
+istio	shared	320	4092	-	yes
+istio	shared	321	>4096	-	no (apiserver rejects)
+kgateway	shared	200	2532	-	yes
+kgateway	shared	220	2792	-	yes
+kgateway	shared	240	3052	-	no
+kgateway	shared	280	3572	111	no
+kgateway	distinct	5	90	-	yes
+kgateway	distinct	6	100	-	yes
+kgateway	distinct	7	110	106	no
+kgateway	distinct	8	120	115	no
+kgateway	distinct	9	130	124	no

@@ -1,3 +1,5 @@
 .kubeconfig
 setup.log
 golden/*.observed.tsv
+core.*
+golden/*.tsv.raw

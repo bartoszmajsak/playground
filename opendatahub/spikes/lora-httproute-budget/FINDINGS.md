@@ -1,7 +1,6 @@
 # Findings
 
-Everything below was measured on a kind cluster, not derived from reading code —
-except where explicitly marked **unverified**. Reproduction steps are in
+Everything below was measured on a kind cluster, not derived from reading code - except where explicitly marked **unverified**. Reproduction steps are in
 `README.md`; the raw evidence is in `golden/`.
 
 **Environment.** kind, Gateway API CRD **v1.5.1** (16 rules / 64 matches per rule
@@ -20,7 +19,7 @@ with two generated LoRA adapters; svc-b/svc-c run `llm-d-inference-sim`.
 | 3 | 32 | 46 | applied |
 | 6 | 56 | 73 | applied |
 | 7 | **64** | 82 | applied, at the cap |
-| 8 | — | — | **rejected** |
+| 8 | - | - | **rejected** |
 
 ```
 spec.rules[4].matches: Too many: 72: must have at most 64 items
@@ -38,28 +37,27 @@ only signal is a condition on the CR.
 ## 2. Measured ceilings per candidate shape
 
 `probe-ceiling.sh` synthesises each shape at rising adapter counts and asks the
-apiserver to validate with `--dry-run=server` — the same CEL and `maxItems`
+apiserver to validate with `--dry-run=server` - the same CEL and `maxItems`
 checks the controller trips over, without the controller or any traffic.
 
 | shape | maxA | binding limit | probes moved | change |
 |---|---|---|---|---|
-| `current` | **7** | per-rule 64 | — | — |
+| `current` | **7** | per-rule 64 | - | - |
 | `split` | **12** | route-wide 128 | **0** | revert #5826 |
 | `prefix` | **15** | per-rule 64 | 8 | `Exact` → `PathPrefix` |
 | `split-noslash` | **22** | route-wide 128 | **1** | revert #5826 + drop twins |
 | `split-prefix` | **22** | route-wide 128 | 8 | revert #5826 + `PathPrefix` |
 | `collapse` | **58** | route-wide 128 | 20 | header-only rule |
 | `collapse-dedup` | **63** | per-rule 64 | 20 | + drop the dead catch-all |
-| **`alternation`** | **297** | 4096-byte header value | **0** | one regex lists the existing names |
+| `alternation` | **320** istio / **6** kgw | RE2 program size | **0** | one regex lists the existing names |
 | `nested` | **unbounded** | nothing in the route | 7 | adapters served under the base |
 
-`alternation` and `nested` are the two constant-size shapes — 12 rules, 19
+`alternation` and `nested` are the two constant-size shapes - 12 rules, 19
 matches, unchanged at any adapter count. See sections 9 and 14.
 
 **Correction to the design docs.** `llmisvc-httproute-budget.md` §5 and the
 phased plan both put the header-only collapse at ~122 adapters. Measured it is
-**63**, and the binding limit is the per-rule 64 cap, not the route-wide 128 —
-the table conflated the two. Getting past 63 needs the Phase 3 T1
+**63**, and the binding limit is the per-rule 64 cap, not the route-wide 128 - the table conflated the two. Getting past 63 needs the Phase 3 T1
 match-splitter *on top of* the collapse, landing near 117.
 
 **`collapse-dedup` is behaviourally identical to `collapse`** (empty diff).
@@ -82,7 +80,7 @@ collapse reverses it.
 
 **#5826** (Jul 2026) then consolidated four per-endpoint model-routing rules
 into one, "to free three rule slots under Gateway API's `MaxItems=16` ceiling".
-The reasoning is sound and behaviour-neutral — but it traded the wrong resource.
+The reasoning is sound and behaviour-neutral - but it traded the wrong resource.
 
 | | rules | model-routing layout | maxA |
 |---|---|---|---|
@@ -94,12 +92,12 @@ growth rate against a cap that is **per rule**. The route total is the same
 expression either way (`9A + 19`); only the binding constraint moved. Rule slots
 were not scarce (12 of 16 used); matches were.
 
-LoRA expansion landed 2026-05-21 (#5521), #5826 landed 2026-07-15 — the
+LoRA expansion landed 2026-05-21 (#5521), #5826 landed 2026-07-15 - the
 multiplication was live for two months, so this is a regression rather than an
 unlucky ordering.
 
 At A=0 both versions are byte-identical at 19 matches. The damage is entirely in
-the derivative, which nothing measures — and #5826's own test used 2 adapters,
+the derivative, which nothing measures - and #5826's own test used 2 adapters,
 where 24 is comfortably under 64.
 
 ## 4. Why the trailing-slash twins exist
@@ -111,8 +109,8 @@ matches one literal string, so it needs a twin. The path family has used
 
 Two ways to remove them, not equivalent:
 
-- **drop them, keep `Exact`** (`split-noslash`) — 1 probe moves
-- **switch to `PathPrefix`** (`split-prefix`) — 8 probes move, because
+- **drop them, keep `Exact`** (`split-noslash`) - 1 probe moves
+- **switch to `PathPrefix`** (`split-prefix`) - 8 probes move, because
   `PathPrefix` also picks up everything below each endpoint
 
 Both land on 22, so **`split-noslash` dominates `split-prefix`**: same ceiling,
@@ -141,7 +139,7 @@ precedence protects a neighbour only while its prefix is longer than `/`.
 
 Section 2 counts probes whose *destination* changes. With a real EPP in the path
 (Istio 1.30.3, svc-a alone to avoid the section-7 collision), what changes in
-*outcome* is much smaller — 2 of 13, and both were already errors:
+*outcome* is much smaller - 2 of 13, and both were already errors:
 
 | path | today (Service) | collapse (pool -> EPP) |
 |---|---|---|
@@ -169,15 +167,15 @@ build may not have the parser registry; and 13 paths is not exhaustive.
 ## 6. Istio 1.28.1 never invokes the EPP
 
 `router.scheduler: {}` on Istio **1.28.1** produces an EPP that is deployed,
-healthy and resolved — and completely bypassed.
+healthy and resolved - and completely bypassed.
 
 - Envoy's ext_proc filter sits on `grpc_service.envoy_grpc.cluster_name:
   "dummy"` with `request_header_mode: SKIP`, awaiting a per-route override
-- **no route carries `typed_per_filter_config`** — zero, across every listener
+- **no route carries `typed_per_filter_config`** - zero, across every listener
   and route config
 - EPP `rq_total` = **0** on 9002/9003/9090/5557; the EPP's own metrics endpoint
   records no requests; its logs show control-plane activity only
-- with 3 replicas, traffic distributes **18/10/9 — round-robin**, because the
+- with 3 replicas, traffic distributes **18/10/9 - round-robin**, because the
   cluster's `override_host` LB reads `x-gateway-destination-endpoint` from
   `envoy.lb` metadata that nothing ever writes
 
@@ -192,7 +190,7 @@ present and correct on the synthesised pool Service).
 tracks requests 1:1, and with 3 replicas all traffic goes to **one EPP-chosen
 endpoint** instead of round-robin. 1.29 not bisected.
 
-Nothing reports a problem in either version — pods Ready, routes `Accepted`,
+Nothing reports a problem in either version - pods Ready, routes `Accepted`,
 pools `ResolvedRefs=True`. With a single replica it is invisible.
 
 ## 7. Identical rule names cross-wire the EPP across services
@@ -214,7 +212,7 @@ if infPoolRouteRuleCfg, ok := opts.InferencePoolExtensionRefs[in.Name]; ok {
 ```
 
 No namespace or route qualification. kserve generates **identical rule names for
-every LLMInferenceService** — `v1-model-routing`, `v1-chat-completions-path`,
+every LLMInferenceService** - `v1-model-routing`, `v1-chat-completions-path`,
 `v1-completions-publisher-path`, … So on a shared gateway with N services,
 last-write-wins.
 
@@ -234,7 +232,7 @@ Consequence: the wrong EPP returns endpoints from a pool it does not manage, and
 Envoy answers **500 with an empty body** to every request carrying a body. GETs
 pass, because they never reach body processing.
 
-Causation proven by isolation — with only svc-a's route present (and istiod
+Causation proven by isolation - with only svc-a's route present (and istiod
 restarted, see below), all 9 rules resolve to svc-a's own EPP and `POST` returns
 200 with the EPP receiving the request.
 
@@ -243,13 +241,13 @@ Two further properties, both bad:
 - **Non-deterministic.** An earlier run had svc-a resolving correctly with all
   three services present.
 - **Sticky.** Deleting the other services' routes did not fix it until istiod
-  was restarted — a full gateway restart was not enough.
+  was restarted - a full gateway restart was not enough.
 
 Nothing surfaces any of it: pods Ready, routes `Accepted=True`, pools
 `ResolvedRefs=True`, kserve conditions green.
 
 **Two-sided fix.** Istio should qualify the map key with namespace/route. kserve
-should generate rule names unique per service — and if Phase 1 renames rules
+should generate rule names unique per service - and if Phase 1 renames rules
 anyway, making them unique costs nothing extra.
 
 The design docs treat rule names purely as a *migration* hazard (renaming
@@ -266,17 +264,17 @@ exactly the shared-gateway, many-models deployment this epic exists to support.
   once had 7 adapters carries that cost after dropping to 3.
 - **[#280]** `LoRASpec.MaxAdapters` / `MaxCpuAdapters` document a default that is
   never applied. Confirmed live: with 2 adapters configured, vLLM reports
-  `vllm:lora_requests_info{max_lora="1"}` — its own default, not the documented
+  `vllm:lora_requests_info{max_lora="1"}` - its own default, not the documented
   "number of configured adapters".
 
 - **[#282]** identical rule names cross-wire the EPP between services on a
-  shared gateway (section 7). Filed p1 — it is a cross-tenant correctness bug on
+  shared gateway (section 7). Filed p1 - it is a cross-tenant correctness bug on
   exactly the deployment shape this epic targets.
-- **[#283]** Istio 1.28 never invokes the EPP (section 6). Filed p2 — the fix is
+- **[#283]** Istio 1.28 never invokes the EPP (section 6). Filed p2 - the fix is
   a version floor, but it needs establishing and checking against what RHOAI
   ships.
 - **[#284]** the `ModelNameCollision` event names the base model even when the
-  overlap is a LoRA adapter (section 15). Filed p3 — detection works, the message
+  overlap is a LoRA adapter (section 15). Filed p3 - detection works, the message
   points at the wrong name.
 
 [#279]: https://github.com/bartoszmajsak/work-items/issues/279
@@ -288,12 +286,13 @@ exactly the shared-gateway, many-models deployment this epic exists to support.
 
 ## 9. H3: nested served names work, and are unbounded
 
-> **Read section 14 first.** An alternation regex over the *existing* names
-> reaches 297 adapters with zero behaviour change and no naming migration. The
-> design docs rejected that option on an RE2 premise that does not hold on
-> Istio, and proposed nesting in its place. Nesting is still the only shape that
-> is truly unbounded and stops the route being rewritten per adapter — but it is
-> only worth its naming cost if one of those matters.
+> **This is the recommended shape.** Section 14 found that an alternation over
+> the *existing* names reaches 320 adapters on Istio with no naming migration,
+> and read the design docs' rejection of it as a mistake. Section 16 retracts
+> that: on kgateway the alternation reaches six. Nesting's pattern is a constant
+> 44 characters, so no program-size limit reaches it, and it is the only shape
+> that both survives an arbitrary data plane and stops the route being rewritten
+> per adapter.
 
 Serving adapters as `publishers/{ns}/models/{base}/adapters/{name}` lets one
 regex cover the base model and every adapter beneath it:
@@ -306,7 +305,7 @@ Measured (`nested` shape, both header rules converted):
 
 | property | result |
 |---|---|
-| ceiling | **unbounded** — 200 is the prober's cap, no rejection at any A |
+| ceiling | **unbounded** - 200 is the prober's cap, no rejection at any A |
 | shape | 12 rules, 8 matches/rule, **19 total, constant** |
 | path scope | **preserved** (unlike the collapse) |
 | BBR required | **no** |
@@ -319,8 +318,8 @@ route deleted, `publishers/lora-budget/models/model-a-instruct` and
 `…/model-a` still reaches svc-a. Envoy full-matches header regexes.
 
 **The 7 moved probes** split into two groups: 3 flat adapter names
-(`publishers/{ns}/models/adapter-a1`) stop matching — that *is* the served-name
-migration, made visible — and 4 nested names start matching. One of those,
+(`publishers/{ns}/models/adapter-a1`) stop matching - that *is* the served-name
+migration, made visible - and 4 nested names start matching. One of those,
 `…/model-a/adapters/nope`, names an adapter that does not exist and still
 reaches the pool; a prefix scheme cannot distinguish, so the runtime rejects it
 rather than the gateway. That is a real, if minor, change in where that error
@@ -341,11 +340,11 @@ re2.max_program_size.error_level  final_value: 32768
 
 Istio's bootstrap sets it to **32768**, 327x the Envoy default the docs assume.
 A 932-character pattern is accepted by the apiserver, routes correctly, and
-leaves neighbouring routes untouched — no blast radius at any length tested
+leaves neighbouring routes untouched - no blast radius at any length tested
 (42 / 72 / 132 / 232 / 432 / 932 chars, all 200).
 
-The docs' caution is not wrong in general — a bare Envoy or another data plane
-may well ship the 100 default — but it is wrong for Istio, and the whole regex
+The docs' caution is not wrong in general - a bare Envoy or another data plane
+may well ship the 100 default - but it is wrong for Istio, and the whole regex
 track was closed on that premise. Worth re-testing per data plane before
 reusing the conclusion. Envoy here is 1.38.4-dev via Istio 1.30.3.
 
@@ -353,7 +352,7 @@ reusing the conclusion. Envoy here is 1.38.4-dev via Istio 1.30.3.
 
 Read from `odh-model-controller` @ `ca6a09b`:
 `internal/controller/resources/template/authpolicy_llm_isvc_userdefined.yaml`
-and its design note `PUBLISHER-PATH-AUTH.md`. Analytical, not observed — no ODH
+and its design note `PUBLISHER-PATH-AUTH.md`. Analytical, not observed - no ODH
 cluster was involved.
 
 The research docs describe this policy as a single SAR that parses
@@ -378,7 +377,7 @@ not a publisher path and not `/v1/files`|`/v1/batches`.
 **Three consequences for this spike.**
 
 **1. The header family does not work on ODH today.** Every probe in the spike's
-`header` family — root path plus `X-Gateway-Model-Name` — is 403'd before
+`header` family - root path plus `X-Gateway-Model-Name` - is 403'd before
 routing. So `v1-model-routing`, the rule that causes the entire 7-adapter
 ceiling, currently serves only traffic ODH rejects. The *budget* it consumes is
 real; the *traffic* is not.
@@ -389,7 +388,7 @@ real; the *traffic* is not.
 a non-publisher path is denied identically. Nested's value on ODH is the budget
 and the constant shape, not new reachability.
 
-**3. The supported addressing on ODH is the path families** — per-participant
+**3. The supported addressing on ODH is the path families** - per-participant
 `/{ns}/{name}/...` and publisher `/publishers/{ns}/models/{m}/...`. Those are
 exactly the families whose rule count trades against the 16-rule cap, which
 makes the `m + 1` rule budget the thing worth optimising for ODH, not the header
@@ -403,17 +402,15 @@ states it in the same terms this spike measured it:
 > with a valid model header would be routed by the header (tenant-B) but
 > authorized by the path (tenant-A) - a cross-tenant authorization bypass.
 
-So the hole is real and known. It is closed **at the authz layer on ODH only** —
-upstream kserve without odh-model-controller still has it wide open, which is
+So the hole is real and known. It is closed **at the authz layer on ODH only** - upstream kserve without odh-model-controller still has it wide open, which is
 what section 5 measured.
 
 Also already handled: the "reserved path tokens" edge case in the design docs
 (a namespace called `v1` or `publishers`) is blocked by a
 ValidatingAdmissionPolicy on reserved namespace names.
 
-**BBR is the stated plan.** The doc calls out `resolvedPath` normalization —
-rewriting `/v1/` + header into publisher form so `model-access-path` can
-authorize it — as a planned follow-up. That is the path by which header
+**BBR is the stated plan.** The doc calls out `resolvedPath` normalization - rewriting `/v1/` + header into publisher form so `model-access-path` can
+authorize it - as a planned follow-up. That is the path by which header
 addressing becomes supported on ODH, and it re-raises Phase 2 as a cross-repo
 dependency rather than a kserve-local optimisation.
 
@@ -426,7 +423,7 @@ without rerunning anything.
 
 ### What changes
 
-`workload_lora.go:167` registers every adapter with vLLM under two names — the
+`workload_lora.go:167` registers every adapter with vLLM under two names - the
 bare name and `publishers/{ns}/models/{adapter}`. The route matches the second.
 Base and adapter are siblings in a flat namespace, which is why the route has to
 enumerate them.
@@ -453,7 +450,7 @@ client.chat.completions.create(model="publishers/my-ns/models/llama-3-8b/adapter
 ### What it costs
 
 - **Every caller.** Notebooks, saved app configs, eval harnesses, benchmark
-  scripts — anything with a model name written down. No conversion webhook
+  scripts - anything with a model name written down. No conversion webhook
   reaches a string a client hard-coded.
 - **`/v1/models` output.** Anything doing discovery sees new strings.
 - **A new coupling.** Adapter identity now contains base-model identity, so
@@ -475,7 +472,7 @@ publishers/my-ns/models/sql-adapter                      (legacy, unchanged)
 publishers/my-ns/models/llama-3-8b/adapters/sql-adapter  (nested, new)
 ```
 
-vLLM treats them as aliases for one adapter file — no runtime cost. Old clients
+vLLM treats them as aliases for one adapter file - no runtime cost. Old clients
 keep working. **Nothing breaks until the route stops matching the legacy names**,
 and during that overlap the route needs both the nested regex and the enumerated
 legacy matches, so the budget win only arrives when legacy is dropped.
@@ -491,7 +488,7 @@ ConfigMap, no sync window. Measured, not projected (section 9).
 
 ### Timing
 
-Header-addressed adapter routing has close to zero adoption today — nothing
+Header-addressed adapter routing has close to zero adoption today - nothing
 ships a header producer (section: notes), and on ODH that traffic is 403'd
 outright (section 10). The cheapest moment to change a public name is before
 anyone depends on it, and that window is open now.
@@ -509,18 +506,18 @@ Rehearsed with real Kuadrant 1.5.2 on the kind cluster: an `AuthPolicy` with
 `targetRef.sectionName: v1-model-routing` and a deny-everything rule, then the
 `split` shape applied over it.
 
-**This policy was hand-written for the test — it is not one odh-model-controller
+**This policy was hand-written for the test - it is not one odh-model-controller
 ships.** odh attaches two AuthPolicies and neither uses `sectionName`: the
 Gateway-level one targets `Kind: Gateway` (`gateway_controller.go:236`) and the
 route-level one targets the whole `Kind: HTTPRoute`
 (`kserve_authpolicy_reconciler.go:86`). Both target whole objects, so **neither
-detaches on a rule rename** — as `llmisvc-httproute-phased-plan.md` Phase 1.5
+detaches on a rule rename** - as `llmisvc-httproute-phased-plan.md` Phase 1.5
 already predicted.
 
 So everything below is about **user-attached** policies pinned to kserve rule
 names. That narrows the blast radius: it is not an ODH-shipped-config problem.
 It is also worth noting kserve rule names are not documented API today, so
-pinning to them is undocumented-but-possible rather than supported — WP1.2
+pinning to them is undocumented-but-possible rather than supported - WP1.2
 proposes making them API via `status.router`, which would change that.
 
 | step | observed |
@@ -528,28 +525,28 @@ proposes making them API via `status.router`, which would change that.
 | policy attached | `Accepted=True`, `Enforced=True` |
 | request hitting the pinned rule | **403** |
 | request hitting a different rule | 200 (section scoping works) |
-| **after the rename** | **200 within 15s** — previously denied traffic now passes |
+| **after the rename** | **200 within 15s** - previously denied traffic now passes |
 | policy status after | `Accepted=False [TargetNotFound]`, naming `<route>#v1-model-routing` |
-| events emitted | **none** — condition only |
+| events emitted | **none** - condition only |
 
 **The docs' premise is half wrong.** `llmisvc-httproute-phased-plan.md` Phase 1.5
-says such a policy "silently stops applying — for auth, a security regression
+says such a policy "silently stops applying - for auth, a security regression
 with no error". The regression is real and fast, but it is **not silent**:
 Kuadrant reports `TargetNotFound` and names the exact dangling section. Anything
 watching AuthPolicy conditions sees it. Nothing watching *events* does.
 
 ### The alias mitigation is a trap when the rename is 1:N
 
-Re-adding the legacy name does restore enforcement — within 15s, back to
+Re-adding the legacy name does restore enforcement - within 15s, back to
 `Accepted=True`, `Enforced=True`, request back to 403. But `split` turns one rule
 into four, and a single alias can only carry one of them:
 
 | path | after aliasing one slice |
 |---|---|
 | `/v1/chat/completions` (slice carrying the legacy name) | **403** |
-| `/v1/completions` | **200 — gap** |
-| `/v1/responses` | **200 — gap** |
-| `/v1/messages` | **200 — gap** |
+| `/v1/completions` | **200 - gap** |
+| `/v1/responses` | **200 - gap** |
+| `/v1/messages` | **200 - gap** |
 
 The policy reports `Accepted=True`/`Enforced=True` while covering **one quarter**
 of the traffic it used to. That is strictly worse than the clean detach, which at
@@ -565,8 +562,8 @@ least announces itself. **Aliasing is only safe when the rename is 1:1.**
 | `collapse` | none | **no** |
 | `collapse-dedup` | deletes `v1-catch-all-model-routing` | yes (1:0) |
 
-This inverts the earlier read. `split` is free in *routing* — zero behaviour
-change across 72 probes — but it is the **only** family that triggers the
+This inverts the earlier read. `split` is free in *routing* - zero behaviour
+change across 72 probes - but it is the **only** family that triggers the
 Phase 1.5 migration hazard, and its 1:4 rename is precisely the case aliasing
 cannot cover. `nested`, the shape with the largest apparent cost (a served-name
 change), preserves every rule name and has **no** policy-detach problem at all.
@@ -587,7 +584,7 @@ odh's shape), polling ~100x/sec through the change:
 
 **No authorization bypass in either case**, and the policy reports
 `Accepted=True`/`Enforced=True` throughout. What does happen is a short
-availability gap — roughly 10% of a tight polling loop fails to connect while
+availability gap - roughly 10% of a tight polling loop fails to connect while
 the route is being reprogrammed. That is a connection-level failure, not a
 request being wrongly allowed.
 
@@ -597,10 +594,10 @@ docs assumed:
 | policy | rule rename | route replacement |
 |---|---|---|
 | `sectionName`-pinned (user-attached) | **enforcement lost**, but loud (`TargetNotFound`) | not tested |
-| whole-route (odh's shape) | unaffected — rule names absent from targetRef | **no bypass**; brief unavailability |
+| whole-route (odh's shape) | unaffected - rule names absent from targetRef | **no bypass**; brief unavailability |
 
 *Correction worth recording:* the first run of this test reported a leak in both
-scenarios. That was a probe bug — `curl -w '%{http_code}'` emits `000` on
+scenarios. That was a probe bug - `curl -w '%{http_code}'` emits `000` on
 connection failure and the script also had a `|| echo 000` fallback, so failures
 were counted as non-403 and read as bypasses. Counting only 2xx as a bypass
 gives zero. Availability blips and authorization gaps look identical to a naive
@@ -614,7 +611,7 @@ status-code check.
 - But detection is post-hoc, and enforcement drops in under 15 seconds. For auth
   that window is the whole problem, so detection alone is not a mitigation.
 - If a 1:1 rename is unavoidable, ship the alias **in the same route update** as
-  the rename — the route applies atomically, so there is no window.
+  the rename - the route applies atomically, so there is no window.
 - For a 1:N rename there is no safe alias. Either keep the original rule name on
   a rule that retains the original coverage, or accept the loud detach and
   migrate policies deliberately.
@@ -633,7 +630,7 @@ Received gRPC error on stream: 14, message upstream connect error or
 disconnect/reset before headers. reset reason: connection termination
 ```
 
-and every pool-bound request returns **500** — while the HTTPRoute is
+and every pool-bound request returns **500** - while the HTTPRoute is
 `Accepted=True`/`ResolvedRefs=True`, the InferencePool is resolved, the
 per-route ext_proc override is correctly attached to the right EPP cluster, that
 cluster has healthy endpoints, and the EPP pod is Running with no restarts. The
@@ -656,10 +653,10 @@ spec:
 
 **Scope it per EPP Service.** A wildcard host (`*.ns.svc.cluster.local`)
 originates TLS to every service in the namespace including the plaintext
-workloads, which trades the 500 for a 503 — measured.
+workloads, which trades the 500 for a 503 - measured.
 
 **Why this was easy to miss.** It was applied early in the investigation, on
-Istio 1.28, and appeared to change nothing — because on 1.28 ext_proc is never
+Istio 1.28, and appeared to change nothing - because on 1.28 ext_proc is never
 attached at all (section 6), so there was no stream to reset. It only becomes
 load-bearing once the version floor is met. `setup.sh` and `capture-routes.sh`
 now create it per EPP Service.
@@ -670,7 +667,7 @@ now create it per EPP Service.
 `inference.networking.x-k8s.io` first and migrates to
 `inference.networking.k8s.io`. Istio 1.30 rejects the alpha group outright
 (`ResolvedRefs=False [InvalidKind]`), so a route captured inside that window
-references a pool Istio will not resolve — no pool Service is synthesised, no
+references a pool Istio will not resolve - no pool Service is synthesised, no
 ext_proc, and every request through it 500s. It self-corrects, but anything that
 snapshots the route can capture the bad state and carry it forward. Wait for
 `group == inference.networking.k8s.io` **and** `ResolvedRefs=True` before
@@ -681,13 +678,18 @@ reference `pvc://lora-budget-models/adapter-a*`; without those files vLLM
 CrashLoopBackOffs, the pool has no endpoints, and the failure surfaces as the
 same 500. Regenerate with `hack/gen-tiny-lora.py` and reload after any rebuild.
 
-All three produce an identical symptom — pool-bound requests 500 with every
-status object green — which is worth knowing before diagnosing the next one.
+All three produce an identical symptom - pool-bound requests 500 with every
+status object green - which is worth knowing before diagnosing the next one.
 
-## 14. `alternation`: 297 adapters for zero behaviour change
+## 14. `alternation`: 320 adapters for zero behaviour change, on Istio
+
+> **Read section 16 before acting on this.** Everything below was measured on
+> Istio. On kgateway the same shape reaches **six** adapters, because the RE2
+> program-size limit is a data-plane setting and Istio is the outlier that raises
+> it. The conclusion this section draws about the design docs is retracted there.
 
 The budget is match **count**, not pattern length. So one regex listing the model
-names that already exist is *one match* however many adapters there are — the
+names that already exist is *one match* however many adapters there are - the
 same constant-match property `nested` has, without renaming anything:
 
 ```
@@ -698,11 +700,11 @@ Measured at every tier:
 
 | tier | result |
 |---|---|
-| 1 — budget | **297 adapters**, 12 rules, 19 matches, constant |
-| 2 — behaviour | **0 of 72** probes move — byte-identical to today |
-| 3 — EPP outcomes | **0 of 13** outcomes change |
+| 1 - budget | **297 adapters**, 12 rules, 19 matches, constant |
+| 2 - behaviour | **0 of 72** probes move - byte-identical to today |
+| 3 - EPP outcomes | **0 of 13** outcomes change |
 
-Rejection at the ceiling is the right one — not a match cap:
+Rejection at the ceiling is the right one - not a match cap:
 
 ```
 spec.rules[4].matches[0].headers[0].value: Too long: may not be more than 4096 bytes
@@ -713,7 +715,7 @@ spec.rules[4].matches[0].headers[0].value: Too long: may not be more than 4096 b
 the listed names match, so it cannot capture a neighbouring service.
 
 **297, not 320.** An earlier hand-built pattern reached 320, but the shipped form
-must escape name characters — adapter names are user-controlled — and
+must escape name characters - adapter names are user-controlled - and
 `re.escape` turns each hyphen into two bytes. 297 is the number for the safe
 form. Name length drives it: roughly 450 with 8-character names, ~120 with
 32-character ones.
@@ -729,12 +731,12 @@ alternation, and reject the alternation explicitly:
 
 > nest adapter served names under the base … and use a single fixed prefix
 > regex. ~40 characters, constant size, well under the default RE2 program-size
-> limit — **unlike an alternation, which is not**.
-> — `llmisvc-httproute-phased-plan.md:264`
+> limit - **unlike an alternation, which is not**.
+> - `llmisvc-httproute-phased-plan.md:264`
 
 That premise is false here. `re2.max_program_size.error_level` is **32768** on
 Istio (section 9), not the assumed 100, and the binding constraint turns out to
-be the CRD's cap on a header match value — which lands at 297, not two.
+be the CRD's cap on a header match value - which lands at 297, not two.
 
 Worth recording as a process point, not just a technical one: the RE2 figure was
 measured days before `nested` was promoted from the docs' fallback to this
@@ -751,7 +753,7 @@ that each define an adapter called `sql-adapter` both generate a route matching
 
 Measured with `svc-a` and `svc-b` both given `shared-adapter`: **every** request
 carrying that header went to `svc-a`, 6/6. `svc-a`'s route was created 2 seconds
-earlier, which is exactly Gateway API's documented tie-break — oldest route wins.
+earlier, which is exactly Gateway API's documented tie-break - oldest route wins.
 `svc-b`'s own adapter is unreachable by name.
 
 **kserve does detect this.** `findModelNameCollisions`
@@ -763,17 +765,235 @@ earlier, which is exactly Gateway API's documented tie-break — oldest route wi
 > service.
 
 *Correction to an earlier reading in this investigation:* the first pass reported
-"nothing objects", which was wrong — it checked CR **conditions** and the
+"nothing objects", which was wrong - it checked CR **conditions** and the
 warning is an **Event**. Detection was added in kserve#5800 and works.
 
 What survives is a message bug, filed as [#284]: the event always formats
 `Spec.Model.Name`, but `findModelNameCollisions` returns *peer service names*
 rather than the overlapping *model names*, so an adapter collision names the base
-model. Here it said `"model-a"` when the actual overlap was `shared-adapter` —
-and `model-a` overlaps with nothing. It fires correctly and points at the wrong
+model. Here it said `"model-a"` when the actual overlap was `shared-adapter` - and `model-a` overlaps with nothing. It fires correctly and points at the wrong
 thing, which is how a real signal gets dismissed as spurious.
 
 [#284]: https://github.com/bartoszmajsak/work-items/issues/284
+
+## 16. The second data plane: `alternation` does not survive it
+
+Sections 9 and 14 were measured on Istio only. Installing kgateway v2.1.1 beside
+it - separate GatewayClass, separate Gateway, same cluster, same patterns -
+produced one result that transfers and one that reverses section 14.
+
+`probe-dataplane.sh` runs the anchoring probes against both;
+`hack/render-scale-route.py` builds a full-size alternation on either.
+
+### What transfers: full-match semantics
+
+Gateway API does not specify whether a `RegularExpression` header match is a full
+match or a partial one, and everything in sections 9 and 14 depends on it. If a
+data plane matched partially, a pattern listing `adapter-a1` would also match
+`evil/adapter-a1/tail`, and the shape would be a tenancy bug rather than an
+optimisation.
+
+All **11 of 11** probes agree between Istio and kgateway (`golden/dataplane.tsv`):
+exact names hit; suffix (`adapter-a2x`), prefix (`xadapter-a2`), embedded
+(`evil/adapter-a2/tail`) and leading (`other/publishers/.../adapter-a2`) all miss;
+`model-b(/.*)?` covers `model-b` and `model-b/adapters/x` but not
+`model-b-instruct` or `evil/model-b/tail`.
+
+### What does not transfer: how far the pattern can grow
+
+Envoy refuses to compile a regex whose **RE2 program size** exceeds a configured
+limit. That limit is a data-plane setting:
+
+| data plane | `re2.max_program_size.error_level` | what binds the alternation |
+|---|---|---|
+| Istio 1.30.3 | 32768 | the CRD's 4096-byte header value cap |
+| kgateway 2.1.1 | unset, so Envoy's default of **100** | RE2 program size |
+
+Measured with names that do **not** share a prefix (`golden/dataplane-ceiling.tsv`):
+
+| adapters | pattern bytes | RE2 program size | programs on kgateway |
+|---|---|---|---|
+| 5 | 90 | under 100 | yes |
+| 6 | 100 | under 100 | yes |
+| 7 | 110 | **106** | no |
+| 8 | 120 | 115 | no |
+| 9 | 130 | 124 | no |
+
+**Six adapters. Fewer than the seven we have today.** Verbatim:
+
+```
+gRPC config for RouteConfiguration rejected: RE2 program size of 106 >
+max program size of 100 set for the error level threshold.
+```
+
+### The synthetic-name trap
+
+With the generated names the rest of this spike uses - `adapter-a1`,
+`adapter-a2`, ... - kgateway reaches **220**, because RE2 factors the shared
+prefix at compile time and 221 alternatives collapse to nearly one branch. Real
+adapter names do not rhyme. Benchmarking with generated names would have put a
+number in this document that is **35 times** too high.
+
+That also rules out "factor the alternation into a trie" as an optimisation: it
+would be tuning against the benchmark's naming rather than any deployment's.
+
+### It fails silently too, one layer lower
+
+The HTTPRoute reports `Accepted=True` and `ResolvedRefs=True` - the apiserver is
+satisfied, the pattern is well under 4096 bytes. Envoy NACKs the whole
+RouteConfiguration over xDS and keeps serving the last good config, so existing
+adapters keep working and the new one is invisible. Same failure shape as the CEL
+rejection in section 1, one layer further down, with even less to look at. A
+pre-flight check therefore has to count **program size**, not just matches and
+bytes.
+
+### Correction to section 14
+
+Section 14 recorded the design docs' RE2 objection as a mistake on their part.
+That was wrong, and this is the retraction. The objection is correct for any data
+plane running Envoy's default; what section 14 measured was Istio's raised limit,
+and it generalised a fact about one data plane into a claim about the option.
+
+`nested`'s pattern is 44 characters regardless of adapter count, so no
+program-size limit reaches it. It programmed and routed identically on both
+implementations. That is the property the docs were arguing for.
+
+The limit is a knob - a platform that owns its gateway can raise it, and
+OpenShift AI ships Istio where it already is - so the honest conclusion is that
+`alternation` is a good answer for an Istio-only product and a bad one upstream.
+
+## 17. The regex costs nothing measurable at request time
+
+Separate question from whether it compiles. `probe-regex-cost.sh`.
+
+The obvious experiment fails: comparing max-throughput QPS across shapes
+(`probe-latency.sh`, `golden/latency.tsv`) gave figures that are not monotonic in
+pattern size - `alternation@150` looked 32% below the floor while
+`alternation@297` looked 8% below. That is a laptop, not a measurement. Kept in
+the repo because the failure is instructive.
+
+The amplified version forces a known number of header evaluations that all miss,
+then lands every configuration on the same terminal rule. Configurations rotate
+position each rep so warm-up drift cannot alias onto config order, and the
+estimator is the **minimum** p50 across 8 reps rather than the median, because
+interference only ever adds time.
+
+| matcher | pattern bytes | evaluations | p50 min (ms) | vs floor | per evaluation |
+|---|---|---|---|---|---|
+| regex | 4091 | 0 | 1.4834 | floor | - |
+| regex | 4091 | 8 | 1.4706 | -12.8 us | - |
+| regex | 4091 | 40 | 1.4759 | -7.5 us | - |
+| regex | 41 | 120 | 1.4877 | +4.3 us | 0.036 us |
+| regex | 682 | 120 | 1.4821 | -1.3 us | - |
+| regex | 2033 | 120 | 1.4860 | +2.6 us | 0.022 us |
+| regex | 4091 | 120 | 1.5008 | +17.4 us | 0.145 us |
+| exact | - | 120 | 1.4800 | -3.4 us | - |
+
+Four configurations measure *faster* than doing no evaluations at all, which is
+impossible and is the point: the effect is below what this rig resolves. The
+largest positive reading, **0.145 us per evaluation**, is an upper bound rather
+than a cost, and the shipped shape performs **one** evaluation per request.
+Exact matching at the same depth is indistinguishable from regex.
+
+The mechanism is why this extrapolates: RE2 compiles to a DFA, so match cost is
+O(length of the *input*), and the input is a 45-byte header value however many
+alternatives the pattern lists. Pattern size costs compile time once and memory -
+which is exactly what the program-size limit in section 16 exists to bound.
+
+## 18. Writing the pattern: escaping, ordering, and what not to optimise
+
+Every byte of the pattern is an adapter not served, because the binding limit is
+the 4096-byte cap on a header match value. Three things are worth changing and
+two are traps.
+
+### Escape only what RE2 needs: 297 -> 320
+
+The shipped form runs each name through Python's `re.escape`, which escapes `-`
+along with the real metacharacters. RE2 does not need it: `-` is only special
+inside a character class. Kubernetes object names are DNS-1123, so the alphabet
+is `[a-z0-9.-]` and `.` is the only member that means anything to a regex.
+
+```
+re.escape (shipped)    297 adapters   4091 bytes    adapter\-a1
+minimal escaping       320 adapters   4092 bytes    adapter-a1
+```
+
+`hack/regex-forms.py` computes both. That is 23 more adapters for one byte per
+hyphen, with a strict allowlist and a fall back to full escaping for any name
+outside it, so nothing user-controlled reaches the pattern unescaped.
+
+This also settles the 297-vs-320 discrepancy earlier in this document. Both
+numbers are right: 320 is the minimal-escape form, 297 is what `re.escape`
+leaves. The earlier note calling 297 "the number for the safe form" was too
+pessimistic - the minimal form is equally safe and was simply not tested then.
+
+### Name length dominates everything
+
+The ceiling is not really a number, it is a function of how long adapter names
+are. Measured with minimal escaping:
+
+| mean name length | adapters |
+|---|---|
+| 8 | 450 |
+| 12 | 312 |
+| 16 | 238 |
+| 24 | 162 |
+| 32 | 122 |
+| 48 | 82 |
+
+Quote 320 with the caveat, or quote "roughly 100 to 450 depending on naming".
+A single headline number invites someone to design against it.
+
+### Sort the names
+
+The pattern is built from the adapter list in spec order, so re-ordering that
+list in YAML produces a different string, a different route object, and an Envoy
+reprogram, for a change that altered nothing:
+
+```
+/(model-a|sql-adapter|chat-adapter)
+/(model-a|chat-adapter|sql-adapter)
+```
+
+Sorting makes the pattern a function of the *set* rather than the sequence. Free,
+and it removes a class of spurious reconcile churn that is otherwise very hard to
+attribute when someone reports "the route keeps changing".
+
+### Chunking, which also happens to fix the kgateway ceiling
+
+The alternation uses 19 of the route's 128 matches. Spending the spare budget on
+several patterns per path instead of one raises the ceiling proportionally.
+Bounded by 128 matches per route and 16 rules, `hack/regex-forms.py` computes a
+maximum of **13 chunks per path**, so roughly **3861 adapters** on Istio with no
+naming change at all.
+
+It is worth noting that this is the one thing that would make `alternation`
+portable, because RE2 program size is per-pattern: 13 chunks of six names each is
+78 adapters on kgateway, where one pattern gets six. **Not measured** - the
+arithmetic is sound but nothing in this spike ran it, and the interaction with
+match ordering across chunks is exactly the kind of thing that needs a probe
+rather than a calculation.
+
+Either way, do not build it now. It costs 13 patterns to read instead of one,
+with split points that carry no meaning, and both `nested` and a plain
+`split-noslash` are simpler answers to the question it solves.
+
+### Two traps
+
+**Trie factoring.** `adapter-a1|adapter-a2|...` compresses beautifully to
+`adapter-a(1|2|...)`, and the measured ceiling would jump. It is a mirage: the
+synthetic names this spike uses share a prefix precisely because they are
+generated, and real adapter names do not. Optimising against the benchmark's
+naming would inflate the published number without helping any real deployment.
+
+**Trying to make 4KB of regex readable.** It cannot be done. RE2 has no
+free-spacing mode - it supports `i`, `m`, `s` and `U`, not `x` - so the pattern
+is one unbroken line in `kubectl get httproute -o yaml` whatever we do. The fix
+is not to prettify an artifact nobody should be reading. It is to make reading it
+unnecessary: the adapter list already lives in the CR spec, and what is missing is
+a pre-flight count check so that exceeding the budget produces a condition naming
+the adapter that did not fit, instead of a raw CEL string about
+`spec.rules[4].matches[0].headers[0].value`.
 
 ---
 
@@ -789,8 +1009,8 @@ as the deliverable, not any individual verdict.
 
 **Predictions were written down before each run.** `split` → empty diff,
 `split-noslash` → exactly 1 line, `collapse` → the itemised 13. All held on the
-probe set that existed at the time. The one prediction that failed — "`/health` through the pool returns 400 from
-the EPP" — first appeared to fail because the EPP was never in the path on Istio
+probe set that existed at the time. The one prediction that failed - "`/health` through the pool returns 400 from
+the EPP" - first appeared to fail because the EPP was never in the path on Istio
 1.28.1. Once 1.30.3 put it there, the prediction was **disproven outright**: the
 EPP passes bodyless non-inference paths through (section 5b). Reading
 `director.go` in isolation missed a parser registry in front of it.
@@ -798,4 +1018,4 @@ EPP passes bodyless non-inference paths through (section 5b). Reading
 **What the harness deliberately cannot see.** Tier 2 swaps backendRefs for echo
 Deployments so destination is observable, which removes the EPP from the path.
 That is right for characterizing route *matching* and useless for EPP
-behaviour — hence the separate `probe-epp.sh`, which keeps real backendRefs.
+behaviour - hence the separate `probe-epp.sh`, which keeps real backendRefs.

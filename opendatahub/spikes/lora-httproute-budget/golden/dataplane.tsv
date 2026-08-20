@@ -1,0 +1,12 @@
+probe	value	expect	istio	kgateway
+alt-first	model-a	hit	echo-pool	echo-pool
+alt-last	adapter-a2	hit	echo-pool	echo-pool
+alt-absent	adapter-a9	miss	echo-service	echo-service
+alt-suffix	adapter-a2x	miss	echo-service	echo-service
+alt-prefix	xadapter-a2	miss	echo-service	echo-service
+alt-embedded	evil/adapter-a2/tail	miss	echo-service	echo-service
+alt-leading	other/publishers/lora-budget/models/adapter-a2	miss	echo-service	echo-service
+nest-base	model-b	hit	echo-neighbour	echo-neighbour
+nest-under	model-b/adapters/x	hit	echo-neighbour	echo-neighbour
+nest-sibling	model-b-instruct	miss	echo-service	echo-service
+nest-embedded	evil/model-b/tail	miss	echo-service	echo-service

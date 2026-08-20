@@ -149,6 +149,20 @@ codes rather than destinations. Tier 2 deliberately swaps the EPP out; tier 3
 exists because "which backend" and "what actually happens" turned out to be very
 different questions. The collapse moves 20 destinations and changes 2 outcomes.
 
+## Scripts
+
+| script | answers |
+|---|---|
+| `characterize.sh` | where do 72 real requests land under this shape? |
+| `probe-ceiling.sh` | how many adapters before the apiserver refuses? |
+| `probe-epp.sh` | with a real endpoint picker in the path, what actually changes? |
+| `probe-latency.sh` | throughput per shape. **Too noisy to conclude from** - kept because the failure is instructive |
+| `probe-regex-cost.sh` | what does ONE header-regex evaluation cost? (answer: under 0.145 us, i.e. nothing) |
+| `probe-dataplane.sh` | do the regex findings hold on kgateway as well as Istio? (answer: the semantics do, the ceiling does not) |
+
+`probe-dataplane.sh install` needs `v1alpha2` served on the TLSRoute CRD, which
+Gateway API v1.5.1's standard channel disables; the script's notes cover it.
+
 ## The shapes
 
 `make-shape.py <shape>` derives each candidate from the captured baseline, so the
@@ -156,17 +170,17 @@ only thing differing between two tables is the transformation under test:
 
 | shape | maxA | probes moved | what it does |
 |---|---|---|---|
-| `split` | 12 | 0 | reverts kserve#5826 — same matches, four rules |
+| `split` | 12 | 0 | reverts kserve#5826 - same matches, four rules |
 | `prefix` | 15 | 8 | `Exact` -> `PathPrefix`, dropping the trailing-slash twins |
 | `split-noslash` | 22 | 1 | both of the above |
 | `split-prefix` | 22 | 8 | both, with PathPrefix |
-| **`alternation`** | **297** | **0** | one regex listing the existing names — constant matches, no renames |
+| `alternation` | **320** istio / **6** kgw | **0** | one regex listing the existing names. Istio-only: see FINDINGS 16 |
 | `nested` | unbounded | 7 | adapters served beneath the base; one prefix regex |
 | `collapse` | 58 | 20 | header-only rule, no path match |
 | `collapse-dedup` | 63 | 20 | collapse, plus deleting the catch-all it makes dead |
 
 Add `--real` to keep the original backendRefs (InferencePool / workload Service)
-instead of swapping in the echo Deployments — needed for tier 3.
+instead of swapping in the echo Deployments - needed for tier 3.
 
 ## Requirements worth knowing before you run it
 
@@ -261,12 +275,12 @@ Baselines are in `golden/current.tsv` (behaviour) and `golden/route-current.yaml
 thing differing between them is the one transformation under test.
 `probe-ceiling.sh` then finds each shape's real adapter ceiling by synthesising
 the route at rising adapter counts and asking the apiserver to validate it with
-`--dry-run=server` — the same CEL and `maxItems` checks the controller trips
+`--dry-run=server` - the same CEL and `maxItems` checks the controller trips
 over, minus the controller, the workload and any traffic.
 
 | shape | maxA | binding limit | probes moved | what it changes |
 |---|---|---|---|---|
-| `current` | **7** | `rules[4].matches: Too many: 72 > 64` | — | — |
+| `current` | **7** | `rules[4].matches: Too many: 72 > 64` | - | - |
 | `split` | **12** | route-wide 128 | **0** | revert #5826 |
 | `prefix` | **15** | per-rule 64 | 8 | `Exact` -> `PathPrefix` |
 | `split-noslash` | **22** | route-wide 128 | **1** | revert #5826 + drop the twins |
@@ -277,19 +291,19 @@ over, minus the controller, the workload and any traffic.
 | `nested` | **unbounded** | nothing in the route | 7 | adapters served beneath the base |
 
 Predictions were written down before each run. Every one held on the probe set
-that existed at the time — which turned out to be the important caveat, see
+that existed at the time - which turned out to be the important caveat, see
 "the probe set moved the answer" below.
 
 **`split` is free.** Break `v1-model-routing` into one rule per endpoint, keeping
 the trailing-slash variants together. Matches are OR'd and every slice shares one
-backendRef with no filters, so it is semantically inert — and the behaviour table
+backendRef with no filters, so it is semantically inert - and the behaviour table
 is byte-identical across all 72 probes. 7 → 12 adapters, zero behaviour change,
 no new destination for any request. Costs 3 rules (12 → 15 of 16).
 
 **`split-noslash` moves exactly one probe:** header-addressed `/v1/completions/`
 stops reaching the pool and falls through to the workload Service. 7 → 22.
 
-**`collapse` moves 13**, all in the same direction — from the workload Service to
+**`collapse` moves 13**, all in the same direction - from the workload Service to
 the InferencePool:
 
 ```
@@ -304,7 +318,7 @@ header  /metrics                      cross   /  and  /some/neighbour/page
 That list is the price of the collapse, and it is worth reading as URLs rather
 than as a paragraph: `/health` and `/metrics` start going through a scheduler.
 
-**`collapse-dedup` is identical to `collapse` in behaviour** — verified, empty
+**`collapse-dedup` is identical to `collapse` in behaviour** - verified, empty
 diff. Once `v1-model-routing` is header-only its match set is identical to
 `v1-catch-all-model-routing`'s, and it sits earlier, so the catch-all is dead
 code. Deleting it is free and buys 58 → 63.
@@ -316,15 +330,15 @@ matches `/v1/completions`, `/v1/completions/` and everything below it; `Exact`
 matches one literal string, so it needs a twin. The path family has used
 `PathPrefix` since the start and never needed one.
 
-Nothing documents the choice — #5521's body doesn't mention it and the template
+Nothing documents the choice - #5521's body doesn't mention it and the template
 comment only justifies the absence of a *rewrite* ("the path is already the
 target path"), which is a separate point.
 
 Two ways to remove the twins, and they are not equivalent:
 
-- **drop them, keep `Exact`** (`split-noslash`) — 1 probe moves: header-addressed
+- **drop them, keep `Exact`** (`split-noslash`) - 1 probe moves: header-addressed
   `/v1/completions/` stops reaching the pool.
-- **switch to `PathPrefix`** (`split-prefix`) — 8 probes move, because
+- **switch to `PathPrefix`** (`split-prefix`) - 8 probes move, because
   `PathPrefix` also picks up everything *below* each endpoint.
 
 Both land on the same ceiling of 22.
@@ -332,7 +346,7 @@ Both land on the same ceiling of 22.
 ### The probe set moved the answer
 
 The first probe set had one Responses sub-resource probe. On it, `prefix` moved
-2 probes and looked like the better trade — it fixed an addressing asymmetry
+2 probes and looked like the better trade - it fixed an addressing asymmetry
 (`/v1/messages/count_tokens` reaches the pool path-addressed and the Service
 header-addressed) at a cost of one extra moved probe over `split-noslash`.
 
@@ -342,7 +356,7 @@ Adding probes for `/v1/responses/{id}/cancel`, `/input_items`,
 
 | moved to pool under `PathPrefix` | carries a model? |
 |---|---|
-| `POST /v1/messages/count_tokens` | **yes** — the asymmetry fix |
+| `POST /v1/messages/count_tokens` | **yes** - the asymmetry fix |
 | `GET /v1/responses/{id}` | no |
 | `POST /v1/responses/{id}/cancel` | no |
 | `GET /v1/responses/{id}/input_items` | no |
@@ -352,14 +366,14 @@ Adding probes for `/v1/responses/{id}/cancel`, `/input_items`,
 | `POST /v1/chat/completions/deep/path` | nothing serves this |
 
 Five of those are model-less stateful sub-resources. They only reach the pool if
-a client sets the routing header by hand — a bodyless request gives any producer
-nothing to read — but when they do, the EPP answers **400 `model not found in
+a client sets the routing header by hand - a bodyless request gives any producer
+nothing to read - but when they do, the EPP answers **400 `model not found in
 request body`** (`director.go:246`, which has no bodyless guard). Today they
 reach the workload Service and work.
 
 **So `split-noslash` dominates `split-prefix`**: identical ceiling of 22, one
 moved probe instead of eight. `PathPrefix` only earns its extra seven if closing
-the `count_tokens` asymmetry is worth breaking header-addressed Responses — and
+the `count_tokens` asymmetry is worth breaking header-addressed Responses - and
 that is a product decision, not a budget one.
 
 The segment boundary does hold under `PathPrefix`: `/v1/completions-extra` stays
@@ -371,7 +385,7 @@ adding probes exposed it.
 
 ### `split` is a revert of #5826
 
-The rationale for both catch-all rules is on record — in the PR bodies, not the
+The rationale for both catch-all rules is on record - in the PR bodies, not the
 commit messages, which are bare sign-offs.
 
 **#5087** (Feb 2026), which created the split between pool and Service:
@@ -391,11 +405,11 @@ into one:
 > making them semantically equivalent to a single rule with ORed matches. This
 > consolidation frees three rule slots under Gateway API's `MaxItems=16` ceiling.
 
-The reasoning is sound and the change is behaviour-neutral — the same argument
+The reasoning is sound and the change is behaviour-neutral - the same argument
 this spike ran backwards to justify `split`. But it traded the wrong resource.
 Rule slots were not scarce (12 of 16 used, and 15 before); *matches* were. The
 pre-#5826 template is 15 rules with 4 model-routing rules of 2 matches each,
-19 total at A=0 — structurally identical to the `split` shape measured above:
+19 total at A=0 - structurally identical to the `split` shape measured above:
 
 | | rules | model-routing layout | maxA |
 |---|---|---|---|
@@ -410,7 +424,7 @@ spike measured it as behaviour-identical across all 72 probes.
 
 `llmisvc-httproute-budget.md` §5 and the phased plan both put the header-only
 collapse at **~122 adapters**. Measured, it is **63**, and the binding limit is
-the per-rule 64 cap, not the route-wide 128 — the table conflated the two. The
+the per-rule 64 cap, not the route-wide 128 - the table conflated the two. The
 `1 + A` formula is right; the ceiling drawn from it is not.
 
 Getting past 63 needs the Phase 3 T1 mitigation (split `H`'s matches across

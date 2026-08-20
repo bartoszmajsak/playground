@@ -1,0 +1,8 @@
+config	regex-bytes	qps-median	p50-median	p75-median	p99-median	reps
+pathonly@0	0	4603.7	1.538	1.909	5.968	3
+current@7	40	4618.3	1.515	1.872	3.965	3
+alternation@7	125	4831.9	1.500	1.847	3.800	3
+alternation@50	682	3985.0	1.707	2.355	9.012	3
+alternation@150	2033	3143.9	2.205	2.990	11.471	3
+alternation@297	4091	4220.6	1.625	2.083	6.957	3
+collapse@58	41	4443.9	1.593	1.974	6.748	3

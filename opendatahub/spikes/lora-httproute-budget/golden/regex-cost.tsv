@@ -1,0 +1,9 @@
+kind	adapters	depth	pattern-bytes	p50-min-ms	over-floor-us	per-eval-us
+exact	297	120	0	1.4800	-3.4	-0.028
+regex	297	0	4091	1.4834	0.0	0.000
+regex	297	8	4091	1.4706	-12.8	-1.600
+regex	297	40	4091	1.4759	-7.5	-0.188
+regex	0	120	41	1.4877	4.3	0.036
+regex	50	120	682	1.4821	-1.3	-0.011
+regex	150	120	2033	1.4860	2.6	0.022
+regex	297	120	4091	1.5008	17.4	0.145
