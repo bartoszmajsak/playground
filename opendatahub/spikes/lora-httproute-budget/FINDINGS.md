@@ -50,6 +50,11 @@ checks the controller trips over, without the controller or any traffic.
 | `split-prefix` | **22** | route-wide 128 | 8 | revert #5826 + `PathPrefix` |
 | `collapse` | **58** | route-wide 128 | 20 | header-only rule |
 | `collapse-dedup` | **63** | per-rule 64 | 20 | + drop the dead catch-all |
+| **`alternation`** | **297** | 4096-byte header value | **0** | one regex lists the existing names |
+| `nested` | **unbounded** | nothing in the route | 7 | adapters served under the base |
+
+`alternation` and `nested` are the two constant-size shapes — 12 rules, 19
+matches, unchanged at any adapter count. See sections 9 and 14.
 
 **Correction to the design docs.** `llmisvc-httproute-budget.md` §5 and the
 phased plan both put the header-only collapse at ~122 adapters. Measured it is
@@ -270,6 +275,9 @@ exactly the shared-gateway, many-models deployment this epic exists to support.
 - **[#283]** Istio 1.28 never invokes the EPP (section 6). Filed p2 — the fix is
   a version floor, but it needs establishing and checking against what RHOAI
   ships.
+- **[#284]** the `ModelNameCollision` event names the base model even when the
+  overlap is a LoRA adapter (section 15). Filed p3 — detection works, the message
+  points at the wrong name.
 
 [#279]: https://github.com/bartoszmajsak/work-items/issues/279
 [#280]: https://github.com/bartoszmajsak/work-items/issues/280
@@ -279,6 +287,13 @@ exactly the shared-gateway, many-models deployment this epic exists to support.
 ---
 
 ## 9. H3: nested served names work, and are unbounded
+
+> **Read section 14 first.** An alternation regex over the *existing* names
+> reaches 297 adapters with zero behaviour change and no naming migration. The
+> design docs rejected that option on an RE2 premise that does not hold on
+> Istio, and proposed nesting in its place. Nesting is still the only shape that
+> is truly unbounded and stops the route being rewritten per adapter — but it is
+> only worth its naming cost if one of those matters.
 
 Serving adapters as `publishers/{ns}/models/{base}/adapters/{name}` lets one
 regex cover the base model and every adapter beneath it:
@@ -668,6 +683,97 @@ same 500. Regenerate with `hack/gen-tiny-lora.py` and reload after any rebuild.
 
 All three produce an identical symptom — pool-bound requests 500 with every
 status object green — which is worth knowing before diagnosing the next one.
+
+## 14. `alternation`: 297 adapters for zero behaviour change
+
+The budget is match **count**, not pattern length. So one regex listing the model
+names that already exist is *one match* however many adapters there are — the
+same constant-match property `nested` has, without renaming anything:
+
+```
+publishers/{ns}/models/(model-a|adapter-a1|adapter-a2|…)
+```
+
+Measured at every tier:
+
+| tier | result |
+|---|---|
+| 1 — budget | **297 adapters**, 12 rules, 19 matches, constant |
+| 2 — behaviour | **0 of 72** probes move — byte-identical to today |
+| 3 — EPP outcomes | **0 of 13** outcomes change |
+
+Rejection at the ceiling is the right one — not a match cap:
+
+```
+spec.rules[4].matches[0].headers[0].value: Too long: may not be more than 4096 bytes
+```
+
+**Anchoring is exact**, probed 5× each: `model-a` and `adapter-a1` match;
+`adapter-a11`, `adapter-a1x`, `adapter-a` and `xmodel-a` all fall through. Only
+the listed names match, so it cannot capture a neighbouring service.
+
+**297, not 320.** An earlier hand-built pattern reached 320, but the shipped form
+must escape name characters — adapter names are user-controlled — and
+`re.escape` turns each hyphen into two bytes. 297 is the number for the safe
+form. Name length drives it: roughly 450 with 8-character names, ~120 with
+32-character ones.
+
+**What it does not fix.** The pattern is rewritten whenever the adapter set
+changes, so per-adapter route churn remains. That, and true unboundedness, are
+the only things `nested` buys over it.
+
+### Why this was nearly missed
+
+Both design docs propose nested naming *specifically as the alternative to* an
+alternation, and reject the alternation explicitly:
+
+> nest adapter served names under the base … and use a single fixed prefix
+> regex. ~40 characters, constant size, well under the default RE2 program-size
+> limit — **unlike an alternation, which is not**.
+> — `llmisvc-httproute-phased-plan.md:264`
+
+That premise is false here. `re2.max_program_size.error_level` is **32768** on
+Istio (section 9), not the assumed 100, and the binding constraint turns out to
+be the CRD's cap on a header match value — which lands at 297, not two.
+
+Worth recording as a process point, not just a technical one: the RE2 figure was
+measured days before `nested` was promoted from the docs' fallback to this
+spike's headline option, and the rejection that `nested` rested on was never
+revisited in light of it. A disproven premise invalidates the conclusions built
+on it, including the ones already adopted.
+
+## 15. Two LLMISVCs with the same adapter name shadow each other
+
+`fullyQualifiedModelName` is `publishers/{ns}/models/{name}` with **no service
+name in it** (`router_discovery_filter.go:35`), so two services in a namespace
+that each define an adapter called `sql-adapter` both generate a route matching
+`publishers/{ns}/models/sql-adapter`.
+
+Measured with `svc-a` and `svc-b` both given `shared-adapter`: **every** request
+carrying that header went to `svc-a`, 6/6. `svc-a`'s route was created 2 seconds
+earlier, which is exactly Gateway API's documented tie-break — oldest route wins.
+`svc-b`'s own adapter is unreachable by name.
+
+**kserve does detect this.** `findModelNameCollisions`
+(`router_validation.go:278`) covers adapter names, and the controller raises a
+`ModelNameCollision` warning Event:
+
+> model name "model-a" overlaps with svc-b in namespace lora-budget; shared
+> publisher paths and model-routing headers cause the gateway to shadow one
+> service.
+
+*Correction to an earlier reading in this investigation:* the first pass reported
+"nothing objects", which was wrong — it checked CR **conditions** and the
+warning is an **Event**. Detection was added in kserve#5800 and works.
+
+What survives is a message bug, filed as [#284]: the event always formats
+`Spec.Model.Name`, but `findModelNameCollisions` returns *peer service names*
+rather than the overlapping *model names*, so an adapter collision names the base
+model. Here it said `"model-a"` when the actual overlap was `shared-adapter` —
+and `model-a` overlaps with nothing. It fires correctly and points at the wrong
+thing, which is how a real signal gets dismissed as spurious.
+
+[#284]: https://github.com/bartoszmajsak/work-items/issues/284
 
 ---
 

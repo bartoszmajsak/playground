@@ -113,7 +113,7 @@ kubectl apply -f manifests/route-collapse.yaml
 | `adapter POST` with bare `adapter-a1` | vLLM serves that name, the route does not match it |
 | `adapter POST` with a nested name | today's flat scheme rejects it, so a nesting change is visible the moment it lands |
 | `disabled` family | `stripModelBasedRoutingRules` - header rules gone entirely, adapter count irrelevant |
-| `nested` family | prefix anchoring: `.../model-a(/.*)?` must not capture `model-a-instruct` |
+| `nested` family | prefix anchoring: `.../model-a(/.*)?` must not capture `model-a-instruct`, and the same probes pin `alternation`'s exact-name matching |
 
 Nothing in there asserts an expectation. The root capture at `/` is almost
 certainly not intended, but it goes into the baseline as-is. Then it gets
@@ -148,6 +148,25 @@ a request goes gateway -> InferencePool -> EPP -> runtime, and records status
 codes rather than destinations. Tier 2 deliberately swaps the EPP out; tier 3
 exists because "which backend" and "what actually happens" turned out to be very
 different questions. The collapse moves 20 destinations and changes 2 outcomes.
+
+## The shapes
+
+`make-shape.py <shape>` derives each candidate from the captured baseline, so the
+only thing differing between two tables is the transformation under test:
+
+| shape | maxA | probes moved | what it does |
+|---|---|---|---|
+| `split` | 12 | 0 | reverts kserve#5826 — same matches, four rules |
+| `prefix` | 15 | 8 | `Exact` -> `PathPrefix`, dropping the trailing-slash twins |
+| `split-noslash` | 22 | 1 | both of the above |
+| `split-prefix` | 22 | 8 | both, with PathPrefix |
+| **`alternation`** | **297** | **0** | one regex listing the existing names — constant matches, no renames |
+| `nested` | unbounded | 7 | adapters served beneath the base; one prefix regex |
+| `collapse` | 58 | 20 | header-only rule, no path match |
+| `collapse-dedup` | 63 | 20 | collapse, plus deleting the catch-all it makes dead |
+
+Add `--real` to keep the original backendRefs (InferencePool / workload Service)
+instead of swapping in the echo Deployments — needed for tier 3.
 
 ## Requirements worth knowing before you run it
 
@@ -254,6 +273,8 @@ over, minus the controller, the workload and any traffic.
 | `split-prefix` | **22** | route-wide 128 | 8 | revert #5826 + `PathPrefix` |
 | `collapse` | **58** | route-wide 128 | 20 | header-only rule |
 | `collapse-dedup` | **63** | per-rule 64 | 20 | + drop the dead catch-all |
+| **`alternation`** | **297** | 4096-byte header value | **0** | one regex lists the existing names |
+| `nested` | **unbounded** | nothing in the route | 7 | adapters served beneath the base |
 
 Predictions were written down before each run. Every one held on the probe set
 that existed at the time — which turned out to be the important caveat, see
