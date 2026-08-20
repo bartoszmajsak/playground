@@ -1,6 +1,10 @@
-# What happens when model-based routing is switched off?
+# What switching model-based routing off actually costs.
 # Annotation: serving.kserve.io/model-based-routing-enabled: "false"
 # stripModelBasedRoutingRules removes rules[4] and rules[11].
-state	rules	matches	rules-scaling-with-adapters	adapter reachable via path+body
-enabled	12	37	2 (v1-model-routing, v1-catch-all-model-routing)	yes
-disabled	10	10	0	yes
+#
+# It does NOT "remove the ceiling for free". It removes the SHARED ENDPOINT, which
+# is the feature the ceiling is the price of. Service-scoped paths are unaffected
+# because their URL already names the service.
+state	rules	matches	scales with adapters	service-scoped path+body	shared /v1/... endpoint
+enabled	12	37	2 rules	works	works (needs the header)
+disabled	10	10	0 rules	works	GONE

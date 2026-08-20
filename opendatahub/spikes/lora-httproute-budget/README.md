@@ -184,11 +184,12 @@ is hand-built against echo backends on purpose: those measure Envoy, not kserve.
 | `probe-dataplane.sh` | do the regex findings hold on kgateway and Envoy Gateway as well as Istio? (semantics: yes, all three. ceiling: no, kgateway alone) |
 | `hack/render-adapter-paths.py` | if adapters ever got a publisher path, does the PATH axis hit a ceiling too? |
 
-The short version of all of it is in FINDINGS section 23: vLLM and the endpoint
-picker both read the model from the request **body**, `X-Gateway-Model-Name`
-selects nothing, and the two rules that cause the ceiling exist only to let an
-HTTPRoute match on it. Turn model-based routing off and the route drops from 12
-rules to 10 with every working request unchanged.
+The short version is in FINDINGS section 23: the **body** tells vLLM which adapter
+to apply, the **header** tells the gateway which vLLM, and on the shared
+`/v1/...` endpoint the header is the only routing key there is. The per-adapter
+matches are an index from model name to InferencePool, which is why the ceiling
+exists and why `nested` - where the name already identifies the owning pool - is
+the only shape that does not need one.
 
 
 `probe-dataplane.sh install` needs `v1alpha2` served on the TLSRoute CRD, which

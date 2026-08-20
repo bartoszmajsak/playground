@@ -1263,13 +1263,12 @@ That last point is the strongest argument for nesting in this document, and it
 was not made before: every other shape is linear on both axes, and nesting is the
 only one that is constant on both.
 
-## 23. What actually addresses an adapter, and what the ceiling is really for
+## 23. What the model header is for, and why the ceiling is the price of the shared endpoint
 
 Everything above treats the seven-adapter ceiling as a problem to be solved. This
-section asks what the rule causing it is *for*, and the answer changes the shape
-of the recommendation.
+section asks what the rule causing it is *for*.
 
-### vLLM is body-only. So is the endpoint picker.
+### Two questions, two mechanisms
 
 kserve registers each adapter with vLLM under two **body-level** names
 (`workload_lora.go`): the bare name and the fully qualified one.
@@ -1281,78 +1280,92 @@ kserve registers each adapter with vLLM under two **body-level** names
 
 vLLM never sees an HTTP header. Neither does the endpoint picker: it answers
 `400 model not found in request body` when the body has no `model`, whatever the
-header says.
+header says. So the **body** is what selects an adapter, always.
 
-Measured end to end against real vLLM (`golden/addressing.tsv`):
+The **header** answers a different question: which vLLM. Gateway API cannot route
+on a request body, so the gateway needs the model name somewhere it can match.
+
+Measured end to end against real vLLM, two services (`golden/addressing.tsv`):
 
 | path | body `model` | header | served |
 |---|---|---|---|
-| `/{ns}/{name}/v1/chat/completions` | qualified adapter | none | **adapter-a1** |
-| `/{ns}/{name}/v1/chat/completions` | bare adapter name | none | **adapter-a1** |
-| `/publishers/{ns}/models/{base}/v1/chat/completions` | qualified adapter | none | **adapter-a1** |
-| `/v1/chat/completions` | qualified **base** | `adapter-a1` | **model-a** |
-| `/v1/chat/completions` | `adapter-a2` | `adapter-a1` | **adapter-a2** |
-| `/v1/chat/completions` | *absent* | `adapter-a1` | **400** |
+| `/{ns}/{name}/v1/chat/completions` | qualified adapter | none | adapter-a1 |
+| `/{ns}/{name}/v1/chat/completions` | bare adapter name | none | adapter-a1 |
+| `/publishers/{ns}/models/{base}/v1/...` | qualified adapter | none | adapter-a1 |
+| `/v1/chat/completions` | model-a | model-a | model-a (svc-a) |
+| `/v1/chat/completions` | model-b | model-b | model-b (svc-b) |
+| `/v1/chat/completions` | adapter-a1 | adapter-a1 | adapter-a1 (svc-a) |
+| `/v1/chat/completions` | model-a | **none** | **no route** |
+| `/v1/chat/completions` | adapter-a1 | **none** | **no route** |
+| `/v1/chat/completions` | qualified base | adapter-a1 | model-a |
+| `/v1/chat/completions` | adapter-a2 | adapter-a1 | adapter-a2 |
+| `/v1/chat/completions` | *absent* | adapter-a1 | 400 |
 
-Read the last three rows together. When body and header disagree, **the body wins
-every time**, and a header with no body model is a 400. `X-Gateway-Model-Name`
-does not select the adapter and never did. It exists so an HTTPRoute can *match*
-on the requested model, because Gateway API cannot route on a request body.
+On a service-scoped path the URL already names the service, so the header is
+unnecessary. On the **shared** endpoint the path names nothing and the header is
+the only key there is - without it the endpoint does not resolve at all.
 
-### Which means the ceiling is optional
+The disagreement rows are not a contradiction: the header still *routed* the
+request and the body still *chose the adapter* once it arrived. Each did its own
+job.
 
-`v1-model-routing` and `v1-catch-all-model-routing` are the only two rules that
-scale with adapter count, and they exist purely to serve that header. Switching
-model-based routing off (`serving.kserve.io/model-based-routing-enabled: "false"`,
-which makes `stripModelBasedRoutingRules` run) removes both:
+### The per-adapter matches are an index
 
-| state | rules | matches | rules scaling with adapters | adapter reachable via path + body |
-|---|---|---|---|---|
-| enabled | 12 | 37 | 2 | yes |
-| **disabled** | **10** | **10** | **0** | **yes** |
+On the shared endpoint the adapter name is the only thing that says which pool
+owns it. Every adapter needs an entry mapping its name to a backend, and that
+table is `rules[4]`. It is the lookup that makes one OpenAI-shaped endpoint able
+to serve many models - which is what the Gateway API Inference Extension is for,
+and what a body-based router exists to populate from the body so ordinary SDK
+clients can use it.
 
-Verified live on `svc-a` with two adapters loaded: with the rules gone, all three
-path+body forms still resolved to the adapter. **The seven-adapter ceiling
-disappears entirely and nothing that works today stops working.**
+That reframes every shape in this document as three ways of writing the same
+index:
 
-### So is there a gap in the routing layer?
+- `current`, `split`, `collapse` **enumerate** it: one entry per adapter, linear,
+  hits a cap.
+- `alternation` **compresses** the enumeration into one pattern: still every name,
+  just packed, hits a later cap.
+- `nested` **removes the need to enumerate**: because the adapter name contains
+  its base model name, one prefix identifies the owning pool for every adapter
+  that will ever exist.
 
-Yes, and it is the opposite of what the ceiling suggests. Adapters are not
-hard to address - they are addressable today at zero match cost. The gap is on the
-*producer* side of header addressing:
+That is the real reason `nested` is unbounded, and it is a stronger argument than
+the byte counts in section 18. It makes the name self-describing about ownership,
+so the index collapses from a table of entries into a rule about naming. The same
+property is what makes it constant on the path axis (section 22).
 
-- kserve **consumes** `X-Gateway-Model-Name` (matches on it, expands it, strips
-  it) but nothing in kserve **produces** it. `grep` finds only the config default
-  and the match logic.
-- A body-based router is the intended producer - it reads `model` from the body
-  and sets the header - and none is deployed here or shipped by kserve.
-- No OpenAI SDK sets a non-standard routing header, so in practice only a
-  hand-crafted client can use this mode.
-- On ODH the mode is refused outright by `deny-misrouted-model-header` (section
-  10).
+### Switching it off removes the endpoint, not the cost
 
-So the entire match budget, and every shape in this document, is spent on the
-consumer half of a body-based-routing design whose producer half does not exist
-yet. The rules are not wrong - a shared `/v1/chat/completions` endpoint serving
-many models is exactly what the Gateway API Inference Extension is for - they are
-just early.
+`serving.kserve.io/model-based-routing-enabled: "false"` makes
+`stripModelBasedRoutingRules` delete both header rules. Measured on `svc-a` with
+two adapters loaded:
 
-### What follows
+| state | rules | matches | scales with adapters | service-scoped path | shared endpoint |
+|---|---|---|---|---|---|
+| enabled | 12 | 37 | 2 rules | works | works |
+| disabled | 10 | 10 | 0 | works | **gone** |
 
-Before optimising the shape of a rule, establish whether anyone is paying for
-something they can use:
+**Correction to an earlier revision of this section.** It presented that table as
+"the ceiling is optional, and the cheapest fix was never on the list of shapes".
+That was wrong. It read the header as a redundant copy of the body - which it is
+on service-scoped paths, and is not on the shared endpoint, where it is the only
+routing key and without which nothing resolves.
 
-1. **If header addressing has no producer in your deployment**, the annotation
-   above is a zero-cost fix available today. The ceiling is not raised, it is
-   removed, and no working request changes.
-2. **On ODH specifically** the mode is denied, so this is free there now.
-3. **If and when a body-based router ships**, the ceiling comes back and the
-   shape question in this document becomes live again - at which point `nested`
-   is the answer for the reasons in sections 21 and 22.
+Switching model-based routing off does not remove the ceiling for free. It removes
+the shared endpoint, which is the feature the ceiling is the price of. A real
+option where nobody can use that endpoint - on ODH the authorization policy denies
+it today (section 10) - but a decision about scope rather than a free win, and the
+wrong call the moment a body-based router ships.
 
-This does not retract any measurement above. It reprices them: every ceiling in
-this document is the cost of a feature that is not finished, and the cheapest
-option was never on the list of shapes.
+### The producer gap is still real
+
+What survives from the earlier reading is narrower and still worth stating: kserve
+**consumes** `X-Gateway-Model-Name` but nothing in kserve **produces** it, no
+body-based router ships with it, and no OpenAI SDK sets a non-standard routing
+header. So the index is built and maintained for an endpoint that, today, only a
+hand-crafted client can reach - and on ODH not even that. The rules are not wrong,
+they are early, and the ceiling will start costing real traffic at the moment the
+producer arrives rather than before it.
 
 ---
 
