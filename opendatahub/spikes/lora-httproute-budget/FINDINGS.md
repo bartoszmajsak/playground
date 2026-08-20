@@ -2115,3 +2115,29 @@ EPP passes bodyless non-inference paths through (section 5b). Reading
 Deployments so destination is observable, which removes the EPP from the path.
 That is right for characterizing route *matching* and useless for EPP
 behaviour - hence the separate `probe-epp.sh`, which keeps real backendRefs.
+
+**The request simulator computes, it does not replay.** The report's *Try a
+request* section answers arbitrary paths and headers, which a lookup over 72
+probes cannot do. `hack/request-sim/` holds it:
+
+- `extract.py` pulls each shape's rules out of `make-shape.py` - the same
+  synthesis every golden file came from - into `routes.json`, plus the neighbour
+  route, because "falls through" is one of the outcomes and it is the thing being
+  fallen through to. A `baseline` no-op shape was added to `make-shape.py` so
+  today's rules come through the same backend-swapping path as the candidates.
+- `matcher.js` implements Gateway API precedence: path type
+  (`Exact` > `RegularExpression` > `PathPrefix`), then characters in the matching
+  path, then header match count, then route key, rule order, match order. The same
+  file runs in node and in the page.
+- `validate.js` replays all 72 probes on all 5 shapes: **360 of 360** outcomes
+  match `golden/*.tsv`, first pass, no tuning. It also checks three invariants
+  measured on the live cluster with real backends by `probe-authz-split.sh`,
+  which is a different harness from the one that produced the golden files.
+- `assemble.py` runs both before writing `report.html`, so a matcher that
+  disagrees fails the build rather than shipping.
+
+The claim is only that it reproduces the recorded set. It models one gateway with
+five routes and no hostname, method or query-param matching beyond what those
+routes use, and it does not model creation-timestamp tie-breaks - route ties fall
+back to the alphabetical key, which is the spec's next criterion and is never
+reached in this fixture.

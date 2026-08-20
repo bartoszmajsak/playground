@@ -534,7 +534,77 @@
            font-size: .83rem; color: var(--ink-soft); }
   :focus-visible { outline: 2px solid var(--kind); outline-offset: 2px; }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
-</style>
+
+  /* ================= request simulator ================= */
+  .sim { border: 1px solid var(--rule); border-radius: 8px; background: var(--surface); overflow: hidden; }
+  .sim-shapes { display: flex; flex-wrap: wrap; gap: 0; border-bottom: 1px solid var(--rule); background: var(--sunken); }
+  .sim-shapes .sh {
+    font: 600 .78rem/1 var(--mono); letter-spacing: .01em; color: var(--ink-soft);
+    background: none; border: 0; border-right: 1px solid var(--rule);
+    padding: .62rem .85rem; cursor: pointer;
+  }
+  .sim-shapes .sh:hover { color: var(--ink); background: var(--rule-soft); }
+  .sim-shapes .sh.on { color: var(--kind); background: var(--surface); box-shadow: inset 0 -2px 0 var(--kind); }
+  .sim-req { display: flex; flex-wrap: wrap; gap: .7rem; padding: .85rem .9rem; border-bottom: 1px solid var(--rule-soft); }
+  .sim-req .f { display: flex; flex-direction: column; gap: .25rem; min-width: 7rem; }
+  .sim-req .f.grow { flex: 1 1 16rem; }
+  .sim-req .f > span {
+    font: 600 .64rem/1 var(--sans); letter-spacing: .09em; text-transform: uppercase; color: var(--ink-faint);
+  }
+  .sim-req input, .sim-req select {
+    font: .8rem/1.3 var(--mono); color: var(--ink); background: var(--paper);
+    border: 1px solid var(--rule); border-radius: 5px; padding: .4rem .5rem; width: 100%;
+  }
+  .sim-req input:focus, .sim-req select:focus { outline: 2px solid var(--kind); outline-offset: -1px; }
+  .sim-presets { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; padding: .6rem .9rem; border-bottom: 1px solid var(--rule); background: var(--sunken); }
+  .sim-presets .lbl { font: 600 .64rem/1 var(--sans); letter-spacing: .09em; text-transform: uppercase; color: var(--ink-faint); margin-right: .2rem; }
+  .sim-presets button {
+    font: .72rem/1 var(--sans); color: var(--ink-soft); background: var(--surface);
+    border: 1px solid var(--rule); border-radius: 999px; padding: .32rem .62rem; cursor: pointer;
+  }
+  .sim-presets button:hover { color: var(--kind); border-color: var(--kind-line); }
+  .sim-body { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 0; }
+  @media (max-width: 760px) { .sim-body { grid-template-columns: minmax(0, 1fr); } }
+  .sim-rules { padding: .5rem 0; border-right: 1px solid var(--rule-soft); min-width: 0; }
+  @media (max-width: 760px) { .sim-rules { border-right: 0; border-bottom: 1px solid var(--rule-soft); } }
+  .sim-rt {
+    font: 600 .62rem/1 var(--sans); letter-spacing: .09em; text-transform: uppercase;
+    color: var(--ink-faint); padding: .45rem .9rem .3rem;
+  }
+  .rr {
+    display: grid; grid-template-columns: 1.6rem minmax(0, 1fr) auto; align-items: center;
+    gap: .5rem; padding: .3rem .9rem; font: .76rem/1.35 var(--mono);
+    border-left: 2px solid transparent; opacity: .32;
+    transition: opacity .16s ease, background .16s ease, border-color .16s ease;
+  }
+  .rr .ri { color: var(--ink-faint); font-size: .68rem; text-align: right; }
+  .rr .rn { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rr .rv { font-size: .68rem; color: var(--ink-faint); white-space: nowrap; }
+  .rr.done { opacity: 1; }
+  .rr.done.miss .rn { color: var(--ink-faint); }
+  .rr.done.hit { background: var(--kind-dim); border-left-color: var(--kind-line); }
+  .rr.done.hit .rv { color: var(--kind); }
+  .rr.win { background: var(--kind-dim); border-left-color: var(--kind); }
+  .rr.win .rn { color: var(--kind); font-weight: 700; }
+  .rr.win .rv { color: var(--kind); font-weight: 600; }
+  .sim-side { padding: .9rem; display: flex; flex-direction: column; gap: .7rem; min-width: 0; }
+  .sim-dest { border: 1px solid var(--rule); border-radius: 7px; padding: .7rem .8rem; background: var(--paper); }
+  .sim-dest.pool { border-color: var(--kind); background: var(--kind-dim); }
+  .sim-dest.svc { border-color: var(--rule); }
+  .sim-dest.nbr { border-color: var(--warn); background: var(--warn-dim); }
+  .sim-dest .dl { font: 600 .62rem/1 var(--sans); letter-spacing: .09em; text-transform: uppercase; color: var(--ink-faint); }
+  .sim-dest .dv { font: 700 .95rem/1.3 var(--sans); margin-top: .25rem; }
+  .sim-dest.pool .dv { color: var(--kind); }
+  .sim-dest.nbr .dv { color: var(--warn); }
+  .sim-dest .dh { font: .72rem/1.45 var(--sans); color: var(--ink-soft); margin-top: .3rem; }
+  .sim-why { font: .73rem/1.5 var(--sans); color: var(--ink-soft); }
+  .sim-why code { font-size: .7rem; }
+  .sim-why b { color: var(--ink); font-weight: 650; }
+  .sim-others { font: .71rem/1.5 var(--mono); color: var(--ink-faint); }
+  .sim-others .o { display: block; }
+  .sim-note { font: .73rem/1.5 var(--sans); color: var(--ink-faint); padding: .55rem .9rem; border-top: 1px solid var(--rule-soft); background: var(--sunken); }
+  @media (prefers-reduced-motion: reduce) { .rr { transition: none; } }
+  </style>
 
 <div class="wrap">
 
@@ -1906,6 +1976,337 @@
 
 </section>
 
+
+<section id="try">
+  <h2>Try a request</h2>
+  <p class="sub">
+    The table above is 72 fixed probes. This is the same question with the probe list taken
+    off: pick a shape, edit the path and the header, and see which rule wins and why. The
+    rules are the ones each shape actually generates, and the matcher is Gateway API
+    precedence implemented in the page - path type first, then characters in the matching
+    path, then header count.
+  </p>
+
+  <div class="sim">
+    <div class="sim-shapes" role="group" aria-label="Route shape">
+      <button class="sh on" data-sh="current" aria-pressed="true">current</button>
+      <button class="sh" data-sh="split" aria-pressed="false">split</button>
+      <button class="sh" data-sh="split-noslash" aria-pressed="false">split-noslash</button>
+      <button class="sh" data-sh="alternation" aria-pressed="false">alternation</button>
+      <button class="sh" data-sh="nested" aria-pressed="false">nested</button>
+    </div>
+
+    <div class="sim-req">
+      <label class="f"><span>method</span>
+        <select id="simMethod">
+          <option>POST</option><option>GET</option><option>DELETE</option>
+        </select>
+      </label>
+      <label class="f grow"><span>path</span>
+        <input id="simPath" spellcheck="false" autocomplete="off" value="/v1/chat/completions">
+      </label>
+      <label class="f grow"><span>x-gateway-model-name</span>
+        <input id="simHdr" spellcheck="false" autocomplete="off"
+               value="publishers/lora-budget/models/adapter-a1">
+      </label>
+    </div>
+
+    <div class="sim-presets" id="simPresets">
+      <span class="lbl">try</span>
+    </div>
+
+    <div class="sim-body">
+      <div class="sim-rules">
+        <div class="sim-rt" id="simRouteName">lora-budget/svc-a-kserve-route</div>
+        <div id="simRules"></div>
+      </div>
+      <div class="sim-side" aria-live="polite">
+        <div class="sim-dest" id="simDest"><span class="dl">lands on</span><span class="dv">-</span></div>
+        <div class="sim-why" id="simWhy"></div>
+        <div class="sim-others" id="simOthers"></div>
+      </div>
+    </div>
+
+    <p class="sim-note" id="simNote"></p>
+  </div>
+
+  <div class="note ok">
+    <span class="lbl">it computes, it does not replay</span>
+    <p>
+      Nothing here is a recorded answer, which is why an arbitrary path works. To keep that
+      honest the matcher is checked against the recordings: <strong>360 of 360</strong>
+      outcomes - all 72 probes on all five shapes - come back byte-identical to the golden
+      files, plus three invariants measured separately on the live cluster with real
+      backends. <code>hack/request-sim/validate.js</code> fails the build if any of them drifts.
+    </p>
+  </div>
+
+  <div class="note">
+    <span class="lbl">the thing worth noticing</span>
+    <p>
+      Every rule is evaluated, every time. Gateway API does not stop at the first match - it
+      collects all of them and takes the most specific, which is why a rule further down the
+      list can beat one near the top, and why adding a match to
+      <code>v1-model-routing</code> can change where an unrelated request lands. Turn on
+      <code>nested</code> and put <code>&hellip;/models/model-a/adapters/anything</code> in
+      the header to see the one shape whose rule stops caring how many adapters exist.
+    </p>
+    <p>
+      The same switch shows what it costs, and it is not a bug in the simulator: with
+      <code>nested</code> selected, the flat name <code>&hellip;/models/adapter-a1</code>
+      stops matching and the request falls through. That is the client-visible rename, priced
+      in one click.
+    </p>
+  </div>
+</section>
+
+<script>
+/* Gateway API HTTPRoute matching, enough of it to answer "where does this land".
+ *
+ * Not a guess at the spec: validated against all 72 recorded probes on all five
+ * shapes (360 outcomes) by sim/validate.js. If it disagrees with a golden file
+ * anywhere, it is wrong and the report should not ship it.
+ *
+ * Ranking, per gateway.networking.k8s.io v1 HTTPRouteRule:
+ *   path type (Exact > RegularExpression > PathPrefix), then characters in the
+ *   matching path, then header match count, then query param count. Ties across
+ *   routes fall back to the route key, then rule order, then match order.
+ */
+(function (root) {
+  function pathHit(pm, path) {
+    if (!pm) return { ok: true, tier: -1, chars: 0 };
+    var type = pm[0], value = pm[1];
+    if (type === "Exact") return { ok: path === value, tier: 2, chars: value.length };
+    if (type === "RegularExpression") {
+      var re;
+      try { re = new RegExp("^(?:" + value + ")$"); } catch (e) { return { ok: false, tier: 1, chars: 0 }; }
+      return { ok: re.test(path), tier: 1, chars: value.length };
+    }
+    // PathPrefix matches whole path segments, so /abc covers /abc and /abc/d but not /abcd
+    var v = value.replace(/\/+$/, "");
+    var ok = v === "" || path === v || path.indexOf(v + "/") === 0;
+    return { ok: ok, tier: 0, chars: (v === "" ? 1 : v.length) };
+  }
+
+  function headerHit(hm, headers) {
+    var got = headers[hm[0]];
+    if (got === undefined || got === null || got === "") return false;
+    if (hm[1] === "RegularExpression") {
+      var re;
+      try { re = new RegExp("^(?:" + hm[2] + ")$"); } catch (e) { return false; }
+      return re.test(got);
+    }
+    return got === hm[2];
+  }
+
+  // Why a match failed, for the trace. Path is checked first because that is the
+  // question a reader asks first.
+  function tryMatch(m, req) {
+    var p = pathHit(m[0], req.path);
+    if (!p.ok) return { ok: false, why: "path" };
+    if (m[2] && m[2] !== req.method) return { ok: false, why: "method" };
+    for (var i = 0; i < m[1].length; i++) {
+      if (!headerHit(m[1][i], req.headers)) {
+        return { ok: false, why: req.headers[m[1][i][0]] ? "header-value" : "header-absent" };
+      }
+    }
+    return { ok: true, tier: p.tier, chars: p.chars, headers: m[1].length };
+  }
+
+  function better(a, b) {
+    if (a.tier !== b.tier) return a.tier > b.tier;
+    if (a.chars !== b.chars) return a.chars > b.chars;
+    if (a.headers !== b.headers) return a.headers > b.headers;
+    if (a.routeKey !== b.routeKey) return a.routeKey < b.routeKey;
+    if (a.ruleIdx !== b.ruleIdx) return a.ruleIdx < b.ruleIdx;
+    return a.matchIdx < b.matchIdx;
+  }
+
+  function evaluate(routes, req) {
+    var headers = {};
+    for (var k in req.headers) {
+      if (req.headers[k]) headers[k.toLowerCase()] = req.headers[k];
+    }
+    var r = { method: req.method || "POST", path: req.path || "/", headers: headers };
+
+    var winner = null, trace = [];
+    for (var ri = 0; ri < routes.length; ri++) {
+      var rt = routes[ri];
+      for (var ui = 0; ui < rt.rules.length; ui++) {
+        var rule = rt.rules[ui], best = null, why = null;
+        for (var mi = 0; mi < rule.m.length; mi++) {
+          var res = tryMatch(rule.m[mi], r);
+          if (!res.ok) { if (!why) why = res.why; continue; }
+          var cand = {
+            tier: res.tier, chars: res.chars, headers: res.headers,
+            routeKey: rt.r, ruleIdx: ui, ruleName: rule.n, matchIdx: mi,
+            dest: rule.to, match: rule.m[mi],
+          };
+          if (!best || better(cand, best)) best = cand;
+        }
+        trace.push({
+          routeKey: rt.r, ruleIdx: ui, ruleName: rule.n, dest: rule.to,
+          matches: rule.m.length, hit: !!best, why: best ? null : why,
+          matchIdx: best ? best.matchIdx : -1,
+        });
+        if (best && (!winner || better(best, winner))) winner = best;
+      }
+    }
+    return { winner: winner, trace: trace };
+  }
+
+  root.gw = { evaluate: evaluate, tryMatch: tryMatch, pathHit: pathHit };
+})(typeof module !== "undefined" && module.exports ? module.exports : (window.SIM = window.SIM || {}));
+
+window.SIM_ROUTES = {"alternation":[{"r":"lora-budget/svc-a-kserve-route","rules":[{"m":[[["PathPrefix","/lora-budget/svc-a/v1/completions"],[],null]],"n":"v1-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-a/v1/chat/completions"],[],null]],"n":"v1-chat-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-a/v1/responses"],[],null]],"n":"v1-responses-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-a/v1/messages"],[],null]],"n":"v1-messages-path","to":"echo-pool"},{"m":[[["Exact","/v1/completions"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/(model\\-a|adapter\\-a1|adapter\\-a2)"]],null],[["Exact","/v1/completions/"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/(model\\-a|adapter\\-a1|adapter\\-a2)"]],null],[["Exact","/v1/chat/completions"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/(model\\-a|adapter\\-a1|adapter\\-a2)"]],null],[["Exact","/v1/chat/completions/"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/(model\\-a|adapter\\-a1|adapter\\-a2)"]],null],[["Exact","/v1/responses"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/(model\\-a|adapter\\-a1|adapter\\-a2)"]],null],[["Exact","/v1/responses/"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/(model\\-a|adapter\\-a1|adapter\\-a2)"]],null],[["Exact","/v1/messages"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/(model\\-a|adapter\\-a1|adapter\\-a2)"]],null],[["Exact","/v1/messages/"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/(model\\-a|adapter\\-a1|adapter\\-a2)"]],null]],"n":"v1-model-routing","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a/v1/completions"],[],null]],"n":"v1-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a/v1/chat/completions"],[],null]],"n":"v1-chat-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a/v1/responses"],[],null]],"n":"v1-responses-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a/v1/messages"],[],null]],"n":"v1-messages-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a"],[],null]],"n":"v1-publisher-path-catch-all","to":"echo-service"},{"m":[[["PathPrefix","/lora-budget/svc-a"],[],null]],"n":"v1-catch-all-path","to":"echo-service"},{"m":[[["PathPrefix","/"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/(model\\-a|adapter\\-a1|adapter\\-a2)"]],null]],"n":"v1-catch-all-model-routing","to":"echo-service"}]},{"r":"lora-budget/svc-ai-kserve-route","rules":[{"m":[[["PathPrefix","/lora-budget/svc-ai/v1/completions"],[],null]],"n":"v1-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-ai/v1/chat/completions"],[],null]],"n":"v1-chat-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-ai/v1/responses"],[],null]],"n":"v1-responses-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-ai/v1/messages"],[],null]],"n":"v1-messages-path","to":"echo-pool"},{"m":[[["Exact","/v1/completions"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/(model\\-a\\-instruct)"]],null],[["Exact","/v1/completions/"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/(model\\-a\\-instruct)"]],null],[["Exact","/v1/chat/completions"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/(model\\-a\\-instruct)"]],null],[["Exact","/v1/chat/completions/"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/(model\\-a\\-instruct)"]],null],[["Exact","/v1/responses"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/(model\\-a\\-instruct)"]],null],[["Exact","/v1/responses/"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/(model\\-a\\-instruct)"]],null],[["Exact","/v1/messages"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/(model\\-a\\-instruct)"]],null],[["Exact","/v1/messages/"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/(model\\-a\\-instruct)"]],null]],"n":"v1-model-routing","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a-instruct/v1/completions"],[],null]],"n":"v1-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a-instruct/v1/chat/completions"],[],null]],"n":"v1-chat-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a-instruct/v1/responses"],[],null]],"n":"v1-responses-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a-instruct/v1/messages"],[],null]],"n":"v1-messages-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a-instruct"],[],null]],"n":"v1-publisher-path-catch-all","to":"echo-service"},{"m":[[["PathPrefix","/lora-budget/svc-ai"],[],null]],"n":"v1-catch-all-path","to":"echo-service"},{"m":[[["PathPrefix","/"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/(model\\-a\\-instruct)"]],null]],"n":"v1-catch-all-model-routing","to":"echo-service"}]},{"r":"lora-budget/svc-b-kserve-route","rules":[{"m":[[["PathPrefix","/lora-budget/svc-b/v1/completions"],[],null]],"n":"v1-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-b/v1/chat/completions"],[],null]],"n":"v1-chat-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-b/v1/responses"],[],null]],"n":"v1-responses-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-b/v1/messages"],[],null]],"n":"v1-messages-path","to":"echo-pool"},{"m":[[["Exact","/v1/completions"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/(model\\-b|shared\\-adapter)"]],null],[["Exact","/v1/completions/"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/(model\\-b|shared\\-adapter)"]],null],[["Exact","/v1/chat/completions"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/(model\\-b|shared\\-adapter)"]],null],[["Exact","/v1/chat/completions/"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/(model\\-b|shared\\-adapter)"]],null],[["Exact","/v1/responses"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/(model\\-b|shared\\-adapter)"]],null],[["Exact","/v1/responses/"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/(model\\-b|shared\\-adapter)"]],null],[["Exact","/v1/messages"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/(model\\-b|shared\\-adapter)"]],null],[["Exact","/v1/messages/"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/(model\\-b|shared\\-adapter)"]],null]],"n":"v1-model-routing","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-b/v1/completions"],[],null]],"n":"v1-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-b/v1/chat/completions"],[],null]],"n":"v1-chat-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-b/v1/responses"],[],null]],"n":"v1-responses-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-b/v1/messages"],[],null]],"n":"v1-messages-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-b"],[],null]],"n":"v1-publisher-path-catch-all","to":"echo-service"},{"m":[[["PathPrefix","/lora-budget/svc-b"],[],null]],"n":"v1-catch-all-path","to":"echo-service"},{"m":[[["PathPrefix","/"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/(model\\-b|shared\\-adapter)"]],null]],"n":"v1-catch-all-model-routing","to":"echo-service"}]},{"r":"lora-budget/svc-c-kserve-route","rules":[{"m":[[["PathPrefix","/lora-budget/svc-c/v1/completions"],[],null]],"n":"v1-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-c/v1/chat/completions"],[],null]],"n":"v1-chat-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-c/v1/responses"],[],null]],"n":"v1-responses-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-c/v1/messages"],[],null]],"n":"v1-messages-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-c/v1/completions"],[],null]],"n":"v1-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-c/v1/chat/completions"],[],null]],"n":"v1-chat-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-c/v1/responses"],[],null]],"n":"v1-responses-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-c/v1/messages"],[],null]],"n":"v1-messages-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-c"],[],null]],"n":"v1-publisher-path-catch-all","to":"echo-service"},{"m":[[["PathPrefix","/lora-budget/svc-c"],[],null]],"n":"v1-catch-all-path","to":"echo-service"}]},{"r":"lora-budget/neighbour","rules":[{"m":[[["PathPrefix","/docs"],[],null]],"n":"docs","to":"echo-neighbour"},{"m":[[["PathPrefix","/"],[],null]],"n":"root","to":"echo-neighbour"}]}],"current":[{"r":"lora-budget/svc-a-kserve-route","rules":[{"m":[[["PathPrefix","/lora-budget/svc-a/v1/completions"],[],null]],"n":"v1-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-a/v1/chat/completions"],[],null]],"n":"v1-chat-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-a/v1/responses"],[],null]],"n":"v1-responses-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-a/v1/messages"],[],null]],"n":"v1-messages-path","to":"echo-pool"},{"m":[[["Exact","/v1/completions"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a"]],null],[["Exact","/v1/completions/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a"]],null],[["Exact","/v1/chat/completions"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a"]],null],[["Exact","/v1/chat/completions/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a"]],null],[["Exact","/v1/responses"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a"]],null],[["Exact","/v1/responses/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a"]],null],[["Exact","/v1/messages"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a"]],null],[["Exact","/v1/messages/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a"]],null],[["Exact","/v1/completions"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a1"]],null],[["Exact","/v1/completions"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a2"]],null],[["Exact","/v1/completions/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a1"]],null],[["Exact","/v1/completions/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a2"]],null],[["Exact","/v1/chat/completions"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a1"]],null],[["Exact","/v1/chat/completions"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a2"]],null],[["Exact","/v1/chat/completions/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a1"]],null],[["Exact","/v1/chat/completions/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a2"]],null],[["Exact","/v1/responses"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a1"]],null],[["Exact","/v1/responses"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a2"]],null],[["Exact","/v1/responses/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a1"]],null],[["Exact","/v1/responses/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a2"]],null],[["Exact","/v1/messages"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a1"]],null],[["Exact","/v1/messages"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a2"]],null],[["Exact","/v1/messages/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a1"]],null],[["Exact","/v1/messages/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a2"]],null]],"n":"v1-model-routing","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a/v1/completions"],[],null]],"n":"v1-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a/v1/chat/completions"],[],null]],"n":"v1-chat-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a/v1/responses"],[],null]],"n":"v1-responses-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a/v1/messages"],[],null]],"n":"v1-messages-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a"],[],null]],"n":"v1-publisher-path-catch-all","to":"echo-service"},{"m":[[["PathPrefix","/lora-budget/svc-a"],[],null]],"n":"v1-catch-all-path","to":"echo-service"},{"m":[[["PathPrefix","/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a"]],null],[["PathPrefix","/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a1"]],null],[["PathPrefix","/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a2"]],null]],"n":"v1-catch-all-model-routing","to":"echo-service"}]},{"r":"lora-budget/svc-ai-kserve-route","rules":[{"m":[[["PathPrefix","/lora-budget/svc-ai/v1/completions"],[],null]],"n":"v1-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-ai/v1/chat/completions"],[],null]],"n":"v1-chat-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-ai/v1/responses"],[],null]],"n":"v1-responses-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-ai/v1/messages"],[],null]],"n":"v1-messages-path","to":"echo-pool"},{"m":[[["Exact","/v1/completions"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a-instruct"]],null],[["Exact","/v1/completions/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a-instruct"]],null],[["Exact","/v1/chat/completions"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a-instruct"]],null],[["Exact","/v1/chat/completions/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a-instruct"]],null],[["Exact","/v1/responses"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a-instruct"]],null],[["Exact","/v1/responses/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a-instruct"]],null],[["Exact","/v1/messages"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a-instruct"]],null],[["Exact","/v1/messages/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a-instruct"]],null]],"n":"v1-model-routing","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a-instruct/v1/completions"],[],null]],"n":"v1-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a-instruct/v1/chat/completions"],[],null]],"n":"v1-chat-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a-instruct/v1/responses"],[],null]],"n":"v1-responses-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a-instruct/v1/messages"],[],null]],"n":"v1-messages-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a-instruct"],[],null]],"n":"v1-publisher-path-catch-all","to":"echo-service"},{"m":[[["PathPrefix","/lora-budget/svc-ai"],[],null]],"n":"v1-catch-all-path","to":"echo-service"},{"m":[[["PathPrefix","/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a-instruct"]],null]],"n":"v1-catch-all-model-routing","to":"echo-service"}]},{"r":"lora-budget/svc-b-kserve-route","rules":[{"m":[[["PathPrefix","/lora-budget/svc-b/v1/completions"],[],null]],"n":"v1-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-b/v1/chat/completions"],[],null]],"n":"v1-chat-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-b/v1/responses"],[],null]],"n":"v1-responses-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-b/v1/messages"],[],null]],"n":"v1-messages-path","to":"echo-pool"},{"m":[[["Exact","/v1/completions"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-b"]],null],[["Exact","/v1/completions/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-b"]],null],[["Exact","/v1/chat/completions"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-b"]],null],[["Exact","/v1/chat/completions/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-b"]],null],[["Exact","/v1/responses"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-b"]],null],[["Exact","/v1/responses/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-b"]],null],[["Exact","/v1/messages"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-b"]],null],[["Exact","/v1/messages/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-b"]],null],[["Exact","/v1/completions"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/shared-adapter"]],null],[["Exact","/v1/completions/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/shared-adapter"]],null],[["Exact","/v1/chat/completions"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/shared-adapter"]],null],[["Exact","/v1/chat/completions/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/shared-adapter"]],null],[["Exact","/v1/responses"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/shared-adapter"]],null],[["Exact","/v1/responses/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/shared-adapter"]],null],[["Exact","/v1/messages"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/shared-adapter"]],null],[["Exact","/v1/messages/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/shared-adapter"]],null]],"n":"v1-model-routing","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-b/v1/completions"],[],null]],"n":"v1-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-b/v1/chat/completions"],[],null]],"n":"v1-chat-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-b/v1/responses"],[],null]],"n":"v1-responses-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-b/v1/messages"],[],null]],"n":"v1-messages-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-b"],[],null]],"n":"v1-publisher-path-catch-all","to":"echo-service"},{"m":[[["PathPrefix","/lora-budget/svc-b"],[],null]],"n":"v1-catch-all-path","to":"echo-service"},{"m":[[["PathPrefix","/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-b"]],null],[["PathPrefix","/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/shared-adapter"]],null]],"n":"v1-catch-all-model-routing","to":"echo-service"}]},{"r":"lora-budget/svc-c-kserve-route","rules":[{"m":[[["PathPrefix","/lora-budget/svc-c/v1/completions"],[],null]],"n":"v1-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-c/v1/chat/completions"],[],null]],"n":"v1-chat-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-c/v1/responses"],[],null]],"n":"v1-responses-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-c/v1/messages"],[],null]],"n":"v1-messages-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-c/v1/completions"],[],null]],"n":"v1-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-c/v1/chat/completions"],[],null]],"n":"v1-chat-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-c/v1/responses"],[],null]],"n":"v1-responses-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-c/v1/messages"],[],null]],"n":"v1-messages-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-c"],[],null]],"n":"v1-publisher-path-catch-all","to":"echo-service"},{"m":[[["PathPrefix","/lora-budget/svc-c"],[],null]],"n":"v1-catch-all-path","to":"echo-service"}]},{"r":"lora-budget/neighbour","rules":[{"m":[[["PathPrefix","/docs"],[],null]],"n":"docs","to":"echo-neighbour"},{"m":[[["PathPrefix","/"],[],null]],"n":"root","to":"echo-neighbour"}]}],"nested":[{"r":"lora-budget/svc-a-kserve-route","rules":[{"m":[[["PathPrefix","/lora-budget/svc-a/v1/completions"],[],null]],"n":"v1-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-a/v1/chat/completions"],[],null]],"n":"v1-chat-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-a/v1/responses"],[],null]],"n":"v1-responses-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-a/v1/messages"],[],null]],"n":"v1-messages-path","to":"echo-pool"},{"m":[[["Exact","/v1/completions"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/model\\-a(/.*)?"]],null],[["Exact","/v1/completions/"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/model\\-a(/.*)?"]],null],[["Exact","/v1/chat/completions"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/model\\-a(/.*)?"]],null],[["Exact","/v1/chat/completions/"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/model\\-a(/.*)?"]],null],[["Exact","/v1/responses"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/model\\-a(/.*)?"]],null],[["Exact","/v1/responses/"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/model\\-a(/.*)?"]],null],[["Exact","/v1/messages"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/model\\-a(/.*)?"]],null],[["Exact","/v1/messages/"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/model\\-a(/.*)?"]],null]],"n":"v1-model-routing","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a/v1/completions"],[],null]],"n":"v1-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a/v1/chat/completions"],[],null]],"n":"v1-chat-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a/v1/responses"],[],null]],"n":"v1-responses-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a/v1/messages"],[],null]],"n":"v1-messages-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a"],[],null]],"n":"v1-publisher-path-catch-all","to":"echo-service"},{"m":[[["PathPrefix","/lora-budget/svc-a"],[],null]],"n":"v1-catch-all-path","to":"echo-service"},{"m":[[["PathPrefix","/"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/model\\-a(/.*)?"]],null]],"n":"v1-catch-all-model-routing","to":"echo-service"}]},{"r":"lora-budget/svc-ai-kserve-route","rules":[{"m":[[["PathPrefix","/lora-budget/svc-ai/v1/completions"],[],null]],"n":"v1-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-ai/v1/chat/completions"],[],null]],"n":"v1-chat-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-ai/v1/responses"],[],null]],"n":"v1-responses-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-ai/v1/messages"],[],null]],"n":"v1-messages-path","to":"echo-pool"},{"m":[[["Exact","/v1/completions"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/model\\-a\\-instruct(/.*)?"]],null],[["Exact","/v1/completions/"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/model\\-a\\-instruct(/.*)?"]],null],[["Exact","/v1/chat/completions"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/model\\-a\\-instruct(/.*)?"]],null],[["Exact","/v1/chat/completions/"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/model\\-a\\-instruct(/.*)?"]],null],[["Exact","/v1/responses"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/model\\-a\\-instruct(/.*)?"]],null],[["Exact","/v1/responses/"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/model\\-a\\-instruct(/.*)?"]],null],[["Exact","/v1/messages"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/model\\-a\\-instruct(/.*)?"]],null],[["Exact","/v1/messages/"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/model\\-a\\-instruct(/.*)?"]],null]],"n":"v1-model-routing","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a-instruct/v1/completions"],[],null]],"n":"v1-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a-instruct/v1/chat/completions"],[],null]],"n":"v1-chat-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a-instruct/v1/responses"],[],null]],"n":"v1-responses-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a-instruct/v1/messages"],[],null]],"n":"v1-messages-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a-instruct"],[],null]],"n":"v1-publisher-path-catch-all","to":"echo-service"},{"m":[[["PathPrefix","/lora-budget/svc-ai"],[],null]],"n":"v1-catch-all-path","to":"echo-service"},{"m":[[["PathPrefix","/"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/model\\-a\\-instruct(/.*)?"]],null]],"n":"v1-catch-all-model-routing","to":"echo-service"}]},{"r":"lora-budget/svc-b-kserve-route","rules":[{"m":[[["PathPrefix","/lora-budget/svc-b/v1/completions"],[],null]],"n":"v1-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-b/v1/chat/completions"],[],null]],"n":"v1-chat-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-b/v1/responses"],[],null]],"n":"v1-responses-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-b/v1/messages"],[],null]],"n":"v1-messages-path","to":"echo-pool"},{"m":[[["Exact","/v1/completions"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/model\\-b(/.*)?"]],null],[["Exact","/v1/completions/"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/model\\-b(/.*)?"]],null],[["Exact","/v1/chat/completions"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/model\\-b(/.*)?"]],null],[["Exact","/v1/chat/completions/"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/model\\-b(/.*)?"]],null],[["Exact","/v1/responses"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/model\\-b(/.*)?"]],null],[["Exact","/v1/responses/"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/model\\-b(/.*)?"]],null],[["Exact","/v1/messages"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/model\\-b(/.*)?"]],null],[["Exact","/v1/messages/"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/model\\-b(/.*)?"]],null]],"n":"v1-model-routing","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-b/v1/completions"],[],null]],"n":"v1-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-b/v1/chat/completions"],[],null]],"n":"v1-chat-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-b/v1/responses"],[],null]],"n":"v1-responses-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-b/v1/messages"],[],null]],"n":"v1-messages-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-b"],[],null]],"n":"v1-publisher-path-catch-all","to":"echo-service"},{"m":[[["PathPrefix","/lora-budget/svc-b"],[],null]],"n":"v1-catch-all-path","to":"echo-service"},{"m":[[["PathPrefix","/"],[["x-gateway-model-name","RegularExpression","publishers/lora\\-budget/models/model\\-b(/.*)?"]],null]],"n":"v1-catch-all-model-routing","to":"echo-service"}]},{"r":"lora-budget/svc-c-kserve-route","rules":[{"m":[[["PathPrefix","/lora-budget/svc-c/v1/completions"],[],null]],"n":"v1-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-c/v1/chat/completions"],[],null]],"n":"v1-chat-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-c/v1/responses"],[],null]],"n":"v1-responses-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-c/v1/messages"],[],null]],"n":"v1-messages-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-c/v1/completions"],[],null]],"n":"v1-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-c/v1/chat/completions"],[],null]],"n":"v1-chat-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-c/v1/responses"],[],null]],"n":"v1-responses-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-c/v1/messages"],[],null]],"n":"v1-messages-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-c"],[],null]],"n":"v1-publisher-path-catch-all","to":"echo-service"},{"m":[[["PathPrefix","/lora-budget/svc-c"],[],null]],"n":"v1-catch-all-path","to":"echo-service"}]},{"r":"lora-budget/neighbour","rules":[{"m":[[["PathPrefix","/docs"],[],null]],"n":"docs","to":"echo-neighbour"},{"m":[[["PathPrefix","/"],[],null]],"n":"root","to":"echo-neighbour"}]}],"split":[{"r":"lora-budget/svc-a-kserve-route","rules":[{"m":[[["PathPrefix","/lora-budget/svc-a/v1/completions"],[],null]],"n":"v1-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-a/v1/chat/completions"],[],null]],"n":"v1-chat-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-a/v1/responses"],[],null]],"n":"v1-responses-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-a/v1/messages"],[],null]],"n":"v1-messages-path","to":"echo-pool"},{"m":[[["Exact","/v1/completions"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a"]],null],[["Exact","/v1/completions/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a"]],null],[["Exact","/v1/completions"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a1"]],null],[["Exact","/v1/completions"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a2"]],null],[["Exact","/v1/completions/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a1"]],null],[["Exact","/v1/completions/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a2"]],null]],"n":"v1-model-routing-v1-completions","to":"echo-pool"},{"m":[[["Exact","/v1/chat/completions"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a"]],null],[["Exact","/v1/chat/completions/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a"]],null],[["Exact","/v1/chat/completions"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a1"]],null],[["Exact","/v1/chat/completions"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a2"]],null],[["Exact","/v1/chat/completions/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a1"]],null],[["Exact","/v1/chat/completions/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a2"]],null]],"n":"v1-model-routing-v1-chat-completions","to":"echo-pool"},{"m":[[["Exact","/v1/responses"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a"]],null],[["Exact","/v1/responses/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a"]],null],[["Exact","/v1/responses"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a1"]],null],[["Exact","/v1/responses"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a2"]],null],[["Exact","/v1/responses/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a1"]],null],[["Exact","/v1/responses/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a2"]],null]],"n":"v1-model-routing-v1-responses","to":"echo-pool"},{"m":[[["Exact","/v1/messages"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a"]],null],[["Exact","/v1/messages/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a"]],null],[["Exact","/v1/messages"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a1"]],null],[["Exact","/v1/messages"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a2"]],null],[["Exact","/v1/messages/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a1"]],null],[["Exact","/v1/messages/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a2"]],null]],"n":"v1-model-routing-v1-messages","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a/v1/completions"],[],null]],"n":"v1-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a/v1/chat/completions"],[],null]],"n":"v1-chat-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a/v1/responses"],[],null]],"n":"v1-responses-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a/v1/messages"],[],null]],"n":"v1-messages-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a"],[],null]],"n":"v1-publisher-path-catch-all","to":"echo-service"},{"m":[[["PathPrefix","/lora-budget/svc-a"],[],null]],"n":"v1-catch-all-path","to":"echo-service"},{"m":[[["PathPrefix","/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a"]],null],[["PathPrefix","/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a1"]],null],[["PathPrefix","/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a2"]],null]],"n":"v1-catch-all-model-routing","to":"echo-service"}]},{"r":"lora-budget/svc-ai-kserve-route","rules":[{"m":[[["PathPrefix","/lora-budget/svc-ai/v1/completions"],[],null]],"n":"v1-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-ai/v1/chat/completions"],[],null]],"n":"v1-chat-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-ai/v1/responses"],[],null]],"n":"v1-responses-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-ai/v1/messages"],[],null]],"n":"v1-messages-path","to":"echo-pool"},{"m":[[["Exact","/v1/completions"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a-instruct"]],null],[["Exact","/v1/completions/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a-instruct"]],null]],"n":"v1-model-routing-v1-completions","to":"echo-pool"},{"m":[[["Exact","/v1/chat/completions"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a-instruct"]],null],[["Exact","/v1/chat/completions/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a-instruct"]],null]],"n":"v1-model-routing-v1-chat-completions","to":"echo-pool"},{"m":[[["Exact","/v1/responses"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a-instruct"]],null],[["Exact","/v1/responses/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a-instruct"]],null]],"n":"v1-model-routing-v1-responses","to":"echo-pool"},{"m":[[["Exact","/v1/messages"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a-instruct"]],null],[["Exact","/v1/messages/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a-instruct"]],null]],"n":"v1-model-routing-v1-messages","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a-instruct/v1/completions"],[],null]],"n":"v1-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a-instruct/v1/chat/completions"],[],null]],"n":"v1-chat-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a-instruct/v1/responses"],[],null]],"n":"v1-responses-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a-instruct/v1/messages"],[],null]],"n":"v1-messages-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a-instruct"],[],null]],"n":"v1-publisher-path-catch-all","to":"echo-service"},{"m":[[["PathPrefix","/lora-budget/svc-ai"],[],null]],"n":"v1-catch-all-path","to":"echo-service"},{"m":[[["PathPrefix","/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a-instruct"]],null]],"n":"v1-catch-all-model-routing","to":"echo-service"}]},{"r":"lora-budget/svc-b-kserve-route","rules":[{"m":[[["PathPrefix","/lora-budget/svc-b/v1/completions"],[],null]],"n":"v1-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-b/v1/chat/completions"],[],null]],"n":"v1-chat-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-b/v1/responses"],[],null]],"n":"v1-responses-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-b/v1/messages"],[],null]],"n":"v1-messages-path","to":"echo-pool"},{"m":[[["Exact","/v1/completions"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-b"]],null],[["Exact","/v1/completions/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-b"]],null],[["Exact","/v1/completions"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/shared-adapter"]],null],[["Exact","/v1/completions/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/shared-adapter"]],null]],"n":"v1-model-routing-v1-completions","to":"echo-pool"},{"m":[[["Exact","/v1/chat/completions"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-b"]],null],[["Exact","/v1/chat/completions/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-b"]],null],[["Exact","/v1/chat/completions"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/shared-adapter"]],null],[["Exact","/v1/chat/completions/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/shared-adapter"]],null]],"n":"v1-model-routing-v1-chat-completions","to":"echo-pool"},{"m":[[["Exact","/v1/responses"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-b"]],null],[["Exact","/v1/responses/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-b"]],null],[["Exact","/v1/responses"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/shared-adapter"]],null],[["Exact","/v1/responses/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/shared-adapter"]],null]],"n":"v1-model-routing-v1-responses","to":"echo-pool"},{"m":[[["Exact","/v1/messages"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-b"]],null],[["Exact","/v1/messages/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-b"]],null],[["Exact","/v1/messages"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/shared-adapter"]],null],[["Exact","/v1/messages/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/shared-adapter"]],null]],"n":"v1-model-routing-v1-messages","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-b/v1/completions"],[],null]],"n":"v1-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-b/v1/chat/completions"],[],null]],"n":"v1-chat-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-b/v1/responses"],[],null]],"n":"v1-responses-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-b/v1/messages"],[],null]],"n":"v1-messages-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-b"],[],null]],"n":"v1-publisher-path-catch-all","to":"echo-service"},{"m":[[["PathPrefix","/lora-budget/svc-b"],[],null]],"n":"v1-catch-all-path","to":"echo-service"},{"m":[[["PathPrefix","/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-b"]],null],[["PathPrefix","/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/shared-adapter"]],null]],"n":"v1-catch-all-model-routing","to":"echo-service"}]},{"r":"lora-budget/svc-c-kserve-route","rules":[{"m":[[["PathPrefix","/lora-budget/svc-c/v1/completions"],[],null]],"n":"v1-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-c/v1/chat/completions"],[],null]],"n":"v1-chat-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-c/v1/responses"],[],null]],"n":"v1-responses-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-c/v1/messages"],[],null]],"n":"v1-messages-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-c/v1/completions"],[],null]],"n":"v1-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-c/v1/chat/completions"],[],null]],"n":"v1-chat-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-c/v1/responses"],[],null]],"n":"v1-responses-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-c/v1/messages"],[],null]],"n":"v1-messages-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-c"],[],null]],"n":"v1-publisher-path-catch-all","to":"echo-service"},{"m":[[["PathPrefix","/lora-budget/svc-c"],[],null]],"n":"v1-catch-all-path","to":"echo-service"}]},{"r":"lora-budget/neighbour","rules":[{"m":[[["PathPrefix","/docs"],[],null]],"n":"docs","to":"echo-neighbour"},{"m":[[["PathPrefix","/"],[],null]],"n":"root","to":"echo-neighbour"}]}],"split-noslash":[{"r":"lora-budget/svc-a-kserve-route","rules":[{"m":[[["PathPrefix","/lora-budget/svc-a/v1/completions"],[],null]],"n":"v1-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-a/v1/chat/completions"],[],null]],"n":"v1-chat-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-a/v1/responses"],[],null]],"n":"v1-responses-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-a/v1/messages"],[],null]],"n":"v1-messages-path","to":"echo-pool"},{"m":[[["Exact","/v1/completions"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a"]],null],[["Exact","/v1/completions"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a1"]],null],[["Exact","/v1/completions"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a2"]],null]],"n":"v1-model-routing-v1-completions","to":"echo-pool"},{"m":[[["Exact","/v1/chat/completions"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a"]],null],[["Exact","/v1/chat/completions"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a1"]],null],[["Exact","/v1/chat/completions"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a2"]],null]],"n":"v1-model-routing-v1-chat-completions","to":"echo-pool"},{"m":[[["Exact","/v1/responses"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a"]],null],[["Exact","/v1/responses"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a1"]],null],[["Exact","/v1/responses"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a2"]],null]],"n":"v1-model-routing-v1-responses","to":"echo-pool"},{"m":[[["Exact","/v1/messages"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a"]],null],[["Exact","/v1/messages"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a1"]],null],[["Exact","/v1/messages"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a2"]],null]],"n":"v1-model-routing-v1-messages","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a/v1/completions"],[],null]],"n":"v1-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a/v1/chat/completions"],[],null]],"n":"v1-chat-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a/v1/responses"],[],null]],"n":"v1-responses-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a/v1/messages"],[],null]],"n":"v1-messages-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a"],[],null]],"n":"v1-publisher-path-catch-all","to":"echo-service"},{"m":[[["PathPrefix","/lora-budget/svc-a"],[],null]],"n":"v1-catch-all-path","to":"echo-service"},{"m":[[["PathPrefix","/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a"]],null],[["PathPrefix","/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a1"]],null],[["PathPrefix","/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/adapter-a2"]],null]],"n":"v1-catch-all-model-routing","to":"echo-service"}]},{"r":"lora-budget/svc-ai-kserve-route","rules":[{"m":[[["PathPrefix","/lora-budget/svc-ai/v1/completions"],[],null]],"n":"v1-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-ai/v1/chat/completions"],[],null]],"n":"v1-chat-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-ai/v1/responses"],[],null]],"n":"v1-responses-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-ai/v1/messages"],[],null]],"n":"v1-messages-path","to":"echo-pool"},{"m":[[["Exact","/v1/completions"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a-instruct"]],null]],"n":"v1-model-routing-v1-completions","to":"echo-pool"},{"m":[[["Exact","/v1/chat/completions"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a-instruct"]],null]],"n":"v1-model-routing-v1-chat-completions","to":"echo-pool"},{"m":[[["Exact","/v1/responses"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a-instruct"]],null]],"n":"v1-model-routing-v1-responses","to":"echo-pool"},{"m":[[["Exact","/v1/messages"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a-instruct"]],null]],"n":"v1-model-routing-v1-messages","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a-instruct/v1/completions"],[],null]],"n":"v1-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a-instruct/v1/chat/completions"],[],null]],"n":"v1-chat-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a-instruct/v1/responses"],[],null]],"n":"v1-responses-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a-instruct/v1/messages"],[],null]],"n":"v1-messages-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-a-instruct"],[],null]],"n":"v1-publisher-path-catch-all","to":"echo-service"},{"m":[[["PathPrefix","/lora-budget/svc-ai"],[],null]],"n":"v1-catch-all-path","to":"echo-service"},{"m":[[["PathPrefix","/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-a-instruct"]],null]],"n":"v1-catch-all-model-routing","to":"echo-service"}]},{"r":"lora-budget/svc-b-kserve-route","rules":[{"m":[[["PathPrefix","/lora-budget/svc-b/v1/completions"],[],null]],"n":"v1-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-b/v1/chat/completions"],[],null]],"n":"v1-chat-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-b/v1/responses"],[],null]],"n":"v1-responses-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-b/v1/messages"],[],null]],"n":"v1-messages-path","to":"echo-pool"},{"m":[[["Exact","/v1/completions"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-b"]],null],[["Exact","/v1/completions"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/shared-adapter"]],null]],"n":"v1-model-routing-v1-completions","to":"echo-pool"},{"m":[[["Exact","/v1/chat/completions"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-b"]],null],[["Exact","/v1/chat/completions"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/shared-adapter"]],null]],"n":"v1-model-routing-v1-chat-completions","to":"echo-pool"},{"m":[[["Exact","/v1/responses"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-b"]],null],[["Exact","/v1/responses"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/shared-adapter"]],null]],"n":"v1-model-routing-v1-responses","to":"echo-pool"},{"m":[[["Exact","/v1/messages"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-b"]],null],[["Exact","/v1/messages"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/shared-adapter"]],null]],"n":"v1-model-routing-v1-messages","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-b/v1/completions"],[],null]],"n":"v1-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-b/v1/chat/completions"],[],null]],"n":"v1-chat-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-b/v1/responses"],[],null]],"n":"v1-responses-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-b/v1/messages"],[],null]],"n":"v1-messages-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-b"],[],null]],"n":"v1-publisher-path-catch-all","to":"echo-service"},{"m":[[["PathPrefix","/lora-budget/svc-b"],[],null]],"n":"v1-catch-all-path","to":"echo-service"},{"m":[[["PathPrefix","/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/model-b"]],null],[["PathPrefix","/"],[["x-gateway-model-name","Exact","publishers/lora-budget/models/shared-adapter"]],null]],"n":"v1-catch-all-model-routing","to":"echo-service"}]},{"r":"lora-budget/svc-c-kserve-route","rules":[{"m":[[["PathPrefix","/lora-budget/svc-c/v1/completions"],[],null]],"n":"v1-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-c/v1/chat/completions"],[],null]],"n":"v1-chat-completions-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-c/v1/responses"],[],null]],"n":"v1-responses-path","to":"echo-pool"},{"m":[[["PathPrefix","/lora-budget/svc-c/v1/messages"],[],null]],"n":"v1-messages-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-c/v1/completions"],[],null]],"n":"v1-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-c/v1/chat/completions"],[],null]],"n":"v1-chat-completions-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-c/v1/responses"],[],null]],"n":"v1-responses-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-c/v1/messages"],[],null]],"n":"v1-messages-publisher-path","to":"echo-pool"},{"m":[[["PathPrefix","/publishers/lora-budget/models/model-c"],[],null]],"n":"v1-publisher-path-catch-all","to":"echo-service"},{"m":[[["PathPrefix","/lora-budget/svc-c"],[],null]],"n":"v1-catch-all-path","to":"echo-service"}]},{"r":"lora-budget/neighbour","rules":[{"m":[[["PathPrefix","/docs"],[],null]],"n":"docs","to":"echo-neighbour"},{"m":[[["PathPrefix","/"],[],null]],"n":"root","to":"echo-neighbour"}]}]};
+(function () {
+  var ROUTES = window.SIM_ROUTES, gw = window.SIM.gw;
+  if (!ROUTES || !gw) return;
+
+  var Q = "publishers/lora-budget/models/";
+  var MAIN = "lora-budget/svc-a-kserve-route";
+  var DEST = {
+    "echo-pool":      ["InferencePool", "pool", "through the endpoint picker"],
+    "echo-service":   ["workload Service", "svc", "straight to vLLM, no scheduler"],
+    "echo-neighbour": ["falls through", "nbr", "no rule in this route matched, so another route on the gateway answered"],
+  };
+  var WHY = {
+    "path": "path", "method": "method", "header-value": "header value", "header-absent": "no header",
+  };
+  var PRESETS = [
+    ["the shared endpoint", "POST", "/v1/chat/completions", Q + "adapter-a1"],
+    ["same, no header", "POST", "/v1/chat/completions", ""],
+    ["trailing slash", "POST", "/v1/completions/", Q + "model-a"],
+    ["health, with a header", "GET", "/health", Q + "model-a"],
+    ["publisher path", "POST", "/publishers/lora-budget/models/model-a/v1/chat/completions", ""],
+    ["a nested adapter name", "POST", "/v1/chat/completions", Q + "model-a/adapters/sql-generation"],
+    ["a neighbour's model", "POST", "/v1/chat/completions", Q + "model-a-instruct"],
+    ["an adapter that does not exist", "POST", "/v1/chat/completions", Q + "adapter-a9"],
+  ];
+
+  var shape = "current", timers = [];
+  var $ = function (id) { return document.getElementById(id); };
+  var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  var pres = $("simPresets");
+  PRESETS.forEach(function (p) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.textContent = p[0];
+    b.addEventListener("click", function () {
+      $("simMethod").value = p[1]; $("simPath").value = p[2]; $("simHdr").value = p[3];
+      run();
+    });
+    pres.appendChild(b);
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll(".sim-shapes .sh"), function (b) {
+    b.addEventListener("click", function () {
+      shape = b.dataset.sh;
+      Array.prototype.forEach.call(document.querySelectorAll(".sim-shapes .sh"), function (o) {
+        var on = o === b;
+        o.classList.toggle("on", on);
+        o.setAttribute("aria-pressed", on ? "true" : "false");
+      });
+      run();
+    });
+  });
+  ["simMethod", "simPath", "simHdr"].forEach(function (id) {
+    $(id).addEventListener("input", run);
+    $(id).addEventListener("change", run);
+  });
+
+  function esc(s) {
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  function describe(m) {
+    var bits = [];
+    if (m[0]) bits.push(m[0][0] + " " + m[0][1]);
+    m[1].forEach(function (h) { bits.push(h[0] + " " + h[1] + "=" + h[2]); });
+    if (m[2]) bits.push("method " + m[2]);
+    return bits.join("  |  ");
+  }
+
+  function run() {
+    timers.forEach(clearTimeout); timers = [];
+    var routes = ROUTES[shape];
+    var req = {
+      method: $("simMethod").value,
+      path: $("simPath").value || "/",
+      headers: { "x-gateway-model-name": $("simHdr").value },
+    };
+    var res = gw.evaluate(routes, req);
+    var win = res.winner;
+
+    // rules of the service this report is about; other routes are summarised beside it
+    var mine = res.trace.filter(function (t) { return t.routeKey === MAIN; });
+    var host = $("simRules");
+    host.innerHTML = mine.map(function (t) {
+      var verdict = t.hit
+        ? "match " + (t.matchIdx + 1) + " of " + t.matches
+        : "no " + (WHY[t.why] || "match");
+      return '<div class="rr" data-i="' + t.ruleIdx + '">'
+           + '<span class="ri">' + t.ruleIdx + "</span>"
+           + '<span class="rn">' + esc(t.ruleName || "(unnamed)") + "</span>"
+           + '<span class="rv">' + verdict + "</span></div>";
+    }).join("");
+
+    var rows = host.querySelectorAll(".rr");
+    function settle(i) {
+      var t = mine[i], el = rows[i];
+      el.classList.add("done", t.hit ? "hit" : "miss");
+      if (win && win.routeKey === MAIN && win.ruleIdx === t.ruleIdx) el.classList.add("win");
+    }
+    if (reduce) {
+      for (var i = 0; i < rows.length; i++) settle(i);
+      reveal();
+    } else {
+      for (var j = 0; j < rows.length; j++) {
+        (function (k) { timers.push(setTimeout(function () { settle(k); }, 40 * k)); })(j);
+      }
+      timers.push(setTimeout(reveal, 40 * rows.length + 80));
+    }
+
+    function reveal() {
+      var d = $("simDest");
+      var info = win ? DEST[win.dest] : ["nothing matched", "nbr", "no route on the gateway claimed this request"];
+      d.className = "sim-dest " + info[1];
+      d.innerHTML = '<span class="dl">lands on</span><span class="dv">' + info[0] + "</span>"
+                  + '<span class="dh">' + info[2] + "</span>";
+
+      var why = $("simWhy");
+      if (!win) {
+        why.innerHTML = "";
+      } else {
+        var tier = ["PathPrefix", "RegularExpression", "Exact"][win.tier] || "any path";
+        why.innerHTML = "<b>" + esc(win.ruleName) + "</b> won on <b>" + tier + "</b>, "
+          + win.chars + " matching characters, " + win.headers
+          + (win.headers === 1 ? " header match" : " header matches")
+          + (win.routeKey === MAIN ? "" : ", on <b>" + esc(win.routeKey) + "</b>")
+          + ".<br><code>" + esc(describe(win.match)) + "</code>";
+      }
+
+      var others = res.trace.filter(function (t) { return t.routeKey !== MAIN && t.hit; });
+      $("simOthers").innerHTML = others.length
+        ? '<span class="o">matched on other routes:</span>' + others.map(function (t) {
+            var isWin = win && win.routeKey === t.routeKey && win.ruleIdx === t.ruleIdx;
+            return '<span class="o">&nbsp;&nbsp;' + esc(t.routeKey) + " &middot; " + esc(t.ruleName)
+                 + (isWin ? "  &larr; won" : "") + "</span>";
+          }).join("")
+        : "";
+
+      var hits = res.trace.filter(function (t) { return t.hit; }).length;
+      $("simNote").textContent = hits + (hits === 1 ? " rule matched" : " rules matched")
+        + " across " + routes.length + " routes on this gateway; the most specific one wins.";
+    }
+  }
+
+  $("simRouteName").textContent = MAIN;
+  run();
+})();
+
+</script>
 
 <section>
   <h2>Trade-offs, exactly</h2>

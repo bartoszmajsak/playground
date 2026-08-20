@@ -219,6 +219,11 @@ def collapse_rule(rule):
 
 
 def transform(shape, rule):
+    if shape == "baseline":
+        # No-op. Exists so the request simulator can extract today's rules through
+        # the same backend-swapping path as every candidate, instead of reimplementing
+        # swap() against golden/route-current.yaml.
+        return [rule]
     if shape == "split":
         return split_rule(rule, drop_slashes=False)
     if shape == "split-noslash":
