@@ -4003,13 +4003,24 @@ if baseOk &amp;&amp; configOk {
     <table>
       <thead><tr><th>what</th><th>our action</th></tr></thead>
       <tbody>
-        <tr>
+        <tr class="is-current">
           <td class="name"><a href="https://github.com/bartoszmajsak/work-items/issues/285">#285</a> <code>mergeHTTPRoutes</code> map aliased instead of copied</td>
-          <td>Report upstream with the reproducer. Establish which Istio versions RHOAI ships and whether they carry the path.</td>
+          <td>Traced. The <code>Extra</code> merge was added by
+            <a href="https://github.com/istio/istio/pull/58393">istio#58393</a> (<code>1cbc5c7fca</code>, first in 1.29.0,
+            backported to 1.28.5 as <a href="https://github.com/istio/istio/pull/59303">istio#59303</a>) to fix
+            <a href="https://github.com/istio/istio/issues/58392">istio#58392</a>. That PR hit this race in CI and says so
+            in its own commit message, then deep-copied <code>configs[0]</code>'s map only. The fallback branch that takes a
+            later config's map by reference is still aliasing on <code>origin/master</code>. Report it as an
+            <strong>incomplete fix</strong>, with <code>hack/istio-merge-race/</code>.</td>
         </tr>
         <tr>
           <td class="name"><a href="https://github.com/bartoszmajsak/work-items/issues/283">#283</a> Istio below 1.29 never invokes the endpoint picker</td>
-          <td>Establish a version floor and check it against what RHOAI ships.</td>
+          <td>Partly traced, and <strong>not</strong> by istio#58393 - on 1.28.1 that path still preserves
+            <code>configs[0]</code>'s ext_proc config, and this spike measured <em>zero</em> across every route config with
+            all four fixture routes carrying an InferencePool. The cause is still unknown. What the search does give is a
+            citable floor for a different reason: <strong>1.28.5 / 1.29.0</strong> are the first releases where several
+            InferencePools on one Gateway keep their ext_proc config at all, which is this epic's deployment shape. Check
+            that against what RHOAI ships.</td>
         </tr>
       </tbody>
     </table>

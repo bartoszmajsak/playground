@@ -193,6 +193,89 @@ endpoint** instead of round-robin. 1.29 not bisected.
 Nothing reports a problem in either version - pods Ready, routes `Accepted`,
 pools `ResolvedRefs=True`. With a single replica it is invisible.
 
+### Upstream trace, and what it did and did not explain
+
+Searched istio/istio git history across branches and tags, `gh` issues and PRs,
+and release notes for 1.28.1 through 1.30.3.
+
+**Found, and it matters - but for a different finding.** There is a documented
+merge bug in the same function this spike's `#285` is about:
+
+| | |
+|---|---|
+| [istio#58392] | multiple InferencePools on one Gateway: ext_proc lost for all but the first |
+| [istio#58393] | the fix, `1cbc5c7fca`, `mergeHTTPRoutes()` merges the `Extra` field |
+| first release | **1.29.0**, backported to **1.28.5** as [istio#59303] (`00542863b2`) |
+| earlier attempt | [istio#58004] / [istio#58005], merged Oct 22 2025 and reverted the next day, so never in a release |
+
+Release note: *"Fixed an issue where InferencePool configurations were lost during
+VirtualService merging when multiple HTTPRoutes referencing different
+InferencePools were attached to the same Gateway."*
+
+**This is where `#285` comes from.** #58393's own commit message says:
+
+> The `Config.DeepCopy()` method only performs a shallow copy of the `Extra`
+> field. When merging multiple VirtualServices with InferencePool configs, this
+> caused race conditions as multiple goroutines could modify the same underlying
+> map.
+
+`pkg/config/model.go` confirms it - `clone.Extra = maps.Clone(c.Extra)`, with the
+comment "effectively a shallow clone, but this is fine as it is not manipulated",
+which stopped being true the moment #58393 started manipulating it. The deep copy
+that PR added covers `configs[0]`'s map only. The fallback branch that stores a
+*later* config's map by reference was left aliasing, and it is still there on
+`origin/master`. So `#285` is an **incomplete fix, not a new class of bug** -
+which is a much easier upstream report to land, and `hack/istio-merge-race/`
+carries the citation now.
+
+**Not found: an explanation for this section.** #58393 does not account for what
+was measured here, and the 1.28.1 source says why:
+
+```go
+if len(configs) == 1 {
+    return ptr.Of(&config.Config{ ..., Extra: base.Extra })   // preserved
+}
+sortRoutesByCreationTime(configs)
+base := configs[0].DeepCopy()                                 // Extra shallow-cloned, so kept
+```
+
+One route: `Extra` survives. Several routes: `configs[0]`'s `Extra` still
+survives, and only *later* configs are dropped. Either way **at least one** route
+keeps its ext_proc config. This section measured **zero** across every listener
+and route config, and all four fixture routes carry an `InferencePool`
+backendRef, so none of them is a pool-less oldest config that would explain it.
+
+Whatever caused this is still untraced. `pilot/pkg/networking/core/route/route.go`
+(the `TypedPerFilterConfig` construction) and the listener-level `"dummy"`
+ext_proc placeholder in `pilot/pkg/xds/filters/filters.go` are both unchanged from
+the original GIE merge (`7021701db2`, already in 1.28.1) through 1.30.3, so the
+fix is not there either. Candidates checked and ruled out: istio#57855,
+istio#58068, istio#58238, istio#57041.
+
+**The round-robin symptom has no upstream ticket.** `applyOverrideHostPolicy` in
+`cluster_builder.go` is unchanged since 1.28.1. istio#59538 touches that area but
+adds a *new* `x-gateway-destination-endpoint-served` reporting key (1.30.0 only,
+not backported). Best reading is that round-robin is downstream of ext_proc never
+running - if the filter never fires, nothing writes the `envoy.lb` metadata that
+`override_host` reads - but that is inference, not a citation.
+
+**What this changes for `#283`.** The version floor is better supported than
+before, just for a different reason: 1.28.5 and 1.29.0 are the first releases in
+which multiple InferencePools on one Gateway keep their ext_proc config at all,
+which is the deployment shape this epic targets. That is a citable floor. The
+floor implied by *this* section is still measured-only.
+
+[istio#57041]: https://github.com/istio/istio/pull/57041
+[istio#57855]: https://github.com/istio/istio/issues/57855
+[istio#58004]: https://github.com/istio/istio/issues/58004
+[istio#58005]: https://github.com/istio/istio/pull/58005
+[istio#58068]: https://github.com/istio/istio/pull/58068
+[istio#58238]: https://github.com/istio/istio/pull/58238
+[istio#58392]: https://github.com/istio/istio/issues/58392
+[istio#58393]: https://github.com/istio/istio/pull/58393
+[istio#59303]: https://github.com/istio/istio/pull/59303
+[istio#59538]: https://github.com/istio/istio/pull/59538
+
 ## 7. Identical rule names cross-wire the EPP across services
 
 This is the most consequential finding, and it lands squarely on this spike's
@@ -1837,8 +1920,8 @@ Plus one that is ours but lives in `odh-model-controller`:
 
 | what | our action |
 |---|---|
-| [#285] `mergeHTTPRoutes` aliases a map instead of copying it | report upstream with the reproducer in `hack/istio-merge-race/`; establish which Istio versions RHOAI ships |
-| [#283] Istio below 1.29 never invokes the endpoint picker | establish a version floor, check against what RHOAI ships |
+| [#285] `mergeHTTPRoutes` aliases a map instead of copying it | traced (section 6): introduced by [istio#58393], which deep-copied `configs[0]`'s map only and left the fallback branch aliasing - still on `origin/master`. Report as an incomplete fix, with `hack/istio-merge-race/` |
+| [#283] Istio below 1.29 never invokes the endpoint picker | cause still unknown: istio#58393 does **not** explain it (section 6). But **1.28.5 / 1.29.0** is a citable floor for a different reason - first releases where several InferencePools on one Gateway keep ext_proc at all. Check against what RHOAI ships |
 
 **Both are orthogonal to the shape question.** #285's trigger is several HTTPRoutes
 merging on one gateway where the oldest has no InferencePool and two or more later

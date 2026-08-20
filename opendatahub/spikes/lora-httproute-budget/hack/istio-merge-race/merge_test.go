@@ -1,6 +1,22 @@
 // Minimal reproducer for the data race in istio's mergeHTTPRoutes.
 //
-// pilot/pkg/config/kube/gateway/route_collections.go, istio 1.30.3.
+// pilot/pkg/config/kube/gateway/route_collections.go, istio 1.30.3, and still
+// present on origin/master as of this writing.
+//
+// Provenance: the merge of Extra was added by istio#58393 (1cbc5c7fca, first in
+// 1.29.0, backported to 1.28.5 as istio#59303) to fix istio#58392, where all but
+// the first InferencePool lost its ext_proc config. That PR already hit this race
+// in CI and says so in its own commit message:
+//
+//   "The Config.DeepCopy() method only performs a shallow copy of the Extra
+//    field. When merging multiple VirtualServices with InferencePool configs,
+//    this caused race conditions as multiple goroutines could modify the same
+//    underlying map."
+//
+// The deep copy it added covers configs[0]'s map only. The fallback branch below
+// stores a LATER config's map by reference, and the next iteration writes through
+// it. So this is an incomplete fix, not a new class of bug - which is the useful
+// framing for the upstream report.
 //
 // merge() below is a faithful reduction of lines 825-880: same defensive copy of
 // the base map, same merge loop, same fallback branch. Everything unrelated to
