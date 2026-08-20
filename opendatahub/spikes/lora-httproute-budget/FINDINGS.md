@@ -1825,6 +1825,13 @@ every option.
 | [#284] collision event names the wrong object | fires correctly, points at the base model rather than the colliding adapter | p3 |
 | [#280] MaxAdapters default never applied | status advertises a limit the controller does not enforce | p3 |
 | `isModelBasedRoutingMatch` ignores match type | a `RegularExpression` model-routing match is expanded per adapter anyway; blocks adopting `alternation` by configuration (section 19) | p3 |
+| adapters have no publisher path | `expandLoRAAdapterMatches` duplicates header matches only; publisher-path rules are templated from `.Spec.Model.Name`. An adapter is reachable but has no path to authorize, which is half of why per-adapter RBAC cannot be enforced (section 29) | p2 |
+
+Plus one that is ours but lives in `odh-model-controller`:
+
+| what | why it matters | pri |
+|---|---|---|
+| nothing authorizes the body `model` | every rule in the AuthPolicy decides on `request.path`; vLLM applies the adapter named in the body. Measured: authorized on `model-a`, served by `adapter-a2`, 200. Bounded to one InferencePool, absent from that template's known-limitations list, and the BBR follow-up closes it only if what gets authorized is the name read out of the body (section 29) | p2 |
 
 ### 2. Upstream, ours to pin and report
 
@@ -1874,6 +1881,117 @@ blocking either.
 [#285]: https://github.com/bartoszmajsak/work-items/issues/285
 
 ---
+
+## 29. The gateway authorizes the path, vLLM serves the body
+
+Section 23 established that the model name does two jobs: the body tells vLLM
+which adapter, the header tells the gateway which vLLM. That was framed as "each
+did its own job". It is also an authorization gap, and this section measures it.
+
+### Where the authorization decision comes from
+
+`odh-model-controller` renders a Kuadrant `AuthPolicy` per LLMInferenceService
+(`internal/controller/resources/template/authpolicy_llm_isvc_userdefined.yaml`,
+attached by `kserve_authpolicy_reconciler.go:85` with `Kind: "HTTPRoute"` and
+**no** `sectionName`, so it covers the whole route). Every authorization rule in
+it derives its `SubjectAccessReview` from `context.request.http.path`:
+
+```
+model-access-path   serving.opendatahub.io/models   verb post
+  name = 'publishers/' + path.split('/')[2] + '/models/'
+       + path.split('/models/')[1].split('/v1/')[0]
+
+inference-access    serving.kserve.io/llminferenceservices   verb get
+  namespace = path.split('/')[1]   name = path.split('/')[2]
+```
+
+Nothing in the policy reads the request body. Authorino is evaluating CEL over
+request attributes and the body is not one of them.
+
+### Measured
+
+`./probe-authz-split.sh` -> `golden/authz-split.tsv`. Live fixture, istio, real
+vLLM with `adapter-a1` and `adapter-a2` loaded.
+
+| path | body `model` | SAR the policy would run | code | served |
+|---|---|---|---|---|
+| `…/models/model-a/v1/…` | `…/model-a` | `models: …/model-a` | 200 | `model-a` |
+| `…/models/model-a/v1/…` | `…/adapter-a1` | `models: …/model-a` | 200 | **adapter-a1** |
+| `…/models/model-a/v1/…` | `…/adapter-a2` | `models: …/model-a` | 200 | **adapter-a2** |
+| `…/models/model-a/v1/…` | `adapter-a2` (bare) | `models: …/model-a` | 200 | **adapter-a2** |
+| `/{ns}/svc-a/v1/…` | `…/adapter-a2` | `llminferenceservices: svc-a` | 200 | **adapter-a2** |
+| `…/models/model-a/v1/…` | `…/model-b` | `models: …/model-a` | 404 | not loaded here |
+| `…/models/model-a/v1/…` | `…/shared-adapter` | `models: …/model-a` | 404 | not loaded here |
+| `…/models/**adapter-a1**/v1/…` | `…/adapter-a1` | `models: …/adapter-a1` | - | **no kserve route at all** |
+
+The last row is the important one. It did not 404 - it fell through to
+`echo-neighbour`, the fixture's catch-all, which means no kserve rule matched.
+
+### Why an adapter has no path
+
+`expandLoRAAdapterMatches` (`config_merge.go:610`) duplicates matches only where
+`isModelBasedRoutingMatch` is true, i.e. **header** matches. Its own comment says
+so: "path-only rules and rules with unrelated headers are left untouched". The
+publisher-path rules are templated from `.Spec.Model.Name`
+(`config/llmisvcconfig/config-llm-router-route.yaml:207`), which is the base
+model. So adapters exist on the header axis and nowhere else - and ODH's
+`deny-misrouted-model-header` refuses the header axis outright (section 24).
+
+Net effect: **an adapter can be reached, but never authorized as itself.** Anyone
+holding `post` on `publishers/{ns}/models/model-a` reaches every adapter loaded
+on that server by naming it in the body, and there is no narrower grant to give
+them instead.
+
+### What bounds it
+
+The body only reaches what the selected server has loaded. `model-b` and
+`shared-adapter` both 404 from `svc-a`, so the blast radius is one InferencePool,
+not the cluster. A model routing header naming another tenant does not redirect a
+publisher path either - Gateway API ranks the longer path prefix above the header
+match, measured both ways (rows 11-12 of the golden file).
+
+### This is not a hole ODH has already closed
+
+Two related ones are closed and tested:
+
+- `deny-misrouted-model-header` - path and **header** disagree -> immediate 403,
+  no API round trip. Covered by `TestPerParticipantPathWithHeaderDenied`,
+  `TestV1PathWithModelHeaderDenied`, `TestV1PathWithCrossTenantHeaderDenied`.
+- forged `x-maas-user` -> the delegate rule fires alongside the base rule and the
+  caller needs `post-delegate`. Covered by
+  `TestSpoofedModelAccessCallerLacksDelegate`.
+
+Path versus **body** is the third pair and it is absent from that template's
+"Known limitations" section, and from the e2e suite - no test in
+`publisher_path_authpolicy_test.go` sends a body model that disagrees with the
+path.
+
+### BBR does not fix it by itself
+
+The stated plan (`PUBLISHER-PATH-AUTH.md:96-98`) is BBR plus a `resolvedPath`
+override so `/v1/…` plus a header can be authorized rather than denied. That
+closes the header axis. It closes this one **only** if the name being authorized
+is the one BBR read out of the body - the same field vLLM acts on. Authorize the
+path and rewrite the header and the gap survives unchanged.
+
+### The one place it touches the shape decision
+
+Shape-independent: `current`, `split`, `alternation` and `collapse` all leave the
+body unread. `nested` is the exception, and not because it fixes anything. It is
+the only shape that gives the policy an adapter-scoped name to authorize: the
+existing CEL takes everything between `/models/` and the first `/v1/` and already
+supports multi-segment names (`TestPublisherPathMultiSegmentModelName`), so
+`/publishers/{ns}/models/{base}/adapters/{adapter}/v1/…` yields
+`publishers/{ns}/models/{base}/adapters/{adapter}` as the SAR resource with **no
+policy change**. That makes per-adapter RBAC expressible for the first time.
+Comparing it against the body is still separate work.
+
+### Measured versus read
+
+Routing and serving are measured. The SAR column is **not** - Kuadrant is not
+installed in the spike cluster. It is the template's CEL evaluated against each
+path, cross-checked against that template's own request-flow table. Nobody should
+act on the SAR column without running it against a real Authorino.
 
 ## Method notes
 

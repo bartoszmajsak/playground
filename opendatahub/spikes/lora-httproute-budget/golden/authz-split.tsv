@@ -1,0 +1,12 @@
+/publishers/lora-budget/models/model-a/v1/chat/completions	-	publishers/lora-budget/models/model-a	models:publishers/lora-budget/models/model-a	200	model-a
+/publishers/lora-budget/models/model-a/v1/chat/completions	-	publishers/lora-budget/models/adapter-a1	models:publishers/lora-budget/models/model-a	200	publishers/lora-budget/models/adapter-a1
+/publishers/lora-budget/models/model-a/v1/chat/completions	-	publishers/lora-budget/models/adapter-a2	models:publishers/lora-budget/models/model-a	200	publishers/lora-budget/models/adapter-a2
+/publishers/lora-budget/models/model-a/v1/chat/completions	-	adapter-a2	models:publishers/lora-budget/models/model-a	200	adapter-a2
+/publishers/lora-budget/models/model-a/v1/chat/completions	-	publishers/lora-budget/models/model-b	models:publishers/lora-budget/models/model-a	404	The model `publishers/lora-budget/models/model-b` does not e
+/publishers/lora-budget/models/model-a/v1/chat/completions	-	publishers/lora-budget/models/shared-adapter	models:publishers/lora-budget/models/model-a	404	The model `publishers/lora-budget/models/shared-adapter` doe
+/publishers/lora-budget/models/adapter-a1/v1/chat/completions	-	publishers/lora-budget/models/adapter-a1	models:publishers/lora-budget/models/adapter-a1	200	NO KSERVE ROUTE (fell through to echo-neighbour)
+/lora-budget/svc-a/v1/chat/completions	-	publishers/lora-budget/models/adapter-a2	llminferenceservices:svc-a	200	publishers/lora-budget/models/adapter-a2
+/v1/chat/completions	publishers/lora-budget/models/model-a	publishers/lora-budget/models/adapter-a2	DENIED by deny-misrouted-model-header	200	publishers/lora-budget/models/adapter-a2
+/v1/chat/completions	publishers/lora-budget/models/adapter-a1	publishers/lora-budget/models/model-a	DENIED by deny-misrouted-model-header	200	model-a
+/publishers/lora-budget/models/model-a/v1/chat/completions	publishers/lora-budget/models/model-b	publishers/lora-budget/models/adapter-a1	models:publishers/lora-budget/models/model-a	200	publishers/lora-budget/models/adapter-a1
+/publishers/lora-budget/models/model-a/v1/chat/completions	publishers/lora-budget/models/model-b	publishers/lora-budget/models/model-b	models:publishers/lora-budget/models/model-a	404	The model `publishers/lora-budget/models/model-b` does not e

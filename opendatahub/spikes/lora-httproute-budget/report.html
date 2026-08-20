@@ -2577,6 +2577,227 @@ then:
 
 
 <section>
+  <h2>The gateway authorizes a name it never serves</h2>
+  <p class="sub">
+    Every authorization rule in that policy derives its
+    <code>SubjectAccessReview</code> from <code>request.path</code>. vLLM picks the adapter
+    from <code>body.model</code>. On a service with LoRA adapters those are different
+    models, and nothing in the path compares them.
+  </p>
+
+  <figure class="fig">
+    <div class="figbox">
+    <svg viewBox="0 0 820 284" role="img" preserveAspectRatio="xMidYMid meet"
+         aria-label="One request carries two model names. The AuthPolicy reads only the path and runs a SubjectAccessReview on the base model. The HTTPRoute also matches on the path, and forwards to vLLM, which reads only the body and applies the adapter named there. The authorized name and the served name are different, and no component compares them.">
+      <defs>
+        <marker id="ba1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+
+      <!-- the request -->
+      <rect x="0" y="80" width="184" height="120" rx="8" fill="var(--kind-dim)" stroke="var(--kind)" stroke-width="1.6"/>
+      <text x="14" y="102" font-size="10.5" font-weight="700" fill="currentColor">one request</text>
+      <text x="14" y="124" font-size="8.5" font-family="ui-monospace, monospace" fill="currentColor" opacity=".55" letter-spacing=".06em">PATH</text>
+      <text x="14" y="137" font-size="8.5" font-family="ui-monospace, monospace" fill="currentColor">&hellip;/models/model-a/v1/&hellip;</text>
+      <text x="14" y="163" font-size="8.5" font-family="ui-monospace, monospace" fill="currentColor" opacity=".55" letter-spacing=".06em">BODY.MODEL</text>
+      <text x="14" y="176" font-size="8.5" font-family="ui-monospace, monospace" fill="currentColor">&hellip;/models/adapter-a2</text>
+
+      <!-- authpolicy -->
+      <rect x="228" y="36" width="192" height="64" rx="7" fill="none" stroke="var(--kind)" stroke-width="1.4"/>
+      <use href="#k8-policy" x="240" y="48" width="20" height="20" color="var(--kind)"/>
+      <text x="268" y="62" font-size="10" font-weight="650" fill="currentColor">AuthPolicy</text>
+      <text x="240" y="86" font-size="8.5" font-family="ui-monospace, monospace" fill="currentColor" opacity=".65">reads request.path only</text>
+
+      <!-- httproute -->
+      <rect x="228" y="140" width="192" height="64" rx="7" fill="none" stroke="currentColor" stroke-width="1.3" opacity=".55"/>
+      <use href="#k8-route" x="240" y="152" width="20" height="20" color="var(--kind)"/>
+      <text x="268" y="166" font-size="10" font-weight="650" fill="currentColor">HTTPRoute</text>
+      <text x="240" y="190" font-size="8.5" font-family="ui-monospace, monospace" fill="currentColor" opacity=".65">matches the path prefix</text>
+
+      <!-- vllm -->
+      <rect x="460" y="140" width="176" height="64" rx="7" fill="none" stroke="currentColor" stroke-width="1.3" opacity=".55"/>
+      <use href="#k8-vllm" x="472" y="152" width="20" height="20" color="var(--kind)"/>
+      <text x="500" y="166" font-size="10" font-weight="650" fill="currentColor">vLLM</text>
+      <text x="472" y="190" font-size="8.5" font-family="ui-monospace, monospace" fill="currentColor" opacity=".65">reads body.model only</text>
+
+      <!-- outcomes -->
+      <rect x="676" y="44" width="144" height="48" rx="7" fill="var(--kind-dim)" stroke="var(--kind)" stroke-width="1.4"/>
+      <text x="690" y="64" font-size="8.5" font-family="ui-monospace, monospace" fill="currentColor" opacity=".6" letter-spacing=".06em">AUTHORIZED</text>
+      <text x="690" y="80" font-size="10.5" font-weight="700" fill="var(--kind)">model-a</text>
+
+      <rect x="676" y="148" width="144" height="48" rx="7" fill="var(--crit-dim)" stroke="var(--crit)" stroke-width="1.4"/>
+      <text x="690" y="168" font-size="8.5" font-family="ui-monospace, monospace" fill="currentColor" opacity=".6" letter-spacing=".06em">SERVED</text>
+      <text x="690" y="184" font-size="10.5" font-weight="700" fill="var(--crit)">adapter-a2</text>
+
+      <text x="742" y="128" font-size="19" font-weight="700" fill="var(--crit)" text-anchor="middle">&#8800;</text>
+
+      <!-- edges -->
+      <path d="M184 118 C 206 118 206 68 228 68" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#ba1)" opacity=".6"/>
+      <text x="196" y="34" font-size="8.5" font-family="ui-monospace, monospace" fill="currentColor" opacity=".55">path</text>
+
+      <path d="M184 160 C 206 160 206 172 228 172" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#ba1)" opacity=".6"/>
+      <path d="M420 172 L460 172" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#ba1)" opacity=".6"/>
+      <text x="424" y="164" font-size="8.5" font-family="ui-monospace, monospace" fill="currentColor" opacity=".5">forwards</text>
+
+      <path d="M420 68 L676 68" fill="none" stroke="var(--kind)" stroke-width="1.3" marker-end="url(#ba1)" opacity=".75"/>
+      <text x="440" y="60" font-size="8.5" font-family="ui-monospace, monospace" fill="var(--kind)" opacity=".9">SubjectAccessReview on the base model</text>
+
+      <path d="M636 172 L676 172" fill="none" stroke="var(--crit)" stroke-width="1.3" marker-end="url(#ba1)" opacity=".75"/>
+
+      <!-- the body, untouched until vLLM -->
+      <path d="M92 200 L92 240 L548 240 L548 204" fill="none" stroke="var(--crit)" stroke-width="1.4"
+            stroke-dasharray="4 3" marker-end="url(#ba1)" opacity=".8"/>
+      <text x="320" y="262" font-size="9" font-family="ui-monospace, monospace" fill="var(--crit)" text-anchor="middle">the body is not read by anything until here</text>
+    </svg>
+    </div>
+    <figcaption>
+      Two model names, two readers, no comparison. The AuthPolicy and the HTTPRoute both
+      decide on the path; the adapter is chosen by a field neither of them parses.
+    </figcaption>
+  </figure>
+
+  <div class="panel">
+    <div class="panel-hd"><span class="kb mark warn"><svg><use href="#ic-warn"/></svg></span>
+      measured on the fixture <span class="rt">istio &middot; real vLLM &middot; golden/authz-split.tsv</span></div>
+    <div class="scroll">
+    <table>
+      <thead>
+        <tr><th>path</th><th>body <code>model</code></th><th>SAR the policy would run</th><th class="num">code</th><th>served</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="name"><code>&hellip;/models/model-a/v1/&hellip;</code></td>
+          <td><code>&hellip;/model-a</code></td>
+          <td><code>models: &hellip;/model-a</code></td>
+          <td class="num">200</td><td><code>model-a</code> <span class="hint">agrees</span></td>
+        </tr>
+        <tr class="is-current">
+          <td class="name"><code>&hellip;/models/model-a/v1/&hellip;</code></td>
+          <td><code>&hellip;/adapter-a1</code></td>
+          <td><code>models: &hellip;/model-a</code></td>
+          <td class="num">200</td><td><span class="st crit">adapter-a1</span></td>
+        </tr>
+        <tr class="is-current">
+          <td class="name"><code>&hellip;/models/model-a/v1/&hellip;</code></td>
+          <td><code>&hellip;/adapter-a2</code></td>
+          <td><code>models: &hellip;/model-a</code></td>
+          <td class="num">200</td><td><span class="st crit">adapter-a2</span></td>
+        </tr>
+        <tr class="is-current">
+          <td class="name"><code>&hellip;/models/model-a/v1/&hellip;</code></td>
+          <td><code>adapter-a2</code> <span class="hint">bare</span></td>
+          <td><code>models: &hellip;/model-a</code></td>
+          <td class="num">200</td><td><span class="st crit">adapter-a2</span></td>
+        </tr>
+        <tr class="is-current">
+          <td class="name"><code>/{ns}/svc-a/v1/&hellip;</code></td>
+          <td><code>&hellip;/adapter-a2</code></td>
+          <td><code>llminferenceservices: svc-a</code></td>
+          <td class="num">200</td><td><span class="st crit">adapter-a2</span></td>
+        </tr>
+        <tr>
+          <td class="name"><code>&hellip;/models/model-a/v1/&hellip;</code></td>
+          <td><code>&hellip;/model-b</code></td>
+          <td><code>models: &hellip;/model-a</code></td>
+          <td class="num">404</td><td><span class="st ok">not loaded here</span></td>
+        </tr>
+        <tr>
+          <td class="name"><code>&hellip;/models/model-a/v1/&hellip;</code></td>
+          <td><code>&hellip;/shared-adapter</code></td>
+          <td><code>models: &hellip;/model-a</code></td>
+          <td class="num">404</td><td><span class="st ok">not loaded here</span></td>
+        </tr>
+        <tr>
+          <td class="name"><code>&hellip;/models/<strong>adapter-a1</strong>/v1/&hellip;</code></td>
+          <td><code>&hellip;/adapter-a1</code></td>
+          <td><code>models: &hellip;/adapter-a1</code></td>
+          <td class="num">-</td><td><span class="st warn">no kserve route at all</span></td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="note crit">
+    <span class="lbl">what this means for per-adapter access control</span>
+    <p>
+      <strong>An adapter can be reached, but it can never be authorized as itself.</strong>
+      Grant someone <code>post</code> on <code>publishers/{ns}/models/model-a</code> and they
+      reach every adapter loaded on that server by naming it in the body, whether or not
+      they hold anything on the adapter. And there is no way to grant the narrower thing
+      instead: the last row is the reason - <code>expandLoRAAdapterMatches</code> duplicates
+      <em>header</em> matches only, and the publisher-path rules are templated from
+      <code>.Spec.Model.Name</code>, so no adapter has a path to authorize.
+    </p>
+  </div>
+
+  <div class="note ok">
+    <span class="lbl">how far it goes, and where it stops</span>
+    <p>
+      The body only reaches what the selected server has loaded. <code>model-b</code> and
+      <code>shared-adapter</code> both return 404 from <code>svc-a</code>, so this is not a
+      route across services - the blast radius is one InferencePool. A model routing header
+      naming another tenant does not redirect a publisher path either: Gateway API ranks the
+      longer path prefix above the header match, and the request stayed on
+      <code>svc-a</code>, measured both ways.
+    </p>
+  </div>
+
+  <div class="note">
+    <span class="lbl">this is not the hole ODH already closed</span>
+    <p>
+      <code>deny-misrouted-model-header</code> covers the case where the <em>path</em> and
+      the <em>header</em> disagree, and <code>TestSpoofedModelAccessCallerLacksDelegate</code>
+      covers a forged <code>x-maas-user</code>. Both are deliberate, tested, and sound. This
+      is the third pair - path versus <em>body</em> - and it is the one the policy cannot
+      see, because Authorino is evaluating CEL over request attributes and the body is not
+      one of them. It is not in that template's "Known limitations" list.
+    </p>
+  </div>
+
+  <div class="note warn">
+    <span class="lbl">and body-based routing does not fix it by itself</span>
+    <p>
+      The stated plan is BBR plus a <code>resolvedPath</code> override, so that
+      <code>/v1/&hellip;</code> plus a header can be authorized instead of denied. That
+      closes the header axis. It closes this one <em>only</em> if what gets authorized is
+      the name BBR read out of the body - the same field vLLM will act on. Authorize the
+      path and rewrite the header, and the gap stays exactly where it is.
+    </p>
+  </div>
+
+  <div class="note">
+    <span class="lbl">the one place this touches the shape decision</span>
+    <p>
+      It is shape-independent: <code>current</code>, <code>split</code>,
+      <code>alternation</code> and <code>collapse</code> all leave the body unread.
+      <code>nested</code> is the exception, and not because it fixes anything - because it
+      is the only shape that gives the policy an adapter-scoped name to authorize. The
+      existing CEL takes everything between <code>/models/</code> and the first
+      <code>/v1/</code>, which already handles multi-segment names, so a nested adapter path
+      yields <code>publishers/{ns}/models/{base}/adapters/{adapter}</code> as the SAR
+      resource with <strong>no policy change</strong>. That makes per-adapter RBAC
+      expressible for the first time. Comparing it to the body is still a separate piece of
+      work.
+    </p>
+  </div>
+
+  <div class="note">
+    <span class="lbl">measured versus read</span>
+    <p>
+      The routing and serving columns are measured on the live fixture. The
+      <em>SAR</em> column is <strong>not</strong> - Kuadrant is not installed in the spike
+      cluster. It is the CEL from
+      <code>authpolicy_llm_isvc_userdefined.yaml</code> evaluated against each path, and it
+      matches that template's own request-flow table. Nobody should act on the SAR column
+      without running it against a real Authorino.
+    </p>
+  </div>
+</section>
+
+
+<section>
   <h2>The second data plane, which changes the answer</h2>
   <p class="sub">
     Every regex finding above was measured on Istio. Installing kgateway and Envoy Gateway
@@ -3744,6 +3965,11 @@ if baseOk &amp;&amp; configOk {
           <td class="num"><span class="st mute">p3</span></td>
         </tr>
         <tr>
+          <td class="name">adapters have no publisher path</td>
+          <td><code>expandLoRAAdapterMatches</code> duplicates header matches only, and the publisher-path rules are templated from <code>.Spec.Model.Name</code>. So an adapter is reachable but has no path to authorize, which is half of why per-adapter RBAC cannot be enforced.</td>
+          <td class="num"><span class="st warn">p2</span></td>
+        </tr>
+        <tr>
           <td class="name"><code>isModelBasedRoutingMatch</code> ignores match type</td>
           <td>A <code>RegularExpression</code> model-routing match gets expanded per adapter anyway, producing regex-typed matches holding literal values. Blocks adopting <code>alternation</code> by configuration.</td>
           <td class="num"><span class="st mute">p3</span></td>
@@ -3753,7 +3979,23 @@ if baseOk &amp;&amp; configOk {
     </div>
   </div>
 
-  <h3>2. Upstream, not ours to patch, ours to pin and report</h3>
+    <div class="panel">
+    <div class="panel-hd"><span class="kb mark warn"><svg><use href="#ic-warn"/></svg></span> odh-model-controller</div>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>what</th><th>why it matters</th><th class="num">pri</th></tr></thead>
+      <tbody>
+        <tr class="is-current">
+          <td class="name">nothing authorizes the body <code>model</code></td>
+          <td>Every rule in the AuthPolicy decides on <code>request.path</code>; vLLM applies the adapter named in the body. Measured: authorized on <code>model-a</code>, served by <code>adapter-a2</code>, 200. Bounded to one InferencePool, and not in that template's known-limitations list. The BBR follow-up closes it only if what gets authorized is the name read out of the body.</td>
+          <td class="num"><span class="st warn">p2</span></td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+<h3>2. Upstream, not ours to patch, ours to pin and report</h3>
 
   <div class="panel">
     <div class="panel-hd"><span class="kb mark"><svg><use href="#ic-code"/></svg></span> istio</div>
