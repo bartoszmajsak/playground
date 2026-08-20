@@ -1283,12 +1283,15 @@
   <p class="sub">
     Every ceiling below was measured by asking the apiserver to validate a synthesised route
     at rising adapter counts. Every "requests moved" figure is a diff of where 72 real
-    requests actually landed, before and after.
+    requests actually landed, before and after. Nine shapes were measured; these are the five
+    still in contention. The other four are in
+    <a href="#dropped">also evaluated, and dropped</a>, with the numbers and the reason each
+    one lost.
   </p>
 
   <div class="panel">
     <div class="panel-hd"><span class="kb"><svg><use href="#k8-route"/></svg></span> route shapes
-      <span class="rt">9 measured · svc-a · lora-budget</span></div>
+      <span class="rt">5 in contention &middot; svc-a &middot; lora-budget</span></div>
     <div class="scroll">
     <table>
       <thead>
@@ -1314,33 +1317,13 @@
           <td class="num"><span class="st ok">0</span></td><td>128 / route</td><td>keeps</td><td><span class="st warn">yes, 1&rarr;4</span></td>
         <td><span class="st ok">yes</span></td></tr>
         <tr>
-          <td class="name">prefix</td>
-          <td><div class="bar"><div class="track"><div class="fill warn" style="width:5%"></div></div><span class="val">15</span></div></td>
-          <td class="num">8</td><td>64 / rule</td><td>keeps</td><td>no</td>
-        <td><span class="st ok">yes</span></td></tr>
-        <tr>
           <td class="name">split-noslash</td>
           <td><div class="bar"><div class="track"><div class="fill warn" style="width:7%"></div></div><span class="val">22</span></div></td>
           <td class="num"><span class="st ok">1</span></td><td>128 / route</td><td>keeps</td><td><span class="st warn">yes, 1&rarr;4</span></td>
         <td><span class="st ok">yes</span></td></tr>
         <tr>
-          <td class="name">split-prefix</td>
-          <td><div class="bar"><div class="track"><div class="fill warn" style="width:7%"></div></div><span class="val">22</span></div></td>
-          <td class="num">8</td><td>128 / route</td><td>keeps</td><td><span class="st warn">yes, 1&rarr;4</span></td>
-        <td><span class="st ok">yes</span></td></tr>
-        <tr>
-          <td class="name">collapse</td>
-          <td><div class="bar"><div class="track"><div class="fill" style="width:19%"></div></div><span class="val">58</span></div></td>
-          <td class="num"><span class="st warn">20</span></td><td>128 / route</td><td><span class="st warn">gives up</span></td><td>no</td>
-        <td><span class="st ok">yes</span></td></tr>
-        <tr>
-          <td class="name">collapse-dedup</td>
-          <td><div class="bar"><div class="track"><div class="fill" style="width:21%"></div></div><span class="val">63</span></div></td>
-          <td class="num"><span class="st warn">20</span></td><td>64 / rule</td><td><span class="st warn">gives up</span></td><td><span class="st warn">yes</span></td>
-        <td><span class="st ok">yes</span></td></tr>
-        <tr>
           <td class="name">alternation</td>
-          <td><div class="bar"><div class="track"><div class="fill" style="width:99%"></div></div><span class="val">297</span></div></td>
+          <td><div class="bar"><div class="track"><div class="fill" style="width:99%"></div></div><span class="val">188</span></div></td>
           <td class="num"><span class="st ok">0</span></td><td>RE2 program size</td><td>keeps</td><td>no</td>
         <td><span class="st warn">not on kgw</span></td></tr>
         <tr class="is-pick">
@@ -1357,9 +1340,10 @@
     <span class="lbl">read the moved column carefully</span>
     <p>
       It counts requests whose <em>destination</em> changed, which is not the same as
-      requests that <em>broke</em>. Put a real endpoint picker in the path and
-      <code>collapse</code>'s 20 moved destinations change only <strong>2 outcomes</strong>,
-      and both were already returning 404. Moved is a signal to look, not a cost.
+      requests that <em>broke</em>. The clearest case is one of the dropped shapes: put a
+      real endpoint picker in the path and <code>collapse</code>'s 20 moved destinations
+      change only <strong>2 outcomes</strong>, and both were already returning 404. Moved is
+      a signal to look, not a cost.
     </p>
   </div>
 
@@ -1418,32 +1402,6 @@
         </ul>
       </div>
     </div>
-
-    <div class="card">
-      <div class="card-hd"><span class="nm">prefix</span> <span class="st info">7 &rarr; 15</span></div>
-      <div class="card-bd">
-        <p class="cap">Use <code>PathPrefix</code>, as the path rules already do.</p>
-        <ul>
-          <li class="pro">Renames nothing, so no policy migration at all</li>
-          <li class="pro">Closes an addressing inconsistency that has no stated reason</li>
-          <li class="con">Broadens into stateful sub-resources that carry no model</li>
-          <li class="con">Lowest ceiling of the realistic options</li>
-        </ul>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-hd"><span class="nm">collapse</span> <span class="st warn">7 &rarr; 58</span></div>
-      <div class="card-bd">
-        <p class="cap">Drop the path from the routing rule entirely.</p>
-        <ul>
-          <li class="pro">Large ceiling with no naming change</li>
-          <li class="pro">Real cost smaller than it looks: 2 changed outcomes, not 20</li>
-          <li class="con">Gives up path scope, reversing a deliberate decision in <a href="https://github.com/kserve/kserve/pull/5087">#5087</a></li>
-          <li class="con">Sends <code>/health</code> and <code>/metrics</code> through a scheduler</li>
-        </ul>
-      </div>
-    </div>
   </div>
 </section>
 
@@ -1451,7 +1409,8 @@
   <h2>Browse the shapes</h2>
   <p class="sub">
     Pick a shape to see the routing rules it actually generates. The path family is
-    identical in every one, so only the model-routing rules are shown.
+    identical in every one, so only the model-routing rules are shown. Five shapes here, the
+    ones still in contention.
   </p>
 
   <div class="explorer">
@@ -1470,33 +1429,12 @@
         <span class="tmeta"><span>15 rules</span><span>37 matches</span><span class="mv ok">0 moved</span></span>
         <span class="tbind">128 matches per route</span>
       </button>
-      <button class="tile" data-shape="prefix" aria-pressed="false" aria-controls="yamlpane">
-        <span class="tname">prefix</span>
-        <span class="tmax">15<span class="tunit">adapters</span></span>
-        <span class="tbar"><span class="tfill" style="width:5%"></span></span>
-        <span class="tmeta"><span>12 rules</span><span>25 matches</span><span class="mv">8 moved</span></span>
-        <span class="tbind">64 matches in one rule</span>
-      </button>
       <button class="tile" data-shape="split-noslash" aria-pressed="false" aria-controls="yamlpane">
         <span class="tname">split-noslash</span>
         <span class="tmax">22<span class="tunit">adapters</span></span>
         <span class="tbar"><span class="tfill" style="width:7%"></span></span>
         <span class="tmeta"><span>15 rules</span><span>25 matches</span><span class="mv">1 moved</span></span>
         <span class="tbind">128 matches per route</span>
-      </button>
-      <button class="tile" data-shape="collapse" aria-pressed="false" aria-controls="yamlpane">
-        <span class="tname">collapse</span>
-        <span class="tmax">58<span class="tunit">adapters</span></span>
-        <span class="tbar"><span class="tfill" style="width:19%"></span></span>
-        <span class="tmeta"><span>12 rules</span><span>16 matches</span><span class="mv warn">20 moved</span></span>
-        <span class="tbind">128 matches per route</span>
-      </button>
-      <button class="tile" data-shape="collapse-dedup" aria-pressed="false" aria-controls="yamlpane">
-        <span class="tname">collapse-dedup</span>
-        <span class="tmax">63<span class="tunit">adapters</span></span>
-        <span class="tbar"><span class="tfill" style="width:21%"></span></span>
-        <span class="tmeta"><span>11 rules</span><span>13 matches</span><span class="mv warn">20 moved</span></span>
-        <span class="tbind">64 matches in one rule</span>
       </button>
       <button class="tile" data-shape="alternation" aria-pressed="false" aria-controls="yamlpane">
         <span class="tname">alternation</span>
@@ -1909,26 +1847,26 @@
     <div class="panel-hd"><span class="kb">HR</span> where each request lands<span class="rt">replayed, not predicted</span></div>
     <div class="scroll">
     <table class="matrix">
-      <thead><tr><th>request</th><th class="num">current</th><th class="num">split</th><th class="num">split-noslash</th><th class="num">prefix</th><th class="num pickcol">alternation</th><th class="num">nested</th><th class="num">collapse</th></tr></thead>
+      <thead><tr><th>request</th><th class="num">current</th><th class="num">split</th><th class="num">split-noslash</th><th class="num pickcol">alternation</th><th class="num">nested</th></tr></thead>
       <tbody>
-        <tr class="grp"><td colspan="8">path-addressed <em>- identical in every shape</em></td></tr>
-        <tr><td><code>/{ns}/{name}/v1/chat/completions</code></td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td></tr>
-        <tr><td><code>/{ns}/{name}/v1/embeddings</code> <span class="hint">not an endpoint</span></td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td></tr>
-        <tr><td><code>/publishers/{ns}/models/{m}/v1/chat/completions</code></td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td></tr>
-        <tr class="grp"><td colspan="8">header-addressed <em>- where the shapes diverge</em></td></tr>
-        <tr><td><code>/v1/chat/completions</code></td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td></tr>
-        <tr><td><code>/v1/completions/</code> <span class="hint">trailing slash</span></td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m svc chg">service</td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td></tr>
-        <tr><td><code>/v1/messages/count_tokens</code> <span class="hint">sub-path</span></td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td><td class="m pool chg">pool</td><td class="m svc">service</td><td class="m svc">service</td><td class="m pool chg">pool</td></tr>
-        <tr><td><code>/v1/completions/anything</code> <span class="hint">deeper</span></td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td><td class="m pool chg">pool</td><td class="m svc">service</td><td class="m svc">service</td><td class="m pool chg">pool</td></tr>
-        <tr><td><code>/v1/embeddings</code> <span class="hint">not an endpoint</span></td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td><td class="m pool chg">pool</td></tr>
-        <tr><td><code>/health</code></td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td><td class="m pool chg">pool</td></tr>
-        <tr><td><code>/</code></td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td><td class="m pool chg">pool</td></tr>
-        <tr><td><code>/anything/at/all</code></td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td><td class="m pool chg">pool</td></tr>
-        <tr class="grp"><td colspan="8">adapter naming <em>- only nested moves these</em></td></tr>
-        <tr><td><code>&hellip;/models/adapter-a1</code> <span class="hint">flat, today's name</span></td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m nbr chg">falls through</td><td class="m pool">pool</td></tr>
-        <tr><td><code>&hellip;/models/adapter-a2</code> <span class="hint">flat</span></td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m nbr chg">falls through</td><td class="m pool">pool</td></tr>
-        <tr><td><code>&hellip;/models/model-a/adapters/adapter-a1</code> <span class="hint">nested form</span></td><td class="m nbr">falls through</td><td class="m nbr">falls through</td><td class="m nbr">falls through</td><td class="m nbr">falls through</td><td class="m nbr">falls through</td><td class="m pool chg">pool</td><td class="m nbr">falls through</td></tr>
-        <tr><td><code>&hellip;/models/model-a-instruct</code> <span class="hint">neighbouring service</span></td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td></tr>
+        <tr class="grp"><td colspan="6">path-addressed <em>- identical in every shape</em></td></tr>
+        <tr><td><code>/{ns}/{name}/v1/chat/completions</code></td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td></tr>
+        <tr><td><code>/{ns}/{name}/v1/embeddings</code> <span class="hint">not an endpoint</span></td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td></tr>
+        <tr><td><code>/publishers/{ns}/models/{m}/v1/chat/completions</code></td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td></tr>
+        <tr class="grp"><td colspan="6">header-addressed <em>- where the shapes diverge</em></td></tr>
+        <tr><td><code>/v1/chat/completions</code></td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td></tr>
+        <tr><td><code>/v1/completions/</code> <span class="hint">trailing slash</span></td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m svc chg">service</td><td class="m pool">pool</td><td class="m pool">pool</td></tr>
+        <tr><td><code>/v1/messages/count_tokens</code> <span class="hint">sub-path</span></td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td></tr>
+        <tr><td><code>/v1/completions/anything</code> <span class="hint">deeper</span></td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td></tr>
+        <tr><td><code>/v1/embeddings</code> <span class="hint">not an endpoint</span></td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td></tr>
+        <tr><td><code>/health</code></td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td></tr>
+        <tr><td><code>/</code></td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td></tr>
+        <tr><td><code>/anything/at/all</code></td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td><td class="m svc">service</td></tr>
+        <tr class="grp"><td colspan="6">adapter naming <em>- only nested moves these</em></td></tr>
+        <tr><td><code>&hellip;/models/adapter-a1</code> <span class="hint">flat, today's name</span></td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m nbr chg">falls through</td></tr>
+        <tr><td><code>&hellip;/models/adapter-a2</code> <span class="hint">flat</span></td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m nbr chg">falls through</td></tr>
+        <tr><td><code>&hellip;/models/model-a/adapters/adapter-a1</code> <span class="hint">nested form</span></td><td class="m nbr">falls through</td><td class="m nbr">falls through</td><td class="m nbr">falls through</td><td class="m nbr">falls through</td><td class="m pool chg">pool</td></tr>
+        <tr><td><code>&hellip;/models/model-a-instruct</code> <span class="hint">neighbouring service</span></td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td><td class="m pool">pool</td></tr>
       </tbody>
     </table>
     </div>
@@ -1948,9 +1886,8 @@
       <code>alternation</code> is the point of this table: <strong>every cell is identical
       to today</strong>. Not "close enough" - byte-identical across all 72 probes, which is
       what zero behaviour change means concretely. <code>split</code> matches it.
-      <code>split-noslash</code> differs in exactly one cell. <code>prefix</code> reaches
-      further down each endpoint's sub-paths. <code>collapse</code> turns the whole header
-      column into pool traffic. <code>nested</code> touches nothing about paths at all: it
+      <code>split-noslash</code> differs in exactly one cell.
+      <code>nested</code> touches nothing about paths at all: it
       only changes which <em>names</em> match, which is why its cost sits outside this
       table entirely.
     </p>
@@ -1967,10 +1904,207 @@
     </p>
   </div>
 
-  <h3>The one behavioural difference that matters</h3>
+</section>
+
+
+<section>
+  <h2>Trade-offs, exactly</h2>
+  <p class="sub">
+    The five shapes still in contention, and every axis that costs something. A dash means
+    the shape does not touch that axis at all. <strong>Works on kgateway</strong> is the row
+    that changed the answer.
+  </p>
+
+  <div class="panel">
+    <div class="panel-hd"><span class="kb mark"><svg><use href="#ic-grid"/></svg></span> cost by axis</div>
+    <div class="scroll">
+    <table class="tradeoff">
+      <thead>
+        <tr>
+          <th></th>
+          <th>current</th><th>split</th><th>split-noslash</th>
+          <th>alternation</th><th class="pickcol">nested</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="ax">max adapters</td>
+          <td class="num bad">7</td><td class="num">12</td><td class="num">22</td>
+          <td class="num">188 istio / 2 kgw</td><td class="num good">unbounded</td>
+        </tr>
+        <tr>
+          <td class="ax">what binds it</td>
+          <td>64/rule</td><td>128/route</td><td>128/route</td>
+          <td>RE2 program size</td><td class="good">nothing</td>
+        </tr>
+        <tr>
+          <td class="ax">rule slots used <span class="hint">of 16</span></td>
+          <td class="num">12</td><td class="num warnc">15</td><td class="num warnc">15</td>
+          <td class="num">12</td><td class="num">12</td>
+        </tr>
+        <tr>
+          <td class="ax">requests that move <span class="hint">of 72</span></td>
+          <td>-</td><td class="good">0</td><td class="good">1</td>
+          <td class="good">0</td><td>7</td>
+        </tr>
+        <tr>
+          <td class="ax">outcomes that change <span class="hint">real EPP</span></td>
+          <td>-</td><td class="good">0</td><td>1</td>
+          <td class="good">0</td><td>not measured</td>
+        </tr>
+        <tr>
+          <td class="ax">renames rules</td>
+          <td>-</td><td class="bad">yes, 1&rarr;4</td><td class="bad">yes, 1&rarr;4</td>
+          <td class="good">no</td><td class="good">no</td>
+        </tr>
+        <tr>
+          <td class="ax">policy migration</td>
+          <td>-</td><td class="bad">unaliasable</td><td class="bad">unaliasable</td>
+          <td class="good">none</td><td class="good">none</td>
+        </tr>
+        <tr>
+          <td class="ax">client-visible strings change</td>
+          <td>-</td><td class="good">no</td><td class="good">no</td>
+          <td class="good">no</td><td class="bad">yes</td>
+        </tr>
+        <tr>
+          <td class="ax">route rewritten per adapter</td>
+          <td class="warnc">yes</td><td class="warnc">yes</td><td class="warnc">yes</td>
+          <td class="warnc">yes</td><td class="good">no</td>
+        </tr>
+        <tr>
+          <td class="ax">uses a header regex</td>
+          <td>no</td><td>no</td><td>no</td>
+          <td class="warnc">yes</td><td class="warnc">yes</td>
+        </tr>
+        <tr>
+          <td class="ax">works on kgateway</td>
+          <td>yes</td><td class="good">yes</td><td class="good">yes</td>
+          <td class="bad">2 adapters</td><td class="good">yes</td>
+        </tr>
+        <tr>
+          <td class="ax">added request latency</td>
+          <td>-</td><td class="good">none</td><td class="good">none</td>
+          <td class="good">below noise</td><td class="good">below noise</td>
+        </tr>
+        <tr>
+          <td class="ax">reversible</td>
+          <td>-</td><td>yes</td><td>yes</td>
+          <td class="good">yes</td><td class="warnc">only before clients adopt</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="note">
+    <span class="lbl">read these three rows together</span>
+    <p>
+      <strong>Renames rules</strong>, <strong>client-visible strings change</strong> and
+      <strong>works on kgateway</strong> are the rows that decide this.
+      <code>split</code> pays in policy migration. <code>alternation</code> pays nothing at
+      all until you move it off Istio, at which point it pays everything.
+      <code>nested</code> pays once, in client naming, and is the only shape that both
+      survives an arbitrary data plane and stops the route being rewritten every time an
+      adapter changes.
+    </p>
+  </div>
+
+  <div class="note warn">
+    <span class="lbl">why "unaliasable" is the sharp word</span>
+    <p>
+      Renaming a rule detaches any Kuadrant policy pinned to it by
+      <code>sectionName</code>. That is recoverable when the rename is one-to-one: put the
+      old name back and enforcement returns. But <code>split</code> turns one rule into
+      four, so a single alias can only cover one of them. Tested: the policy came back
+      reporting <code>Accepted=True</code>, <code>Enforced=True</code> while actually
+      covering <strong>a quarter</strong> of its former traffic. A green policy with a 75%
+      hole is worse than the clean break, which at least reports
+      <code>TargetNotFound</code>.
+    </p>
+    <p>
+      This only affects policies someone wrote themselves against our rule names.
+      odh-model-controller's own policies target whole objects and are unaffected.
+    </p>
+  </div>
+</section>
+
+
+<section id="dropped">
+  <h2>Also evaluated, and dropped</h2>
+  <p class="sub">
+    Four more shapes were measured to the same standard as the five above - same synthesised
+    routes, same 72 replayed requests, same golden files. They are here rather than deleted
+    so nobody measures them again, and because two of them carry findings worth keeping.
+  </p>
+
+  <div class="panel">
+    <div class="panel-hd"><span class="kb"><svg><use href="#ic-grid"/></svg></span> dropped
+      <span class="rt">measured, not in contention</span></div>
+    <div class="scroll">
+    <table>
+      <thead>
+        <tr><th>shape</th><th class="num">max adapters</th><th class="num">moved</th><th>binding limit</th><th>why it lost</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="name">prefix</td><td class="num">15</td><td class="num">8</td><td>64 / rule</td>
+          <td><code>split-noslash</code> reaches 22 for <strong>one</strong> moved request. The
+            only thing <code>prefix</code> wins on is not renaming a rule, and
+            <code>alternation</code> and <code>nested</code> do not rename one either.</td>
+        </tr>
+        <tr>
+          <td class="name">split-prefix</td><td class="num">22</td><td class="num">8</td><td>128 / route</td>
+          <td>Strictly dominated. Identical ceiling to <code>split-noslash</code>, eight times
+            the blast radius, and it still pays the same unaliasable 1&rarr;4 rule rename.</td>
+        </tr>
+        <tr>
+          <td class="name">collapse</td><td class="num">58</td><td class="num"><span class="st warn">20</span></td><td>128 / route</td>
+          <td>The highest ceiling available without a regex or a naming change, and it gets
+            there by dropping the path from the routing rule - reversing a deliberate decision
+            in <a href="https://github.com/kserve/kserve/pull/5087">kserve#5087</a> and sending
+            <code>/health</code> and <code>/metrics</code> through a scheduler.</td>
+        </tr>
+        <tr>
+          <td class="name">collapse-dedup</td><td class="num">63</td><td class="num"><span class="st warn">20</span></td><td>64 / rule</td>
+          <td>Five more adapters than <code>collapse</code>, bought with a rule rename and a
+            move back to the tighter per-rule cap, on top of everything
+            <code>collapse</code> already gives up.</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="note">
+    <span class="lbl">three of these lost on the numbers</span>
+    <p>
+      <code>prefix</code>, <code>split-prefix</code> and <code>collapse-dedup</code> are each
+      beaten on every axis that matters by a shape that is still in the table, so there is no
+      configuration of requirements under which one of them is the right answer.
+      <code>split-prefix</code> is the clearest: same 22 as <code>split-noslash</code>, same
+      rename, eight moved requests instead of one.
+    </p>
+  </div>
+
+  <div class="note warn">
+    <span class="lbl"><code>collapse</code> did not lose on the numbers</span>
+    <p>
+      It is the only dropped shape that answers a question none of the survivors do: how do
+      you get past about twenty adapters without a regex and without changing a name clients
+      send. 58 is a real number and its measured cost is much smaller than 20 moved requests
+      suggests. It is dropped because <strong>giving up path scope is not ours to give up</strong> -
+      it undoes an upstream decision that was made on purpose. If the adapter count lands
+      between 22 and 58 and both <code>alternation</code> and <code>nested</code> are refused,
+      this is the shape to reopen, and this is the section to reopen it from.
+    </p>
+  </div>
+
+  <h3>What <code>collapse</code> actually trades away</h3>
   <p>
-    A request carrying a model header on a path that is not an inference endpoint. This is
-    what <code>collapse</code> trades away, drawn:
+    All 20 of its moved requests are the same shape: a model routing header on a path that is
+    not an inference endpoint. Drawn, because the gap between "moved" and "broken" is the
+    whole argument:
   </p>
 
   <figure class="fig">
@@ -2031,134 +2165,6 @@
       <code>alternation</code> shares the left-hand lane exactly.
     </figcaption>
   </figure>
-</section>
-
-
-<section>
-  <h2>Trade-offs, exactly</h2>
-  <p class="sub">
-    Seven shapes, every axis that costs something. A dash means the shape does not touch
-    that axis at all. <strong>Works on kgateway</strong> is the row that changed the
-    answer.
-  </p>
-
-  <div class="panel">
-    <div class="panel-hd"><span class="kb mark"><svg><use href="#ic-grid"/></svg></span> cost by axis</div>
-    <div class="scroll">
-    <table class="tradeoff">
-      <thead>
-        <tr>
-          <th></th>
-          <th>current</th><th>split</th><th>split-noslash</th>
-          <th>prefix</th><th>alternation</th><th class="pickcol">nested</th><th>collapse</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td class="ax">max adapters</td>
-          <td class="num bad">7</td><td class="num">12</td><td class="num">22</td>
-          <td class="num">15</td><td class="num">188 istio / 2 kgw</td><td class="num good">unbounded</td><td class="num">58</td>
-        </tr>
-        <tr>
-          <td class="ax">what binds it</td>
-          <td>64/rule</td><td>128/route</td><td>128/route</td>
-          <td>64/rule</td><td>RE2 program size</td><td class="good">nothing</td><td>128/route</td>
-        </tr>
-        <tr>
-          <td class="ax">rule slots used <span class="hint">of 16</span></td>
-          <td class="num">12</td><td class="num warnc">15</td><td class="num warnc">15</td>
-          <td class="num">12</td><td class="num">12</td><td class="num">12</td><td class="num">12</td>
-        </tr>
-        <tr>
-          <td class="ax">requests that move <span class="hint">of 72</span></td>
-          <td>-</td><td class="good">0</td><td class="good">1</td>
-          <td>8</td><td class="good">0</td><td>7</td><td class="warnc">20</td>
-        </tr>
-        <tr>
-          <td class="ax">outcomes that change <span class="hint">real EPP</span></td>
-          <td>-</td><td class="good">0</td><td>1</td>
-          <td>not measured</td><td class="good">0</td><td>not measured</td><td class="good">2</td>
-        </tr>
-        <tr>
-          <td class="ax">keeps path scope</td>
-          <td>yes</td><td>yes</td><td>yes</td>
-          <td>yes</td><td>yes</td><td>yes</td><td class="bad">no</td>
-        </tr>
-        <tr>
-          <td class="ax">renames rules</td>
-          <td>-</td><td class="bad">yes, 1&rarr;4</td><td class="bad">yes, 1&rarr;4</td>
-          <td class="good">no</td><td class="good">no</td><td class="good">no</td><td class="good">no</td>
-        </tr>
-        <tr>
-          <td class="ax">policy migration</td>
-          <td>-</td><td class="bad">unaliasable</td><td class="bad">unaliasable</td>
-          <td class="good">none</td><td class="good">none</td><td class="good">none</td><td class="good">none</td>
-        </tr>
-        <tr>
-          <td class="ax">client-visible strings change</td>
-          <td>-</td><td class="good">no</td><td class="good">no</td>
-          <td class="good">no</td><td class="good">no</td><td class="bad">yes</td><td class="good">no</td>
-        </tr>
-        <tr>
-          <td class="ax">route rewritten per adapter</td>
-          <td class="warnc">yes</td><td class="warnc">yes</td><td class="warnc">yes</td>
-          <td class="warnc">yes</td><td class="warnc">yes</td><td class="good">no</td><td class="warnc">yes</td>
-        </tr>
-        <tr>
-          <td class="ax">uses a header regex</td>
-          <td>no</td><td>no</td><td>no</td>
-          <td>no</td><td class="warnc">yes</td><td class="warnc">yes</td><td>no</td>
-        </tr>
-        <tr>
-          <td class="ax">works on kgateway</td>
-          <td>yes</td><td class="good">yes</td><td class="good">yes</td>
-          <td class="good">yes</td><td class="bad">2 adapters</td><td class="good">yes</td><td class="good">yes</td>
-        </tr>
-        <tr>
-          <td class="ax">added request latency</td>
-          <td>-</td><td class="good">none</td><td class="good">none</td>
-          <td class="good">none</td><td class="good">below noise</td><td class="good">below noise</td><td class="good">none</td>
-        </tr>
-        <tr>
-          <td class="ax">reversible</td>
-          <td>-</td><td>yes</td><td>yes</td>
-          <td>yes</td><td class="good">yes</td><td class="warnc">only before clients adopt</td><td>yes</td>
-        </tr>
-      </tbody>
-    </table>
-    </div>
-  </div>
-
-  <div class="note">
-    <span class="lbl">read these three rows together</span>
-    <p>
-      <strong>Renames rules</strong>, <strong>client-visible strings change</strong> and
-      <strong>works on kgateway</strong> are the rows that decide this.
-      <code>split</code> pays in policy migration. <code>alternation</code> pays nothing at
-      all until you move it off Istio, at which point it pays everything.
-      <code>nested</code> pays once, in client naming, and is the only shape that both
-      survives an arbitrary data plane and stops the route being rewritten every time an
-      adapter changes.
-    </p>
-  </div>
-
-  <div class="note warn">
-    <span class="lbl">why "unaliasable" is the sharp word</span>
-    <p>
-      Renaming a rule detaches any Kuadrant policy pinned to it by
-      <code>sectionName</code>. That is recoverable when the rename is one-to-one: put the
-      old name back and enforcement returns. But <code>split</code> turns one rule into
-      four, so a single alias can only cover one of them. Tested: the policy came back
-      reporting <code>Accepted=True</code>, <code>Enforced=True</code> while actually
-      covering <strong>a quarter</strong> of its former traffic. A green policy with a 75%
-      hole is worse than the clean break, which at least reports
-      <code>TargetNotFound</code>.
-    </p>
-    <p>
-      This only affects policies someone wrote themselves against our rule names.
-      odh-model-controller's own policies target whole objects and are unaffected.
-    </p>
-  </div>
 </section>
 
 
@@ -2477,9 +2483,10 @@ then:
       is not.
     </p>
     <p>
-      That reprices the options. <code>collapse</code> and <code>prefix</code> only change
-      header-addressed behaviour, so on ODH they change nothing observable: their "20 moved"
-      and "8 moved" are moves within traffic that is already denied. <code>nested</code> is
+      That reprices the options. Every shape that only changes header-addressed behaviour
+      changes nothing observable on ODH: the moved-request counts in the tables are moves
+      within traffic that is already denied. That covers <code>split</code>,
+      <code>alternation</code>, and both dropped collapses. <code>nested</code> is
       the exception, because it changes the model identifier itself, which the <em>live</em>
       addressing modes carry in the request body.
     </p>
@@ -2771,7 +2778,8 @@ then:
     <span class="lbl">the one place this touches the shape decision</span>
     <p>
       It is shape-independent: <code>current</code>, <code>split</code>,
-      <code>alternation</code> and <code>collapse</code> all leave the body unread.
+      <code>split-noslash</code> and <code>alternation</code> all leave the body unread, as
+      do the dropped shapes.
       <code>nested</code> is the exception, and not because it fixes anything - because it
       is the only shape that gives the policy an adapter-scoped name to authorize. The
       existing CEL takes everything between <code>/models/</code> and the first
@@ -3406,9 +3414,9 @@ set for the error level threshold.</span></pre>
     <p>
       <strong>The seven-adapter ceiling is unaffected.</strong> That one is match
       <em>count</em>, not bytes, so name length is irrelevant to it.
-      <code>current</code>, <code>split</code>, <code>prefix</code>,
-      <code>split-noslash</code> and <code>collapse</code> keep the ceilings in the options
-      table.
+      Every shape bound by match count rather than pattern bytes keeps the ceiling it has:
+      <code>current</code>, <code>split</code> and <code>split-noslash</code> in the options
+      table, and all four dropped shapes.
     </p>
   </div>
 

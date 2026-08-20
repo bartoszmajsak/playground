@@ -55,6 +55,23 @@ checks the controller trips over, without the controller or any traffic.
 `alternation` and `nested` are the two constant-size shapes - 12 rules, 19
 matches, unchanged at any adapter count. See sections 9 and 14.
 
+`alternation`'s row is the fixture-name figure. With realistic names it is **188**
+on Istio and **2** where the RE2 limit is left at 100 - section 25, and the number
+the report quotes.
+
+**Five of these nine are in contention**, and the report's tables carry only
+those: `current` as the baseline, `split` and `split-noslash` as the
+minimal-change options, `alternation` as the compressed one, `nested` as the one
+that removes the enumeration. The other four are recorded here and summarised in
+the report's *also evaluated, and dropped* section:
+
+| dropped | beaten by | on what |
+|---|---|---|
+| `prefix` | `split-noslash` | 15 vs 22, and 8 moved vs 1. Its one advantage, no rule rename, is shared by `alternation` and `nested` |
+| `split-prefix` | `split-noslash` | strictly: same 22, same unaliasable 1:4 rename, 8 moved instead of 1 |
+| `collapse-dedup` | `collapse` | +5 adapters for a rule rename and a move back to the tighter per-rule cap |
+| `collapse` | judgement, not numbers | 58 is real and its measured cost is small, but it gives up path scope, undoing a deliberate decision in kserve#5087. Reopen it only if the count lands between 22 and 58 and both `alternation` and `nested` are refused |
+
 **Correction to the design docs.** `llmisvc-httproute-budget.md` §5 and the
 phased plan both put the header-only collapse at ~122 adapters. Measured it is
 **63**, and the binding limit is the per-rule 64 cap, not the route-wide 128 - the table conflated the two. Getting past 63 needs the Phase 3 T1
