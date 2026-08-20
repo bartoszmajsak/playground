@@ -3345,6 +3345,67 @@ istio.io/istio/pilot/pkg/config/kube/gateway.<span class="hi">mergeHTTPRoutes</s
     change, not any particular route.
   </p>
 
+  <h3>Root cause</h3>
+  <p>
+    <code>mergeHTTPRoutes</code> deep-copies the InferencePool config map defensively, but
+    <strong>only for <code>configs[0]</code></strong>. The merge loop's fallback, for when
+    the base has no map yet, stores the <em>other</em> config's map <strong>by
+    reference</strong>:
+  </p>
+
+  <div class="panel">
+    <div class="panel-hd"><span class="kb mark"><svg><use href="#ic-code"/></svg></span>
+      route_collections.go <span class="rt">istio 1.30.3</span></div>
+    <pre class="code"><span class="c">// :826-838  defensive copy, but only of configs[0]</span>
+base := configs[0].DeepCopy()
+if ipConfigs, ok := base.Extra[<span class="hi">poolCfgKey</span>].(map[string]InferencePoolRouteRuleConfig); ok {
+    newIPConfigs := make(map[string]InferencePoolRouteRuleConfig, len(ipConfigs))
+    for k, v := range ipConfigs { newIPConfigs[k] = v }
+    base.Extra[<span class="hi">poolCfgKey</span>] = newIPConfigs
+}
+
+<span class="c">// :870-874  the path the copy above does not cover</span>
+} else if configOk {
+    if _, exists := base.Extra[k]; !exists {
+        base.Extra[k] = v          <span class="er">// aliases another entry's cached map</span>
+    }
+}
+
+<span class="c">// :861-869  and the next iteration writes straight through the alias</span>
+baseMap, baseOk := base.Extra[k].(map[string]InferencePoolRouteRuleConfig)
+if baseOk &amp;&amp; configOk {
+    for routeName, routeConfig := range configMap {
+        <span class="er">baseMap[routeName] = routeConfig   // :868  &lt;-- the fatal</span>
+    }
+}</pre>
+  </div>
+
+  <p>
+    krt runs the transform for several index keys concurrently, so two goroutines end up
+    writing the same map. The defensive copy at <code>:826</code> was plainly added to
+    prevent exactly this - it just does not cover the <code>:873</code> path.
+  </p>
+
+  <div class="note warn">
+    <span class="lbl">the trigger, and why kserve produces it by default</span>
+    <p>All three must hold on one merge key:</p>
+    <ol style="margin:.5rem 0 0">
+      <li>several HTTPRoutes attach to the same gateway, so they merge</li>
+      <li>the <strong>oldest</strong> has <strong>no</strong> InferencePool backendRef</li>
+      <li>at least <strong>two</strong> later ones <strong>do</strong></li>
+    </ol>
+    <p style="margin-top:.6rem">
+      Which is this fixture exactly - a plain route created first, plus three
+      <code>LLMInferenceService</code> routes with pools - and it is the default shape kserve
+      produces on a shared gateway. A standalone reproducer lives in
+      <code>hack/istio-merge-race/</code>: one test fails without concurrency at all (the
+      merged result aliases its input), the other reports a data race at the line
+      corresponding to <code>:868</code>. Filed as
+      <a href="https://github.com/bartoszmajsak/work-items/issues/285">#285</a>; the fix is
+      to copy rather than alias.
+    </p>
+  </div>
+
   <h3>Does LoRA management get anywhere near that rate? No.</h3>
   <p>
     An earlier revision of this section claimed the crash was "a second, independent
@@ -3776,6 +3837,12 @@ istio.io/istio/pilot/pkg/config/kube/gateway.<span class="hi">mergeHTTPRoutes</s
       <span class="id"><a href="https://github.com/bartoszmajsak/work-items/issues/283">#283</a></span>
       <span class="ti">Istio below 1.29 never invokes the endpoint picker
         <small>Bisected: 1.28 silently bypasses ext_proc, 1.29 and 1.30 work. Nothing reports the bypass.</small></span>
+      <span><span class="st warn">p2</span></span>
+    </div>
+    <div class="issue">
+      <span class="id"><a href="https://github.com/bartoszmajsak/work-items/issues/285">#285</a></span>
+      <span class="ti">istiod crashes merging InferencePool and plain HTTPRoutes on one gateway
+        <small>A map aliased instead of copied in <code>mergeHTTPRoutes</code>. Standalone reproducer; kserve emits the trigger shape by default.</small></span>
       <span><span class="st warn">p2</span></span>
     </div>
     <div class="issue">

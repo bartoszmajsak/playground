@@ -198,8 +198,10 @@ Gateway API v1.5.1's standard channel disables; the script's notes cover it.
 Installing a controller that brings new CRD groups also leaves already-running
 controllers with stale informers - after adding Envoy Gateway, kgateway and then
 istiod both silently stopped attaching routes until restarted. And istiod 1.30.3
-crash-loops under rapid HTTPRoute churn (`mergeHTTPRoutes`, a data race); see
-FINDINGS 27. InferencePool on Envoy Gateway needs the **Envoy AI Gateway addon** -
+crash-loops when merging InferencePool and plain HTTPRoutes on one gateway - root
+cause and a standalone reproducer in `hack/istio-merge-race/`, written up in
+FINDINGS 27, filed as
+[#285](https://github.com/bartoszmajsak/work-items/issues/285). InferencePool on Envoy Gateway needs the **Envoy AI Gateway addon** -
 plain Envoy Gateway rejects the backendRef kind outright.
 
 ## The shapes

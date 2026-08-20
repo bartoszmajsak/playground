@@ -1666,6 +1666,79 @@ applies and deletes HTTPRoutes every few seconds, and istiod stabilised at zero
 restarts once that stopped, then stayed stable when routes were added back
 individually.
 
+### Root cause, found
+
+`pilot/pkg/config/kube/gateway/route_collections.go` at istio 1.30.3.
+`mergeHTTPRoutes` deep-copies the InferencePool config map defensively, but
+**only for `configs[0]`**:
+
+```go
+// :826-838
+base := configs[0].DeepCopy()
+if ipConfigs, ok := base.Extra[ConfigExtraPerRouteRuleInferencePoolConfigs].(map[string]kube.InferencePoolRouteRuleConfig); ok {
+    newIPConfigs := make(map[string]kube.InferencePoolRouteRuleConfig, len(ipConfigs))
+    for k, v := range ipConfigs { newIPConfigs[k] = v }
+    base.Extra[...] = newIPConfigs
+}
+```
+
+The merge loop's fallback, for when `base` has no map yet, stores the *other*
+config's map **by reference**:
+
+```go
+// :870-874
+} else if configOk {
+    if _, exists := base.Extra[k]; !exists {
+        base.Extra[k] = v          // aliases cached krt state owned by another entry
+    }
+}
+```
+
+From then on `base.Extra[k]` aliases it, and the next iteration writes through
+the alias at the line the stack names:
+
+```go
+// :861-869
+baseMap, baseOk := base.Extra[k].(map[string]kube.InferencePoolRouteRuleConfig)
+if baseOk && configOk {
+    for routeName, routeConfig := range configMap {
+        baseMap[routeName] = routeConfig   // :868
+    }
+}
+```
+
+krt runs the transform for several index keys concurrently, so two goroutines
+write the same map. The defensive copy at `:826` was plainly added to prevent
+exactly this; it just does not cover the `:873` path.
+
+**Trigger conditions**, all three on one merge key:
+
+1. several HTTPRoutes attach to the same gateway, so they merge
+2. the **oldest** (`configs[0]` after `sortRoutesByCreationTime`) has **no**
+   InferencePool backendRef
+3. at least **two** later ones **do**
+
+Which is exactly this fixture: a plain `neighbour` route created first, plus
+three `LLMInferenceService` routes with pools. It is also the default shape kserve
+produces on a shared gateway.
+
+**Reproducer:** `hack/istio-merge-race/`, a standalone Go module reducing
+`:825-880` to the map handling with no istio dependency.
+
+```
+go test -run TestAliasingEscapes ./...        # deterministic, no -race needed
+go test -race -run TestConcurrentMerge ./...
+```
+
+`TestAliasingEscapes` fails without concurrency - after merging, input
+`config[1]`'s map holds two entries instead of one, because the result aliases
+it. `TestConcurrentMerge` reports `WARNING: DATA RACE` at the line corresponding
+to `:868`. Both verified on go 1.26.4.
+
+**Fix:** copy rather than alias at `:873`. Filed as [#285].
+
+[#285]: https://github.com/bartoszmajsak/work-items/issues/285
+
 So the trigger is rate of HTTPRoute change rather than any particular route.
 
 ### Does normal LoRA management get anywhere near that rate? No.
