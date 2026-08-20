@@ -1169,6 +1169,10 @@ was doing more work in the argument than the evidence supports.
 
 ## 21. Three data planes: kgateway is the outlier, not Istio
 
+> Envoy Gateway was tested here **without** the AI Gateway addon, so this
+> section says nothing about InferencePool on it. Section 26 installs the addon
+> and closes that gap.
+
 Section 16 concluded that Istio was unusual in raising the RE2 program-size limit,
 and that an alternation therefore would not survive elsewhere. Adding a third
 implementation shows that was still one data point short.
@@ -1548,6 +1552,157 @@ only thing the byte count and program size depend on -
 `hack/render-scale-route.py realistic|longns`. The header values probed match the
 pattern, so the measurement is honest even though the namespace on the cluster is
 still `lora-budget`.
+
+## 26. Envoy AI Gateway: the addon is what provides GIE support
+
+Section 21 tested Envoy Gateway without the AI Gateway addon, which was enough for
+the regex questions and not enough to say anything about InferencePool. Installing
+the addon closes that gap and answers a question the earlier run could not.
+
+### Plain Envoy Gateway cannot route to an InferencePool at all
+
+An HTTPRoute with an `InferencePool` backendRef on Envoy Gateway 1.9.0, verbatim:
+
+```
+ResolvedRefs=False  InvalidKind: Failed to process route rule 0 backendRef 0:
+Group is invalid, only the core API group (specified by omitting the group field
+or setting it to an empty string), multicluster.x-k8s.io and
+gateway.envoyproxy.io are supported.
+```
+
+Searching both repositories confirms the split: `InferencePool` appears in
+envoyproxy/gateway only in examples and docs, and in envoyproxy/ai-gateway as
+`internal/extensionserver/inferencepool.go` with three dedicated guides. **GIE
+support on Envoy Gateway is a property of the AI Gateway addon, not of Envoy
+Gateway.**
+
+### Enabling it
+
+The addon hooks into Envoy Gateway's xDS translation as an extension server, so
+Envoy Gateway has to be reinstalled with the AI Gateway values and told to accept
+the kind:
+
+```yaml
+extensionManager:
+  backendResources:
+    - group: inference.networking.k8s.io
+      kind: InferencePool
+      version: v1
+  hooks:
+    xdsTranslator: { ... }
+extensionApis:
+  enableBackend: true
+```
+
+After that the same route reports `ResolvedRefs=True` and serves.
+
+### The endpoint picker behaves identically to Istio
+
+kserve's generated route, copied verbatim onto the Envoy Gateway with only the
+`parentRef` changed and pointing at the real InferencePool, so the real EPP and
+real vLLM are in the path (`golden/epp-dataplane.tsv`):
+
+| request | istio | envoy-ai-gateway |
+|---|---|---|
+| `GET /health` + header | 200 empty | 200 empty |
+| `GET /metrics` + header | 200 vllm metrics | 200 vllm metrics |
+| `GET /v1/models` + header | 200 model list | 200 model list |
+| `POST /v1/embeddings` + header | 404 | 404 |
+| `POST /v1/messages/count_tokens` + header | 200 | 200 |
+| `POST /anything/at/all` + header | 404 | 404 |
+| `GET /` + header | 404 | 404 |
+| `POST /v1/chat/completions` + header | 200 model-a | 200 model-a |
+| `POST /v1/chat/completions` + adapter header | 200 **adapter-a1** | 200 **adapter-a1** |
+| `POST /{ns}/{name}/v1/chat/completions` | 200 model-a | 200 model-a |
+| `GET /{ns}/{name}/health` | 200 | 200 |
+| `GET /{ns}/{name}/v1/models` | 200 model list | 200 model list |
+
+**12 of 12 agree**, including adapter resolution through the pool. Compared on
+served content rather than status code: the harness could not read fortio's status
+line on 200 responses, so the 200 rows are compared by what came back and the 404
+rows carry their code.
+
+### The ceiling results are unchanged
+
+Re-running the full sweep with the addon installed reproduces section 25 exactly:
+
+| profile | adapters | bytes | istio | kgateway | envoy-ai-gw |
+|---|---|---|---|---|---|
+| realistic | 2 | 96 | ok | ok | ok |
+| realistic | 3 | 114 | ok | **refused, 107 > 100** | ok |
+| realistic | 4 | 134 | ok | **refused, 124 > 100** | ok |
+| long namespace | 1 | 100 | ok | ok | ok |
+| long namespace | 2 | 126 | ok | **refused, 117 > 100** | ok |
+
+And the anchoring probes are 11 of 11 across all three.
+
+### What this changes for the recommendation
+
+Very little, and that is the point. Envoy AI Gateway raises the RE2 limit as Istio
+does, so it joins Istio on the tolerant side and kgateway remains the one where a
+realistically-named alternation fails at two or three adapters. What it adds is
+that the *whole* stack - InferencePool, endpoint picker, adapter resolution - now
+has a second working implementation, so the EPP findings are no longer
+single-implementation the way sections 6 and 7 still are.
+
+## 27. Environment: istiod crashes under HTTPRoute churn
+
+Worth recording because it bit this spike repeatedly and because it bears on the
+churn argument.
+
+With four Gateway API controllers sharing one kind node, istiod 1.30.3 crash-looped
+with:
+
+```
+fatal error: concurrent map writes
+istio.io/istio/pilot/pkg/config/kube/gateway.mergeHTTPRoutes.func2
+    pilot/pkg/config/kube/gateway/route_collections.go:868
+```
+
+A data race in HTTPRoute *merging*. Things that did not fix it: giving istiod more
+CPU and memory, removing the TCPRoute and UDPRoute CRDs this spike had added,
+deleting the probe routes. What did: **stopping the churn.** The probe harness
+applies and deletes HTTPRoutes every few seconds, and istiod stabilised at zero
+restarts once that stopped, then stayed stable when routes were added back
+individually.
+
+So the trigger is rate of HTTPRoute change rather than any particular route. Two
+consequences:
+
+- **For this spike's method:** the harness now checks each control plane is Ready
+  and degrades that column to `ctrl-down` rather than reporting stale config as a
+  result. An earlier istio row in section 25 was wrong for exactly this reason and
+  was caught only because the value looked implausible.
+- **For the recommendation:** per-adapter route churn is not merely untidy. Every
+  adapter add or remove rewrites the HTTPRoute, and on this version of Istio a
+  high enough rate of that crashes the control plane. `alternation` retains that
+  churn; `nested` is the only shape that removes it. It is a second, independent
+  argument for the same conclusion.
+
+Separately: enabling `v1alpha2` on the TLSRoute CRD - which this spike did to get
+kgateway to start - also crashed istiod, reproducibly, and reverting it fixed that
+instance. kgateway only needs the version at startup, so the setting can be
+reverted afterwards.
+
+### Two controllers writing one InferencePool
+
+Observed during this run and worth flagging: `kubectl get inferencepool
+--show-managed-fields` shows two writers on the same object - kserve's llmisvc
+controller on the spec, and `pilot-discovery` (istiod) on the status. The kserve
+controller logged ten `Operation cannot be fulfilled on inferencepools` optimistic
+concurrency conflicts, and the `LLMInferenceService` Ready condition flaps: one of
+the four fixture services reads `False` at any moment, rotating between them.
+
+It resolves itself on retry rather than failing, and the **generated routes are
+stable throughout** - svc-a held 12 rules / 37 matches across three minutes of
+sampling, svc-c held 10/10 - so nothing measured in this document is affected. But
+a Ready condition that flaps under normal operation is the kind of thing that
+makes a real signal easy to ignore, and it is a second instance of the theme in
+section 15 and issue #284: detection that fires correctly but reads as noise.
+
+Not investigated further: whether this predates the multi-controller cluster or
+was introduced by it.
+
 
 ---
 

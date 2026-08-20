@@ -76,6 +76,16 @@ YAML
     for gw in istio kgw eg; do python3 hack/render-anchoring-route.py "$gw" | kubectl apply -f -; done
 }
 
+# A control plane that is not Ready cannot have programmed anything, so say so
+# rather than reporting its stale config as a result.
+healthy() {
+    case "$1" in
+      istio) kubectl -n istio-system get deploy istiod -o jsonpath='{.status.readyReplicas}' 2>/dev/null | grep -q '^[1-9]' ;;
+      kgw)   kubectl -n kgateway-system get deploy kgateway -o jsonpath='{.status.readyReplicas}' 2>/dev/null | grep -q '^[1-9]' ;;
+      eg)    kubectl -n envoy-gateway-system get deploy envoy-gateway -o jsonpath='{.status.readyReplicas}' 2>/dev/null | grep -q '^[1-9]' ;;
+    esac
+}
+
 addr_of() {  # gateway -> host:port reachable from the fortio pod
     case "$1" in
       istio) echo "kserve-ingress-gateway-istio.kserve.svc.cluster.local:80" ;;
@@ -87,12 +97,16 @@ addr_of() {  # gateway -> host:port reachable from the fortio pod
     esac
 }
 
-hit() {  # gateway, header-value -> backend name
+hit() {  # gateway, header-value -> backend name, or "" if it did not answer
     # </dev/null matters: kubectl exec reads stdin, and without it the first
     # probe swallows the whole heredoc the caller is looping over.
-    kubectl -n "$NS" exec fortio -- fortio curl -quiet \
+    #
+    # The || true is not laziness. With four Gateway API controllers stacked on
+    # one node, one control plane being unhealthy should degrade its column to
+    # "none" rather than abort the whole run under set -e and lose the other two.
+    { kubectl -n "$NS" exec fortio -- fortio curl -quiet \
         -H "X-Gateway-Model-Name: $2" "http://$(addr_of "$1")/anchor/messages" </dev/null 2>/dev/null \
-      | sed -n 's/.*"hostname": *"\(echo-[a-z]*\)-[a-z0-9]*-[a-z0-9]*".*/\1/p' | head -1
+      | sed -n 's/.*"hostname": *"\(echo-[a-z]*\)-[a-z0-9]*-[a-z0-9]*".*/\1/p' | head -1; } || true
 }
 
 # Every probe states what SHOULD happen if the data plane full-matches. A cell
@@ -104,6 +118,7 @@ probe() {
         [[ -z "$label" ]] && continue
         local i k e
         i=$(hit istio "$val"); k=$(hit kgw "$val"); e=$(hit eg "$val")
+        healthy istio || i="ctrl-down"; healthy kgw || k="ctrl-down"; healthy eg || e="ctrl-down"
         i="${i:-none}"; k="${k:-none}"; e="${e:-none}"
         printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$label" "${val#"$P/"}" "$expect" "$i" "$k" "$e" | tee -a "$OUT"
     done <<EOF

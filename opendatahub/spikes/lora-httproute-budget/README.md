@@ -181,7 +181,7 @@ is hand-built against echo backends on purpose: those measure Envoy, not kserve.
 | `probe-latency.sh` | throughput per shape. **Too noisy to conclude from** - kept because the failure is instructive |
 | `probe-regex-cost.sh` | what does ONE header-regex evaluation cost? (answer: under 0.145 us, i.e. nothing) |
 | `hack/diff-shapes.py` | what does adding ONE adapter look like to a reviewer? (no cluster needed) |
-| `probe-dataplane.sh` | do the regex findings hold on kgateway and Envoy Gateway as well as Istio? (semantics: yes, all three. ceiling: no, kgateway alone) |
+| `probe-dataplane.sh` | do the regex findings hold on kgateway and Envoy AI Gateway as well as Istio? (semantics: yes, 11/11 all three. ceiling: no, kgateway alone) |
 | `hack/render-adapter-paths.py` | if adapters ever got a publisher path, does the PATH axis hit a ceiling too? |
 | `hack/render-scale-route.py` | full-size alternation per data plane and naming profile (`realistic`, `longns`) |
 
@@ -196,8 +196,11 @@ the only shape that does not need one.
 `probe-dataplane.sh install` needs `v1alpha2` served on the TLSRoute CRD, which
 Gateway API v1.5.1's standard channel disables; the script's notes cover it.
 Installing a controller that brings new CRD groups also leaves already-running
-controllers with stale informers - after adding Envoy Gateway, kgateway silently
-stopped attaching routes until it was restarted.
+controllers with stale informers - after adding Envoy Gateway, kgateway and then
+istiod both silently stopped attaching routes until restarted. And istiod 1.30.3
+crash-loops under rapid HTTPRoute churn (`mergeHTTPRoutes`, a data race); see
+FINDINGS 27. InferencePool on Envoy Gateway needs the **Envoy AI Gateway addon** -
+plain Envoy Gateway rejects the backendRef kind outright.
 
 ## The shapes
 

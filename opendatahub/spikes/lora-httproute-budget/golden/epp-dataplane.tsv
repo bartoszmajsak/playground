@@ -1,0 +1,24 @@
+# Does the endpoint picker behave the same on Envoy AI Gateway as on Istio?
+#
+# kserve's generated route, copied verbatim onto the Envoy Gateway with only the
+# parentRef changed, pointing at the REAL InferencePool so the EPP is in the path.
+# Requires the Envoy AI Gateway addon: plain Envoy Gateway 1.9.0 rejects an
+# InferencePool backendRef outright ("only the core API group, multicluster.x-k8s.io
+# and gateway.envoyproxy.io are supported").
+#
+# Compared on served content. The harness could not read the status line from
+# fortio on 200 responses, so 200s are compared by what came back rather than by
+# code; the 404s carry their code.
+method	path	header	istio	envoy-ai-gw	agree
+GET	/health	hdr	200 empty	200 empty	yes
+GET	/metrics	hdr	200 vllm metrics	200 vllm metrics	yes
+GET	/v1/models	hdr	200 model list	200 model list	yes
+POST	/v1/embeddings	hdr	404 Not Found	404 Not Found	yes
+POST	/v1/messages/count_tokens	hdr	200	200	yes
+POST	/anything/at/all	hdr	404 Not Found	404 Not Found	yes
+GET	/	hdr	404 Not Found	404 Not Found	yes
+POST	/v1/chat/completions	hdr	200 model-a	200 model-a	yes
+POST	/v1/chat/completions	adapter	200 adapter-a1	200 adapter-a1	yes
+POST	/{ns}/{name}/v1/chat/completions	none	200 model-a	200 model-a	yes
+GET	/{ns}/{name}/health	none	200	200	yes
+GET	/{ns}/{name}/v1/models	none	200 model list	200 model list	yes

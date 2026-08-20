@@ -1,31 +1,29 @@
-# Alternation ceiling by data plane, and by whether adapter names share a prefix.
+# Alternation ceiling by control plane and naming profile.
 #
-# The binding limit is NOT the same everywhere. Envoy refuses to compile a regex
-# whose RE2 program size exceeds re2.max_program_size.error_level, and each
-# Gateway API implementation picks that value:
+# Istio, kgateway and Envoy Gateway are CONTROL PLANES configuring the same data
+# plane (Envoy). What differs is the runtime settings each bakes into the
+# bootstrap it hands the proxy:
 #
-#   istio 1.30.3     32768        (set in the proxy's runtime layer)
-#   envoy-gw 1.6     4294967295   (bootstrap layered_runtime, i.e. off;
-#                                  warn_level 1000)
-#   kgateway 2.1.1   unset        -> Envoy's compiled-in default of 100
+#   istio 1.30.3       re2.max_program_size.error_level = 32768
+#   envoy-gw 1.9.0     re2.max_program_size.error_level = 4294967295 (off),
+#                      warn_level 1000
+#   kgateway 2.1.1     unset -> Envoy's compiled-in default of 100
 #
-# So kgateway is the outlier: two of three raise or remove the limit.
 # Where the limit is not binding, the CRD's 4096-byte cap on a header match
 # value binds instead.
-dataplane	names	adapters	pattern-bytes	re2-program-size	programs
-istio	shared	297	4091	-	yes
-istio	shared	320	4092	-	yes
-istio	shared	321	>4096	-	no (apiserver rejects)
-kgateway	shared	220	2792	-	yes
-kgateway	shared	240	3052	-	no
-kgateway	shared	280	3572	111	no
-kgateway	distinct	5	90	-	yes
-kgateway	distinct	6	100	-	yes
-kgateway	distinct	7	110	106	no
-kgateway	distinct	8	120	115	no
-kgateway	distinct	9	130	124	no
-envoy-gw	distinct	9	130	-	yes
-envoy-gw	distinct	50	581	-	yes
-envoy-gw	distinct	100	1132	-	yes
-envoy-gw	distinct	200	2332	-	yes
-envoy-gw	distinct	300	3532	-	yes
+#
+# Re-run with Envoy AI Gateway installed (the addon that provides InferencePool
+# support); results unchanged from the plain Envoy Gateway run.
+profile	adapters	pattern-bytes	istio	kgateway	envoy-ai-gw	kgateway-re2-program-size
+realistic	2	96	ok	ok	ok	under 100
+realistic	3	114	ok	REFUSED	ok	107
+realistic	4	134	ok	REFUSED	ok	124
+longns	1	100	ok	ok	ok	under 100
+longns	2	126	ok	REFUSED	ok	117
+# earlier runs, short fixture names (adapter-a1 style)
+fixture-shared	220	2792	ok	ok	-	under 100
+fixture-shared	240	3052	ok	REFUSED	-	-
+fixture-distinct	6	100	ok	ok	-	under 100
+fixture-distinct	7	110	ok	REFUSED	-	106
+fixture-minimal	320	4092	ok	-	-	-
+fixture-minimal	321	>4096	apiserver rejects	-	-	-
