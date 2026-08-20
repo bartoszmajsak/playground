@@ -183,6 +183,7 @@ is hand-built against echo backends on purpose: those measure Envoy, not kserve.
 | `hack/diff-shapes.py` | what does adding ONE adapter look like to a reviewer? (no cluster needed) |
 | `probe-dataplane.sh` | do the regex findings hold on kgateway and Envoy Gateway as well as Istio? (semantics: yes, all three. ceiling: no, kgateway alone) |
 | `hack/render-adapter-paths.py` | if adapters ever got a publisher path, does the PATH axis hit a ceiling too? |
+| `hack/render-scale-route.py` | full-size alternation per data plane and naming profile (`realistic`, `longns`) |
 
 The short version is in FINDINGS section 23: the **body** tells vLLM which adapter
 to apply, the **header** tells the gateway which vLLM, and on the shared
@@ -209,7 +210,7 @@ only thing differing between two tables is the transformation under test:
 | `prefix` | 15 | 8 | `Exact` -> `PathPrefix`, dropping the trailing-slash twins |
 | `split-noslash` | 22 | 1 | both of the above |
 | `split-prefix` | 22 | 8 | both, with PathPrefix |
-| `alternation` | **320** istio / **6** kgw | **0** | one regex listing the existing names. Istio-only: see FINDINGS 16 |
+| `alternation` | **188** istio / **2** stock Envoy | **0** | one regex over the existing names. Ceiling is name-length driven and the 320 quoted elsewhere assumes the fixture's short names: see FINDINGS 25 |
 | `nested` | unbounded | 7 | adapters served beneath the base; one prefix regex |
 | `collapse` | 58 | 20 | header-only rule, no path match |
 | `collapse-dedup` | 63 | 20 | collapse, plus deleting the catch-all it makes dead |

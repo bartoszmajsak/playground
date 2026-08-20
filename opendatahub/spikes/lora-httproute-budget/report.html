@@ -1,4 +1,146 @@
 <title>The Seven-Adapter Ceiling</title>
+
+<!--
+  Kubernetes resource glyphs, hand-authored to follow the shapes people already
+  read: the heptagon for a pod, connected nodes for a service, a puzzle piece for
+  a custom resource. Everything is a <symbol> on a 24x24 grid drawn in
+  currentColor, so a badge can recolour it and it stays crisp at any size.
+-->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <!-- pod: the heptagon, the one shape everyone recognises -->
+    <symbol id="ic-pod" viewBox="0 0 24 24">
+      <polygon points="12,2.4 19.6,5.8 21.5,14 16.3,20.6 7.7,20.6 2.5,14 4.4,5.8"
+               fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+      <circle cx="12" cy="12" r="2.6" fill="currentColor"/>
+    </symbol>
+
+    <!-- service: one entry point fanning to several backends -->
+    <symbol id="ic-svc" viewBox="0 0 24 24">
+      <circle cx="12" cy="4.6" r="2.4" fill="currentColor"/>
+      <circle cx="4.8" cy="18.6" r="2.4" fill="currentColor"/>
+      <circle cx="12" cy="18.6" r="2.4" fill="currentColor"/>
+      <circle cx="19.2" cy="18.6" r="2.4" fill="currentColor"/>
+      <path d="M12 7.4 L12 12 M4.8 16.2 L4.8 12 L19.2 12 L19.2 16.2 M12 12 L12 16.2"
+            fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+    </symbol>
+
+    <!-- gateway: traffic crossing a boundary into the cluster -->
+    <symbol id="ic-gw" viewBox="0 0 24 24">
+      <path d="M7.5 3.2 A 10 10 0 0 0 7.5 20.8" fill="none" stroke="currentColor"
+            stroke-width="1.7" stroke-linecap="round"/>
+      <path d="M17.5 3.2 A 10 10 0 0 1 17.5 20.8" fill="none" stroke="currentColor"
+            stroke-width="1.7" stroke-linecap="round"/>
+      <path d="M4 12 L17 12 M13.4 8.4 L17 12 L13.4 15.6" fill="none" stroke="currentColor"
+            stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+
+    <!-- httproute: one request, several possible destinations -->
+    <symbol id="ic-route" viewBox="0 0 24 24">
+      <circle cx="4.4" cy="12" r="2.3" fill="currentColor"/>
+      <path d="M6.7 12 L11 12 M11 12 C 14 12 14 5.6 17 5.6 M11 12 C 14 12 14 18.4 17 18.4"
+            fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+      <path d="M16 3.2 L19.4 5.6 L16 8 M16 15.6 L19.4 18.4 L16 21" fill="none"
+            stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+
+    <!-- inferencepool: a cluster of pods addressed as one -->
+    <symbol id="ic-pool" viewBox="0 0 24 24">
+      <polygon points="12,2 16.6,4.1 17.8,9 14.6,12.9 9.4,12.9 6.2,9 7.4,4.1"
+               fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+      <polygon points="6.2,12.4 9.5,13.9 10.4,17.4 8.1,20.2 4.3,20.2 2,17.4 2.9,13.9"
+               fill="currentColor" opacity=".55"/>
+      <polygon points="17.8,12.4 21.1,13.9 22,17.4 19.7,20.2 15.9,20.2 13.6,17.4 14.5,13.9"
+               fill="currentColor" opacity=".55"/>
+    </symbol>
+
+    <!-- endpoint picker: choosing one target out of several -->
+    <symbol id="ic-epp" viewBox="0 0 24 24">
+      <circle cx="5" cy="6" r="2.1" fill="currentColor" opacity=".4"/>
+      <circle cx="5" cy="18" r="2.1" fill="currentColor" opacity=".4"/>
+      <circle cx="5" cy="12" r="2.1" fill="currentColor"/>
+      <path d="M7.6 12 L14 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+      <circle cx="18" cy="12" r="4.4" fill="none" stroke="currentColor" stroke-width="1.6"/>
+      <circle cx="18" cy="12" r="1.5" fill="currentColor"/>
+    </symbol>
+
+    <!-- custom resource: the puzzle piece -->
+    <symbol id="ic-crd" viewBox="0 0 24 24">
+      <path d="M3.4 3.4 H10 v1.6 a2.1 2.1 0 0 0 4.2 0 V3.4 h6.4 v6.4 h-1.6 a2.1 2.1 0 0 0 0 4.2 h1.6
+               v6.6 H14.2 v-1.6 a2.1 2.1 0 0 0 -4.2 0 v1.6 H3.4 Z"
+            fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+    </symbol>
+
+    <!-- policy: a shield, for AuthPolicy -->
+    <symbol id="ic-policy" viewBox="0 0 24 24">
+      <path d="M12 2.6 L20 5.6 v6.2 c0 4.6 -3.3 8.2 -8 9.6 -4.7 -1.4 -8 -5 -8 -9.6 V5.6 Z"
+            fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+      <path d="M8.4 12.2 L11 14.8 L15.8 9.4" fill="none" stroke="currentColor"
+            stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+
+    <!-- vLLM / accelerator: a chip -->
+    <symbol id="ic-chip" viewBox="0 0 24 24">
+      <rect x="6.2" y="6.2" width="11.6" height="11.6" rx="1.8" fill="none"
+            stroke="currentColor" stroke-width="1.7"/>
+      <rect x="9.8" y="9.8" width="4.4" height="4.4" rx=".9" fill="currentColor"/>
+      <path d="M9.4 6.2V3 M14.6 6.2V3 M9.4 21V17.8 M14.6 21V17.8 M6.2 9.4H3 M6.2 14.6H3 M21 9.4H17.8 M21 14.6H17.8"
+            fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+    </symbol>
+
+    <!-- rewrite: one name swapped for another -->
+    <symbol id="ic-rewrite" viewBox="0 0 24 24">
+      <path d="M3.4 7.6 H16 M12.6 4.2 L16 7.6 L12.6 11" fill="none" stroke="currentColor"
+            stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M20.6 16.4 H8 M11.4 13 L8 16.4 L11.4 19.8" fill="none" stroke="currentColor"
+            stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+
+    <!-- regex / pattern -->
+    <symbol id="ic-regex" viewBox="0 0 24 24">
+      <path d="M12 3.6 V12 M12 12 L19.3 7.8 M12 12 L4.7 7.8 M12 12 L19.3 16.2 M12 12 L4.7 16.2"
+            fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+      <circle cx="12" cy="19.4" r="2.3" fill="currentColor"/>
+    </symbol>
+
+    <!-- warning -->
+    <symbol id="ic-warn" viewBox="0 0 24 24">
+      <path d="M12 3.2 L21.6 20 H2.4 Z" fill="none" stroke="currentColor"
+            stroke-width="1.7" stroke-linejoin="round"/>
+      <path d="M12 9.4 V14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+      <circle cx="12" cy="17" r="1.2" fill="currentColor"/>
+    </symbol>
+
+    <!-- measurement / stopwatch -->
+    <symbol id="ic-clock" viewBox="0 0 24 24">
+      <circle cx="12" cy="13.2" r="8.2" fill="none" stroke="currentColor" stroke-width="1.7"/>
+      <path d="M12 8.6 V13.2 H15.6" fill="none" stroke="currentColor" stroke-width="1.7"
+            stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M9.4 2.4 H14.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+    </symbol>
+
+    <!-- table / matrix -->
+    <symbol id="ic-grid" viewBox="0 0 24 24">
+      <rect x="3" y="4" width="18" height="16" rx="1.8" fill="none" stroke="currentColor" stroke-width="1.6"/>
+      <path d="M3 9.4 H21 M9.4 9.4 V20 M15.2 9.4 V20" fill="none" stroke="currentColor" stroke-width="1.5"/>
+    </symbol>
+
+    <!-- code / yaml -->
+    <symbol id="ic-code" viewBox="0 0 24 24">
+      <path d="M8.6 7.8 L3.6 12 L8.6 16.2 M15.4 7.8 L20.4 12 L15.4 16.2 M13.4 4.4 L10.6 19.6"
+            fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+
+    <!-- question -->
+    <symbol id="ic-ask" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.7"/>
+      <path d="M9.4 9.4 A2.7 2.7 0 1 1 12 13 V14.4" fill="none" stroke="currentColor"
+            stroke-width="1.7" stroke-linecap="round"/>
+      <circle cx="12" cy="17.4" r="1.2" fill="currentColor"/>
+    </symbol>
+  </defs>
+</svg>
+
 <style>
   :root {
     /* chrome: one blue, the way a console has one chrome colour */
@@ -108,6 +250,8 @@
   }
 
   /* status strip: the console's summary row */
+  .kinds { display: flex; flex-wrap: wrap; gap: .4rem; margin: 1.5rem 0 0; }
+
   .strip {
     display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
     gap: 1px; background: var(--rule); border: 1px solid var(--rule);
@@ -126,21 +270,42 @@
   .strip dd.bad  { color: var(--crit); }
   .strip dd.good { color: var(--ok); }
 
-  /* ================= kind badge ================= */
+  /* ================= kind badge =================
+     A rounded square holding a resource glyph, the way Kubernetes tooling draws
+     them. Icons are <use> refs into the sprite at the top of the document, so
+     they inherit currentColor and cost nothing extra per instance. */
   .kb {
     display: inline-grid; place-items: center; flex: none;
-    width: 1.55em; height: 1.55em; border-radius: 50%;
+    width: 1.5em; height: 1.5em; border-radius: 5px;
     background: var(--kind); color: #fff;
     font-family: var(--mono); font-size: .62rem; font-weight: 700;
-    letter-spacing: .01em; line-height: 1; vertical-align: -.32em;
+    letter-spacing: .01em; line-height: 1; vertical-align: -.34em;
     user-select: none;
   }
-  .kb.lg { width: 2.4rem; height: 2.4rem; font-size: .82rem; vertical-align: 0; }
+  .kb svg { width: 72%; height: 72%; display: block; }
   .kb.muted { background: var(--ink-faint); }
+  .kb.ghost { background: transparent; color: var(--ink-faint);
+              box-shadow: inset 0 0 0 1.2px var(--rule); }
+  .kb.warn  { background: var(--warn); }
+  .kb.crit  { background: var(--crit); }
+  .kb.ok    { background: var(--ok); }
+  .kb.lg    { width: 2.1rem; height: 2.1rem; border-radius: 7px; vertical-align: 0; }
+
   .kref {
     font-family: var(--mono); font-size: .86em; white-space: nowrap;
-    display: inline-flex; align-items: center; gap: .35em;
+    display: inline-flex; align-items: center; gap: .4em;
   }
+
+  /* a resource named with its glyph, used in prose and legends */
+  .kchip {
+    display: inline-flex; align-items: center; gap: .4em;
+    background: var(--kind-dim); color: var(--kind);
+    border: 1px solid var(--kind-line); border-radius: 6px;
+    padding: .12em .5em .12em .3em; font-family: var(--mono);
+    font-size: .78rem; font-weight: 600; white-space: nowrap;
+  }
+  .kchip svg { width: 1.05em; height: 1.05em; }
+  .kchip.muted { background: var(--rule-soft); color: var(--ink-soft); border-color: var(--rule); }
 
   /* ================= structure ================= */
   section { padding-top: 3rem; }
@@ -171,8 +336,8 @@
     border-radius: 7px; overflow: hidden; margin: 0 0 1.5rem;
   }
   .panel-hd {
-    display: flex; align-items: center; gap: .55rem; flex-wrap: wrap;
-    padding: .6rem .95rem; background: var(--sunken);
+    display: flex; align-items: center; gap: .6rem; flex-wrap: wrap;
+    padding: .62rem .95rem; background: var(--sunken);
     border-bottom: 1px solid var(--rule);
     font-family: var(--mono); font-size: .72rem; letter-spacing: .07em;
     text-transform: uppercase; color: var(--ink-soft); font-weight: 600;
@@ -451,6 +616,15 @@
     </div>
   </div>
 
+  <p class="kinds">
+    <span class="kchip"><svg><use href="#ic-crd"/></svg>LLMInferenceService</span>
+    <span class="kchip"><svg><use href="#ic-route"/></svg>HTTPRoute</span>
+    <span class="kchip"><svg><use href="#ic-pool"/></svg>InferencePool</span>
+    <span class="kchip muted"><svg><use href="#ic-epp"/></svg>EndpointPicker</span>
+    <span class="kchip muted"><svg><use href="#ic-chip"/></svg>vLLM</span>
+    <span class="kchip muted"><svg><use href="#ic-policy"/></svg>AuthPolicy</span>
+  </p>
+
   <dl class="strip">
     <div><dt>adapters today</dt><dd class="bad">7</dd></div>
     <div><dt>portable, no rename</dt><dd>22</dd></div>
@@ -464,6 +638,232 @@
     <div><dt>issues filed</dt><dd>5</dd></div>
   </dl>
 </header>
+
+
+<section>
+  <h2>How a request reaches a LoRA adapter</h2>
+  <p class="sub">
+    Everything below turns on this. One custom resource generates five objects, a request
+    crosses four of them, and the model name is used twice for two different purposes.
+  </p>
+
+  <h3>What one LLMInferenceService creates</h3>
+
+  <figure class="fig">
+    <div class="figbox">
+    <svg viewBox="0 0 800 250" role="img" preserveAspectRatio="xMidYMid meet"
+         aria-label="One LLMInferenceService custom resource generates five objects: an HTTPRoute that attaches to a shared Gateway, an InferencePool, an endpoint picker Deployment that the pool consults, a vLLM Deployment whose pods load the LoRA adapters from a volume, and a plain workload Service pointing at the same pods.">
+      <defs>
+        <marker id="p1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+
+      <!-- the CR -->
+      <rect x="0" y="86" width="168" height="72" rx="8" fill="var(--kind-dim)" stroke="var(--kind)" stroke-width="1.6"/>
+      <rect x="14" y="100" width="22" height="22" rx="5" fill="var(--kind)"/>
+      <use href="#ic-crd" x="18" y="104" width="14" height="14" color="#fff"/>
+      <text x="44" y="115" font-size="10.5" font-weight="700" fill="currentColor">LLMInferenceService</text>
+      <text x="14" y="137" font-size="9" font-family="ui-monospace, monospace" fill="currentColor" opacity=".7">spec.model.name</text>
+      <text x="14" y="150" font-size="9" font-family="ui-monospace, monospace" fill="currentColor" opacity=".7">spec.model.lora.adapters[]</text>
+
+      <text x="196" y="40" font-size="9.5" font-family="ui-monospace, monospace" fill="currentColor" opacity=".5" letter-spacing=".08em">GENERATES</text>
+      <path d="M168 122 L196 122" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#p1)" opacity=".5"/>
+
+      <!-- generated objects -->
+      <g>
+        <rect x="204" y="52" width="176" height="42" rx="7" fill="none" stroke="var(--kind)" stroke-width="1.4"/>
+        <rect x="216" y="62" width="22" height="22" rx="5" fill="var(--kind)"/>
+        <use href="#ic-route" x="220" y="66" width="14" height="14" color="#fff"/>
+        <text x="246" y="70" font-size="10" font-weight="650" fill="currentColor">HTTPRoute</text>
+        <text x="246" y="84" font-size="8.5" font-family="ui-monospace, monospace" fill="currentColor" opacity=".6">12 rules</text>
+      </g>
+      <g>
+        <rect x="204" y="102" width="176" height="42" rx="7" fill="none" stroke="currentColor" stroke-width="1.3" opacity=".55"/>
+        <rect x="216" y="112" width="22" height="22" rx="5" fill="var(--kind)"/>
+        <use href="#ic-pool" x="220" y="116" width="14" height="14" color="#fff"/>
+        <text x="246" y="120" font-size="10" font-weight="650" fill="currentColor">InferencePool</text>
+        <text x="246" y="134" font-size="8.5" font-family="ui-monospace, monospace" fill="currentColor" opacity=".6">selects the vLLM pods</text>
+      </g>
+      <g>
+        <rect x="204" y="152" width="176" height="42" rx="7" fill="none" stroke="currentColor" stroke-width="1.3" opacity=".55"/>
+        <rect x="216" y="162" width="22" height="22" rx="5" fill="var(--ink-faint)"/>
+        <use href="#ic-epp" x="220" y="166" width="14" height="14" color="#fff"/>
+        <text x="246" y="170" font-size="10" font-weight="650" fill="currentColor">EndpointPicker</text>
+        <text x="246" y="184" font-size="8.5" font-family="ui-monospace, monospace" fill="currentColor" opacity=".6">scheduler Deployment</text>
+      </g>
+      <g>
+        <rect x="204" y="202" width="176" height="42" rx="7" fill="none" stroke="currentColor" stroke-width="1.3" opacity=".55"/>
+        <rect x="216" y="212" width="22" height="22" rx="5" fill="var(--ink-faint)"/>
+        <use href="#ic-svc" x="220" y="216" width="14" height="14" color="#fff"/>
+        <text x="246" y="220" font-size="10" font-weight="650" fill="currentColor">Service</text>
+        <text x="246" y="234" font-size="8.5" font-family="ui-monospace, monospace" fill="currentColor" opacity=".6">same pods, no scheduler</text>
+      </g>
+
+      <!-- workload -->
+      <path d="M380 122 L416 122" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#p1)" opacity=".5"/>
+      <rect x="424" y="60" width="200" height="128" rx="8" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".6"/>
+      <rect x="438" y="72" width="22" height="22" rx="5" fill="var(--ink-faint)"/>
+      <use href="#ic-chip" x="442" y="76" width="14" height="14" color="#fff"/>
+      <text x="468" y="87" font-size="10.5" font-weight="700" fill="currentColor">vLLM Deployment</text>
+
+      <g>
+        <polygon points="466,112 480,118 484,132 475,143 457,143 448,132 452,118"
+                 fill="none" stroke="currentColor" stroke-width="1.3" opacity=".7"/>
+        <polygon points="530,112 544,118 548,132 539,143 521,143 512,132 516,118"
+                 fill="none" stroke="currentColor" stroke-width="1.3" opacity=".7"/>
+        <text x="438" y="163" font-size="9" font-family="ui-monospace, monospace" fill="currentColor" opacity=".7">--enable-lora</text>
+        <text x="438" y="176" font-size="9" font-family="ui-monospace, monospace" fill="var(--kind)">--lora-modules adapter-a1&hellip;</text>
+      </g>
+
+      <path d="M624 124 L656 124" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#p1)" opacity=".5"/>
+      <rect x="664" y="98" width="130" height="52" rx="7" fill="none" stroke="currentColor" stroke-width="1.3" opacity=".55" stroke-dasharray="3 2"/>
+      <text x="678" y="120" font-size="10" font-weight="650" fill="currentColor">adapter weights</text>
+      <text x="678" y="136" font-size="8.5" font-family="ui-monospace, monospace" fill="currentColor" opacity=".6">PVC or object store</text>
+
+      <!-- the gateway is NOT generated -->
+      <rect x="204" y="2" width="176" height="38" rx="7" fill="none" stroke="currentColor" stroke-width="1.3" stroke-dasharray="4 3" opacity=".5"/>
+      <rect x="216" y="10" width="22" height="22" rx="5" fill="none" stroke="currentColor" stroke-width="1.3" opacity=".7"/>
+      <use href="#ic-gw" x="220" y="14" width="14" height="14" color="currentColor" opacity=".7"/>
+      <text x="246" y="19" font-size="10" font-weight="650" fill="currentColor" opacity=".7">Gateway</text>
+      <text x="246" y="32" font-size="8.5" font-family="ui-monospace, monospace" fill="currentColor" opacity=".5">shared, pre-existing</text>
+      <path d="M292 40 L292 52" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#p1)" opacity=".45"/>
+    </svg>
+    </div>
+    <figcaption>
+      The Gateway is shared and pre-existing; everything else is generated per service. Note
+      the two backends: the <strong>InferencePool</strong> routes through a scheduler, the
+      <strong>Service</strong> goes straight to the same pods. Which one a request gets is
+      decided entirely by which HTTPRoute rule matched it.
+    </figcaption>
+  </figure>
+
+  <h3>Where the LoRA adapters live</h3>
+  <p>
+    An adapter is a set of weights on a volume plus a name registered with vLLM at startup.
+    kserve registers <strong>two names per adapter</strong>: the bare one and a fully
+    qualified one.
+  </p>
+
+  <div class="panel">
+    <div class="panel-hd"><span class="kb muted"><svg><use href="#ic-chip"/></svg></span> what the vLLM container is told</div>
+    <pre class="code">--enable-lora
+--lora-modules <span class="hi">'{"name":"adapter-a1","path":"/mnt/lora/adapter-a1"}'</span>
+               <span class="hi">'{"name":"publishers/&lt;ns&gt;/models/adapter-a1","path":"/mnt/lora/adapter-a1"}'</span></pre>
+  </div>
+
+  <p>
+    Both names are <strong>body-level</strong>. vLLM applies a LoRA when the
+    <code>model</code> field of the JSON request matches one of them. There is no other
+    mechanism: no header, no path, no per-adapter port. An adapter is not a separate
+    endpoint, it is a name the same endpoint recognises.
+  </p>
+
+  <div class="note">
+    <span class="lbl">the consequence worth holding on to</span>
+    <p>
+      Adapters share their base model's pods, so routing an adapter request means routing it
+      to the <em>same</em> InferencePool as the base model. The adapter is selected after
+      arrival, from the body. Nothing about the network path is adapter-specific.
+    </p>
+  </div>
+
+  <h3>The two ways to address it</h3>
+
+  <figure class="fig">
+    <div class="figbox">
+    <svg viewBox="0 0 800 268" role="img" preserveAspectRatio="xMidYMid meet"
+         aria-label="Two addressing modes. A service-scoped URL names the service in the path, so the gateway can route on the path alone and the body names the adapter. A shared OpenAI-style endpoint names nothing in the path, so the gateway needs the model name in a header to know which InferencePool owns it, while the body still names the adapter.">
+      <defs>
+        <marker id="p2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+
+      <!-- MODE A -->
+      <rect x="0" y="0" width="800" height="122" rx="8" fill="var(--ok-dim)" opacity=".5"/>
+      <text x="16" y="22" font-size="10" font-weight="700" fill="var(--ok)" font-family="ui-monospace, monospace" letter-spacing=".07em">A &middot; SERVICE-SCOPED PATH</text>
+      <text x="16" y="40" font-size="9.5" fill="currentColor" opacity=".75">the URL names the service, so no header is needed</text>
+
+      <rect x="16" y="52" width="250" height="54" rx="6" fill="var(--surface)" stroke="currentColor" stroke-width="1.2" opacity=".9"/>
+      <text x="28" y="72" font-size="9" font-family="ui-monospace, monospace" fill="currentColor">POST /{ns}/{name}/v1/chat/completions</text>
+      <text x="28" y="90" font-size="9" font-family="ui-monospace, monospace" fill="currentColor">{"model": <tspan fill="var(--kind)">"&hellip;/adapter-a1"</tspan>}</text>
+      <text x="28" y="101" font-size="8" fill="currentColor" opacity=".55">no routing header</text>
+
+      <path d="M270 79 L302 79" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#p2)" opacity=".55"/>
+      <rect x="310" y="58" width="150" height="42" rx="6" fill="none" stroke="currentColor" stroke-width="1.3"/>
+      <text x="322" y="76" font-size="9.5" font-weight="650" fill="currentColor">path rule matches</text>
+      <text x="322" y="90" font-size="8.5" font-family="ui-monospace, monospace" fill="currentColor" opacity=".6">1 match, never grows</text>
+
+      <path d="M460 79 L492 79" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#p2)" opacity=".55"/>
+      <rect x="500" y="58" width="120" height="42" rx="6" fill="none" stroke="currentColor" stroke-width="1.3" opacity=".7"/>
+      <rect x="510" y="68" width="20" height="20" rx="5" fill="var(--kind)"/>
+      <use href="#ic-pool" x="513" y="71" width="14" height="14" color="#fff"/>
+      <text x="538" y="82" font-size="9.5" font-weight="650" fill="currentColor">pool</text>
+
+      <path d="M620 79 L652 79" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#p2)" opacity=".55"/>
+      <rect x="660" y="58" width="128" height="42" rx="6" fill="var(--ok-dim)" stroke="var(--ok)" stroke-width="1.3"/>
+      <text x="672" y="76" font-size="9.5" font-weight="650" fill="var(--ok)">vLLM reads the body</text>
+      <text x="672" y="90" font-size="8.5" font-family="ui-monospace, monospace" fill="currentColor" opacity=".7">applies adapter-a1</text>
+
+      <!-- MODE B -->
+      <rect x="0" y="134" width="800" height="134" rx="8" fill="var(--warn-dim)" opacity=".45"/>
+      <text x="16" y="156" font-size="10" font-weight="700" fill="var(--warn)" font-family="ui-monospace, monospace" letter-spacing=".07em">B &middot; SHARED OPENAI-STYLE ENDPOINT</text>
+      <text x="16" y="174" font-size="9.5" fill="currentColor" opacity=".75">the URL names nothing, so the header is the only routing key</text>
+
+      <rect x="16" y="186" width="250" height="66" rx="6" fill="var(--surface)" stroke="currentColor" stroke-width="1.2" opacity=".9"/>
+      <text x="28" y="206" font-size="9" font-family="ui-monospace, monospace" fill="currentColor">POST /v1/chat/completions</text>
+      <text x="28" y="223" font-size="9" font-family="ui-monospace, monospace" fill="var(--warn)">X-Gateway-Model-Name: &hellip;/adapter-a1</text>
+      <text x="28" y="240" font-size="9" font-family="ui-monospace, monospace" fill="currentColor">{"model": <tspan fill="var(--kind)">"&hellip;/adapter-a1"</tspan>}</text>
+
+      <path d="M270 219 L302 219" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#p2)" opacity=".55"/>
+      <rect x="310" y="194" width="150" height="50" rx="6" fill="var(--warn-dim)" stroke="var(--warn)" stroke-width="1.4"/>
+      <text x="322" y="212" font-size="9.5" font-weight="650" fill="var(--warn)">header rule matches</text>
+      <text x="322" y="226" font-size="8.5" font-family="ui-monospace, monospace" fill="currentColor" opacity=".75">1 entry per adapter</text>
+      <text x="322" y="238" font-size="8.5" font-family="ui-monospace, monospace" fill="var(--crit)" font-weight="600">this is the ceiling</text>
+
+      <path d="M460 219 L492 219" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#p2)" opacity=".55"/>
+      <rect x="500" y="198" width="120" height="42" rx="6" fill="none" stroke="currentColor" stroke-width="1.3" opacity=".7"/>
+      <rect x="510" y="208" width="20" height="20" rx="5" fill="var(--kind)"/>
+      <use href="#ic-pool" x="513" y="211" width="14" height="14" color="#fff"/>
+      <text x="538" y="222" font-size="9.5" font-weight="650" fill="currentColor">pool</text>
+
+      <path d="M620 219 L652 219" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#p2)" opacity=".55"/>
+      <rect x="660" y="198" width="128" height="42" rx="6" fill="var(--ok-dim)" stroke="var(--ok)" stroke-width="1.3"/>
+      <text x="672" y="216" font-size="9.5" font-weight="650" fill="var(--ok)">vLLM reads the body</text>
+      <text x="672" y="230" font-size="8.5" font-family="ui-monospace, monospace" fill="currentColor" opacity=".7">applies adapter-a1</text>
+    </svg>
+    </div>
+    <figcaption>
+      The right-hand end is identical in both modes: vLLM always takes the adapter from the
+      body. What differs is how the gateway decided where to send it, and only mode B needs
+      a table that grows with adapter count.
+    </figcaption>
+  </figure>
+
+  <div class="note crit">
+    <span class="lbl">the model name is used twice, for two different jobs</span>
+    <p>
+      In the <strong>body</strong> it tells vLLM <em>which adapter to apply</em>. In the
+      <strong>header</strong> it tells the gateway <em>which InferencePool owns it</em>.
+      Gateway API cannot route on a request body, so on a shared endpoint the name has to be
+      copied somewhere matchable. Every adapter therefore needs an entry in that table, and
+      that table is what runs out at seven.
+    </p>
+  </div>
+
+  <div class="note warn">
+    <span class="lbl">and today nothing fills the header in</span>
+    <p>
+      kserve <em>consumes</em> <code>X-Gateway-Model-Name</code> but nothing in kserve
+      <em>produces</em> it. A body-based router is the intended producer - it reads
+      <code>model</code> from the body and sets the header so ordinary SDK clients can use
+      mode B - and none ships. On OpenShift AI the mode is refused outright by the
+      authorization policy. So the table is built and maintained for traffic that, today,
+      almost nothing generates.
+    </p>
+  </div>
+</section>
 
 
 <section>
@@ -587,7 +987,7 @@
   </p>
 
   <div class="panel">
-    <div class="panel-hd"><span class="kb">HR</span> validation at rising adapter counts
+    <div class="panel-hd"><span class="kb"><svg><use href="#ic-route"/></svg></span> validation at rising adapter counts
       <span class="rt">kubectl apply --dry-run=server</span></div>
     <div class="scroll">
     <table>
@@ -606,7 +1006,7 @@
   <p>The apiserver's answer, verbatim:</p>
 
   <div class="panel">
-    <div class="panel-hd"><span class="kb muted">!</span> rejection</div>
+    <div class="panel-hd"><span class="kb warn"><svg><use href="#ic-warn"/></svg></span> rejection</div>
     <pre class="code"><span class="er">spec.rules[4].matches: Too many: 72: must have at most 64 items</span></pre>
   </div>
 
@@ -619,28 +1019,28 @@
   </p>
 
   <div class="panel">
-    <div class="panel-hd"><span class="kb">HR</span> what the cluster reports at eight adapters</div>
+    <div class="panel-hd"><span class="kb"><svg><use href="#ic-route"/></svg></span> what the cluster reports at eight adapters</div>
     <div class="scroll">
     <table class="conds">
       <thead><tr><th>object</th><th>reports</th><th>says</th></tr></thead>
       <tbody>
         <tr>
-          <td class="name"><span class="kref"><span class="kb">HR</span> HTTPRoute</span></td>
+          <td class="name"><span class="kref"><span class="kb"><svg><use href="#ic-route"/></svg></span> HTTPRoute</span></td>
           <td><span class="st ok">Accepted=True</span> <span class="st ok">ResolvedRefs=True</span></td>
           <td class="msg">green, because it is still the seven-adapter route from before</td>
         </tr>
         <tr>
-          <td class="name"><span class="kref"><span class="kb">IP</span> InferencePool</span></td>
+          <td class="name"><span class="kref"><span class="kb"><svg><use href="#ic-pool"/></svg></span> InferencePool</span></td>
           <td><span class="st ok">ResolvedRefs=True</span></td>
           <td class="msg">unaffected</td>
         </tr>
         <tr>
-          <td class="name"><span class="kref"><span class="kb muted">P</span> Pods</span></td>
+          <td class="name"><span class="kref"><span class="kb muted"><svg><use href="#ic-pod"/></svg></span> Pods</span></td>
           <td><span class="st ok">Ready</span></td>
           <td class="msg">vLLM loaded the adapter fine; only the route never learned about it</td>
         </tr>
         <tr class="is-current">
-          <td class="name"><span class="kref"><span class="kb muted">LIS</span> LLMInferenceService</span></td>
+          <td class="name"><span class="kref"><span class="kb muted"><svg><use href="#ic-crd"/></svg></span> LLMInferenceService</span></td>
           <td><span class="st crit">HTTPRoutesReady=False</span></td>
           <td class="msg">the one place it shows, as a raw CEL rejection string</td>
         </tr>
@@ -690,7 +1090,7 @@
   </p>
 
   <div class="panel">
-    <div class="panel-hd"><span class="kb muted">P</span> how the adapter is registered</div>
+    <div class="panel-hd"><span class="kb muted"><svg><use href="#ic-pod"/></svg></span> how the adapter is registered</div>
     <pre class="code">--lora-modules <span class="hi">'{"name":"adapter-a1","path":"/mnt/lora/adapter-a1"}'</span>
                <span class="hi">'{"name":"publishers/&lt;ns&gt;/models/adapter-a1","path":"/mnt/lora/adapter-a1"}'</span></pre>
   </div>
@@ -717,7 +1117,7 @@
   </div>
 
   <div class="panel">
-    <div class="panel-hd"><span class="kb">HR</span> measured against real vLLM
+    <div class="panel-hd"><span class="kb"><svg><use href="#ic-route"/></svg></span> measured against real vLLM
       <span class="rt">two services, three adapters</span></div>
     <div class="scroll">
     <table>
@@ -794,7 +1194,7 @@
   </p>
 
   <div class="panel">
-    <div class="panel-hd"><span class="kb muted">LIS</span> what switching it off actually costs</div>
+    <div class="panel-hd"><span class="kb muted"><svg><use href="#ic-crd"/></svg></span> what switching it off actually costs</div>
     <div class="scroll">
     <table>
       <thead><tr><th>state</th><th class="num">rules</th><th class="num">matches</th><th class="num">scales with adapters</th><th>service-scoped path</th><th>shared endpoint</th></tr></thead>
@@ -841,7 +1241,7 @@
   </p>
 
   <div class="panel">
-    <div class="panel-hd"><span class="kb muted">IMR</span> InferenceModelRewrite</div>
+    <div class="panel-hd"><span class="kb muted"><svg><use href="#ic-rewrite"/></svg></span> InferenceModelRewrite</div>
     <pre class="code">spec:
   <span class="hi">poolRef:</span>                       <span class="c"># which InferencePool this applies to</span>
     kind: InferencePool
@@ -905,7 +1305,7 @@
   <h3>Measured: inert in this deployment</h3>
 
   <div class="panel">
-    <div class="panel-hd"><span class="kb muted">IMR</span> is anything using it?</div>
+    <div class="panel-hd"><span class="kb muted"><svg><use href="#ic-rewrite"/></svg></span> is anything using it?</div>
     <div class="scroll">
     <table>
       <thead><tr><th>check</th><th>result</th></tr></thead>
@@ -955,7 +1355,7 @@
   </p>
 
   <div class="panel">
-    <div class="panel-hd"><span class="kb">HR</span> route shapes
+    <div class="panel-hd"><span class="kb"><svg><use href="#ic-route"/></svg></span> route shapes
       <span class="rt">9 measured · svc-a · lora-budget</span></div>
     <div class="scroll">
     <table>
@@ -1009,7 +1409,7 @@
         <tr>
           <td class="name">alternation</td>
           <td><div class="bar"><div class="track"><div class="fill" style="width:99%"></div></div><span class="val">297</span></div></td>
-          <td class="num"><span class="st ok">0</span></td><td>4096-byte header</td><td>keeps</td><td>no</td>
+          <td class="num"><span class="st ok">0</span></td><td>RE2 program size</td><td>keeps</td><td>no</td>
         <td><span class="st warn">not on kgw</span></td></tr>
         <tr class="is-pick">
           <td class="name">nested</td>
@@ -1048,14 +1448,14 @@
     </div>
 
     <div class="card">
-      <div class="card-hd"><span class="nm">alternation</span> <span class="st info">7 &rarr; 320</span> <span class="st warn">data-plane dependent</span></div>
+      <div class="card-hd"><span class="nm">alternation</span> <span class="st info">7 &rarr; 188</span> <span class="st warn">data-plane dependent</span></div>
       <div class="card-bd">
         <p class="cap">List the names that already exist in one regex. Change nothing else.</p>
         <ul>
           <li class="pro">Zero behaviour change: byte-identical across all 72 probes and all 13 endpoint-picker outcomes</li>
           <li class="pro">No renamed rule, no renamed model, nothing a client sees</li>
           <li class="pro">Anchored exactly on both data planes: <code>adapter-a1</code> matches, <code>adapter-a1x</code> does not</li>
-          <li class="con"><strong>Reaches 6 adapters on kgateway</strong>, which is fewer than today. The RE2 program-size limit is a data-plane setting; Istio and Envoy Gateway raise it, kgateway does not</li>
+          <li class="con"><strong>Reaches 2 adapters on a stock Envoy</strong> with realistic names, which is fewer than anyone runs. Istio and Envoy Gateway raise the RE2 limit; kgateway leaves it at 100</li>
           <li class="con">Pattern is rewritten whenever the adapter set changes, so route churn stays</li>
         </ul>
       </div>
@@ -1168,7 +1568,7 @@
       </button>
       <button class="tile" data-shape="alternation" aria-pressed="false" aria-controls="yamlpane">
         <span class="tname">alternation</span>
-        <span class="tmax">320<span class="tunit">on istio</span></span>
+        <span class="tmax">188<span class="tunit">istio, real names</span></span>
         <span class="tbar"><span class="tfill" style="width:99%"></span></span>
         <span class="tmeta"><span>12 rules</span><span>19 matches</span><span class="mv ok">0 moved</span></span>
         <span class="tbind">RE2 program size &middot; data-plane dependent</span>
@@ -1183,7 +1583,7 @@
     </div>
     <div class="yamlpane" id="yamlpane" aria-live="polite">
       <div class="yphead">
-        <span class="kb">HR</span>
+        <span class="kb"><svg><use href="#ic-route"/></svg></span>
         <span class="yname" id="yname">current</span>
         <span class="ystats" id="ystats"></span>
       </div>
@@ -1473,7 +1873,7 @@
   </p>
 
   <div class="panel">
-    <div class="panel-hd"><span class="kb">HR</span> rules[4] by shape <span class="rt">2 adapters</span></div>
+    <div class="panel-hd"><span class="kb"><svg><use href="#ic-route"/></svg></span> rules[4] by shape <span class="rt">2 adapters</span></div>
     <div class="scroll">
     <table>
       <thead>
@@ -1517,7 +1917,7 @@
   <p>One match from each, showing exactly what changes:</p>
 
   <div class="panel">
-    <div class="panel-hd"><span class="kb muted">Y</span> one match, six ways</div>
+    <div class="panel-hd"><span class="kb muted"><svg><use href="#ic-code"/></svg></span> one match, six ways</div>
     <div class="scroll">
     <pre class="code"><span class="c"># current - path AND header, one pair per (path, model)</span>
 - path:    { type: Exact, value: /v1/chat/completions }
@@ -1711,7 +2111,7 @@
   </p>
 
   <div class="panel">
-    <div class="panel-hd"><span class="kb muted">&#8801;</span> cost by axis</div>
+    <div class="panel-hd"><span class="kb muted"><svg><use href="#ic-grid"/></svg></span> cost by axis</div>
     <div class="scroll">
     <table class="tradeoff">
       <thead>
@@ -1725,7 +2125,7 @@
         <tr>
           <td class="ax">max adapters</td>
           <td class="num bad">7</td><td class="num">12</td><td class="num">22</td>
-          <td class="num">15</td><td class="num">320 / 6 on kgw</td><td class="num good">unbounded</td><td class="num">58</td>
+          <td class="num">15</td><td class="num">188 istio / 2 stock</td><td class="num good">unbounded</td><td class="num">58</td>
         </tr>
         <tr>
           <td class="ax">what binds it</td>
@@ -1780,7 +2180,7 @@
         <tr>
           <td class="ax">works on kgateway</td>
           <td>yes</td><td class="good">yes</td><td class="good">yes</td>
-          <td class="good">yes</td><td class="bad">6 adapters</td><td class="good">yes</td><td class="good">yes</td>
+          <td class="good">yes</td><td class="bad">2 adapters</td><td class="good">yes</td><td class="good">yes</td>
         </tr>
         <tr>
           <td class="ax">added request latency</td>
@@ -1856,7 +2256,7 @@
   </p>
 
   <div class="panel">
-    <div class="panel-hd"><span class="kb muted">ID</span> the served name</div>
+    <div class="panel-hd"><span class="kb muted"><svg><use href="#ic-crd"/></svg></span> the served name</div>
     <pre class="code"><span class="c"># today - base and adapter are siblings, so the route must list both</span>
 publishers/&lt;ns&gt;/models/llama-3-8b
 publishers/&lt;ns&gt;/models/<span class="hi">sql-adapter</span>
@@ -1869,7 +2269,7 @@ publishers/&lt;ns&gt;/models/<span class="hi">llama-3-8b/adapters/sql-adapter</s
   <p>That string is what a caller puts in the request body:</p>
 
   <div class="panel">
-    <div class="panel-hd"><span class="kb muted">PY</span> what a client changes</div>
+    <div class="panel-hd"><span class="kb muted"><svg><use href="#ic-code"/></svg></span> what a client changes</div>
     <pre class="code">client.chat.completions.create(
     model=<span class="c">"publishers/my-ns/models/sql-adapter"</span>,                  <span class="c"># before</span>
     model=<span class="hi">"publishers/my-ns/models/llama-3-8b/adapters/sql-adapter"</span>,  <span class="c"># after</span>
@@ -1991,7 +2391,7 @@ publishers/&lt;ns&gt;/models/<span class="hi">llama-3-8b/adapters/sql-adapter</s
   </p>
 
   <div class="panel">
-    <div class="panel-hd"><span class="kb muted">ID</span> name surface, before and after</div>
+    <div class="panel-hd"><span class="kb muted"><svg><use href="#ic-crd"/></svg></span> name surface, before and after</div>
     <div class="scroll">
     <table class="beforeafter">
       <thead>
@@ -2083,7 +2483,7 @@ publishers/&lt;ns&gt;/models/<span class="hi">llama-3-8b/adapters/sql-adapter</s
   </p>
 
   <div class="panel">
-    <div class="panel-hd"><span class="kb">AP</span> AuthPolicy <span class="rt">deny-misrouted-model-header &middot; priority 0</span></div>
+    <div class="panel-hd"><span class="kb"><svg><use href="#ic-policy"/></svg></span> AuthPolicy <span class="rt">deny-misrouted-model-header &middot; priority 0</span></div>
     <pre class="code"><span class="c"># fires before the SAR rules</span>
 when:
   - <span class="hi">!request.path.matches('^/publishers/[^/]+/models/')</span>
@@ -2095,7 +2495,7 @@ then:
   </div>
 
   <div class="panel">
-    <div class="panel-hd"><span class="kb">AP</span> request disposition on ODH</div>
+    <div class="panel-hd"><span class="kb"><svg><use href="#ic-policy"/></svg></span> request disposition on ODH</div>
     <div class="scroll">
     <table class="matrix">
       <thead>
@@ -2197,7 +2597,7 @@ then:
   </p>
 
   <div class="panel">
-    <div class="panel-hd"><span class="kb">HR</span> measured: svc-a and svc-b both define <code>shared-adapter</code></div>
+    <div class="panel-hd"><span class="kb"><svg><use href="#ic-route"/></svg></span> measured: svc-a and svc-b both define <code>shared-adapter</code></div>
     <div class="panel-bd">
       <p style="margin:0">
         <strong>Every request carrying that header went to <code>svc-a</code>, 6 of 6.</strong>
@@ -2262,7 +2662,7 @@ then:
   </p>
 
   <div class="panel">
-    <div class="panel-hd"><span class="kb">GW</span> anchoring, replayed on both
+    <div class="panel-hd"><span class="kb"><svg><use href="#ic-gw"/></svg></span> anchoring, replayed on both
       <span class="rt">11 of 11 agree, all three</span></div>
     <div class="scroll">
     <table class="matrix">
@@ -2308,14 +2708,14 @@ then:
   </div>
 
   <div class="panel">
-    <div class="panel-hd"><span class="kb muted">!</span> kgateway proxy, verbatim</div>
+    <div class="panel-hd"><span class="kb warn"><svg><use href="#ic-warn"/></svg></span> kgateway proxy, verbatim</div>
     <pre class="code"><span class="c"># gRPC config for RouteConfiguration rejected:</span>
 <span class="er">RE2 program size of 106 &gt; max program size of 100
 set for the error level threshold.</span></pre>
   </div>
 
   <div class="panel">
-    <div class="panel-hd"><span class="kb">GW</span> alternation ceiling by data plane</div>
+    <div class="panel-hd"><span class="kb"><svg><use href="#ic-gw"/></svg></span> alternation ceiling by data plane</div>
     <div class="scroll">
     <table>
       <thead>
@@ -2424,7 +2824,7 @@ set for the error level threshold.</span></pre>
   </p>
 
   <div class="panel">
-    <div class="panel-hd"><span class="kb muted">&#8987;</span> forced evaluations, min p50 of 8 reps
+    <div class="panel-hd"><span class="kb muted"><svg><use href="#ic-clock"/></svg></span> forced evaluations, min p50 of 8 reps
       <span class="rt">floor = 1.4834 ms</span></div>
     <div class="scroll">
     <table>
@@ -2472,7 +2872,7 @@ set for the error level threshold.</span></pre>
   </p>
 
   <div class="panel">
-    <div class="panel-hd"><span class="kb muted">RX</span> escaping, measured on Istio</div>
+    <div class="panel-hd"><span class="kb muted"><svg><use href="#ic-regex"/></svg></span> escaping, measured on Istio</div>
     <div class="scroll">
     <table>
       <thead><tr><th>form</th><th>emits</th><th class="num">bytes</th><th class="num">adapters</th></tr></thead>
@@ -2508,7 +2908,7 @@ set for the error level threshold.</span></pre>
   </p>
 
   <div class="panel">
-    <div class="panel-hd"><span class="kb muted">!</span> istio proxy, verbatim</div>
+    <div class="panel-hd"><span class="kb warn"><svg><use href="#ic-warn"/></svg></span> istio proxy, verbatim</div>
     <pre class="code"><span class="er">rejected: invalid perl operator: (?x</span></pre>
   </div>
 
@@ -2539,7 +2939,7 @@ set for the error level threshold.</span></pre>
   </p>
 
   <div class="panel">
-    <div class="panel-hd"><span class="kb">HR</span> adding <em>one</em> adapter to a service that has 100
+    <div class="panel-hd"><span class="kb"><svg><use href="#ic-route"/></svg></span> adding <em>one</em> adapter to a service that has 100
       <span class="rt">realistic names, not generated</span></div>
     <div class="scroll">
     <table>
@@ -2572,7 +2972,7 @@ set for the error level threshold.</span></pre>
   </p>
 
   <div class="panel">
-    <div class="panel-hd"><span class="kb muted">?</span> grep the route</div>
+    <div class="panel-hd"><span class="kb muted"><svg><use href="#ic-ask"/></svg></span> grep the route</div>
     <div class="scroll">
     <table>
       <thead><tr><th>shape</th><th>answer</th></tr></thead>
@@ -2638,7 +3038,7 @@ set for the error level threshold.</span></pre>
   </p>
 
   <div class="panel">
-    <div class="panel-hd"><span class="kb muted">RX</span> the 1:1 law, from the measured rows</div>
+    <div class="panel-hd"><span class="kb muted"><svg><use href="#ic-regex"/></svg></span> the 1:1 law, from the measured rows</div>
     <div class="scroll">
     <table>
       <thead><tr><th class="num">adapters</th><th class="num">pattern bytes</th><th class="num">program size</th><th class="num">bytes added</th><th class="num">instructions added</th></tr></thead>
@@ -2655,7 +3055,7 @@ set for the error level threshold.</span></pre>
   <p>The alternation's budget, spent before any adapter is named:</p>
 
   <div class="panel">
-    <div class="panel-hd"><span class="kb muted">RX</span> the pattern, by cost</div>
+    <div class="panel-hd"><span class="kb muted"><svg><use href="#ic-regex"/></svg></span> the pattern, by cost</div>
     <pre class="code">publishers/lora\-budget/models/(model-a|sql-coder|chat-tuned|&hellip;)
 <span class="hi">└──────── 30 bytes ─────────┘</span> <span class="c">└─ 7 ─┘</span> <span class="c">└──── ~10 each ────┘</span>
  <span class="hi">the namespace prefix</span>       <span class="c">base</span>    <span class="c">one adapter name</span></pre>
@@ -2705,7 +3105,7 @@ set for the error level threshold.</span></pre>
   <h3>And why <code>nested</code> is immune</h3>
 
   <div class="panel">
-    <div class="panel-hd"><span class="kb muted">RX</span> constant, whatever the adapter count</div>
+    <div class="panel-hd"><span class="kb muted"><svg><use href="#ic-regex"/></svg></span> constant, whatever the adapter count</div>
     <pre class="code">publishers/lora\-budget/models/model\-a(/.*)?
 <span class="c">44 bytes  &rarr;  ~45 instructions  &rarr;  under 100 forever</span></pre>
   </div>
@@ -2727,6 +3127,124 @@ set for the error level threshold.</span></pre>
       a factor of thirty depending on how much the names happen to share. The check has to
       compile the pattern, or the failure lands where nothing is watching: HTTPRoute
       <code>Accepted=True</code>, Envoy NACKing the config, last good route still serving.
+    </p>
+  </div>
+</section>
+
+
+<section>
+  <h2>Realistic names change the answer again</h2>
+  <p class="sub">
+    Every number so far was measured against the fixture's names -
+    <code>lora-budget</code>, <code>model-a</code>, <code>adapter-a1</code>. Those are short
+    because they were convenient to generate, and both limits on the alternation are
+    byte-driven. The fixture flatters it, by a lot.
+  </p>
+
+  <p>
+    Real names are two to three times longer.
+    <code>publishers/{namespace}/models/</code> alone costs 30 to 45 characters before any
+    model is named, and Envoy's stock RE2 program-size limit is <strong>100</strong>.
+  </p>
+
+  <div class="panel">
+    <div class="panel-hd"><span class="kb muted"><svg><use href="#ic-regex"/></svg></span>
+      the same shape, three naming profiles <span class="rt">computed</span></div>
+    <div class="scroll">
+    <table>
+      <thead>
+        <tr><th>profile</th><th class="num">mean adapter name</th><th class="num">istio <span class="hint">4096 B</span></th><th class="num">stock Envoy <span class="hint">RE2 100</span></th><th class="num">envoy-gw</th></tr>
+      </thead>
+      <tbody>
+        <tr class="is-current">
+          <td class="name">spike fixture <span class="hint">adapter-a1</span></td>
+          <td class="num">10 chars</td><td class="num">320</td><td class="num">5</td><td class="num">320</td>
+        </tr>
+        <tr>
+          <td class="name">realistic <span class="hint">granite-3-1-8b-instruct</span></td>
+          <td class="num">21 chars</td><td class="num">188</td><td class="num"><span class="st crit">2</span></td><td class="num">188</td>
+        </tr>
+        <tr>
+          <td class="name">long namespace <span class="hint">redhat-ods-applications</span></td>
+          <td class="num">25 chars</td><td class="num">147</td><td class="num"><span class="st crit">1</span></td><td class="num">147</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-hd"><span class="kb"><svg><use href="#ic-gw"/></svg></span>
+      measured on all three <span class="rt">genai-serving / granite-3-1-8b-instruct</span></div>
+    <div class="scroll">
+    <table>
+      <thead>
+        <tr><th class="num">adapters</th><th class="num">pattern bytes</th><th>istio</th><th>kgateway</th><th>envoy-gw</th><th class="num">kgateway program size</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="num">2</td><td class="num">96</td><td><span class="st ok">ok</span></td><td><span class="st ok">ok</span></td><td><span class="st ok">ok</span></td><td class="num">under 100</td></tr>
+        <tr class="is-current"><td class="num">3</td><td class="num">114</td><td><span class="st ok">ok</span></td><td><span class="st crit">refused</span></td><td><span class="st ok">ok</span></td><td class="num"><strong>107 &gt; 100</strong></td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-hd"><span class="kb warn"><svg><use href="#ic-warn"/></svg></span>
+      longer namespace, kgateway <span class="rt">redhat-ods-applications / llama-3-1-8b-instruct</span></div>
+    <div class="scroll">
+    <table>
+      <thead><tr><th class="num">adapters</th><th class="num">pattern bytes</th><th>kgateway</th><th class="num">program size</th></tr></thead>
+      <tbody>
+        <tr><td class="num">1</td><td class="num">100</td><td><span class="st ok">ok</span></td><td class="num">under 100</td></tr>
+        <tr class="is-current"><td class="num">2</td><td class="num">126</td><td><span class="st crit">refused</span></td><td class="num"><strong>117 &gt; 100</strong></td></tr>
+        <tr><td class="num">3</td><td class="num">151</td><td><span class="st crit">refused</span></td><td class="num">139 &gt; 100</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="note crit">
+    <span class="lbl">on a stock Envoy the alternation is not bounded, it is unusable</span>
+    <p>
+      It fails at <strong>the counts people actually run</strong> - two or three adapters -
+      not at some distant ceiling nobody reaches. The earlier framing that kgateway was
+      merely the odd one out, tolerable because two of three implementations raise the
+      limit, is too generous: on the one that does not, the shape does not work at all.
+    </p>
+    <p>
+      And <strong>"320 adapters" is a fixture artifact</strong>. Quoting it without the
+      naming caveat overstates the option by a factor of two even on Istio, and by two
+      orders of magnitude everywhere else.
+    </p>
+  </div>
+
+  <div class="note ok">
+    <span class="lbl">what it does not change</span>
+    <p>
+      <strong><code>nested</code> is unaffected.</strong> Its pattern is the base model name
+      plus <code>(/.*)?</code> - about 60 characters even for
+      <code>publishers/redhat-ods-applications/models/llama-3-1-8b-instruct(/.*)?</code> -
+      and constant in adapter count, so it stays under 100 on every data plane. The gap
+      between the two shapes <em>widens</em> with realistic naming rather than narrowing.
+    </p>
+    <p>
+      <strong>The seven-adapter ceiling is unaffected.</strong> That one is match
+      <em>count</em>, not bytes, so name length is irrelevant to it.
+      <code>current</code>, <code>split</code>, <code>prefix</code>,
+      <code>split-noslash</code> and <code>collapse</code> keep the ceilings in the options
+      table.
+    </p>
+  </div>
+
+  <div class="note">
+    <span class="lbl">why the fixture was not renamed</span>
+    <p>
+      Renaming the namespace and models would invalidate every golden file for findings that
+      do not depend on name length, which is most of them. What was made realistic is the
+      <em>pattern content</em>, which is the only thing the byte count and program size
+      depend on, and the probed header values match it. The measurement is honest even
+      though the namespace on the cluster is still <code>lora-budget</code>.
     </p>
   </div>
 </section>
@@ -2768,7 +3286,7 @@ set for the error level threshold.</span></pre>
   </p>
 
   <div class="panel">
-    <div class="panel-hd"><span class="kb">HR</span> what adapter paths would cost
+    <div class="panel-hd"><span class="kb"><svg><use href="#ic-route"/></svg></span> what adapter paths would cost
       <span class="rt">measured, apiserver validation</span></div>
     <div class="scroll">
     <table>
@@ -2853,7 +3371,7 @@ set for the error level threshold.</span></pre>
   </p>
 
   <div class="panel">
-    <div class="panel-hd"><span class="kb muted">LIS</span> provenance</div>
+    <div class="panel-hd"><span class="kb muted"><svg><use href="#ic-crd"/></svg></span> provenance</div>
     <div class="scroll">
     <table>
       <thead><tr><th>number</th><th>produced by</th><th>real controller?</th></tr></thead>
@@ -2906,7 +3424,7 @@ set for the error level threshold.</span></pre>
   </p>
 
   <div class="panel">
-    <div class="panel-hd"><span class="kb">HR</span> controller vs synthesised
+    <div class="panel-hd"><span class="kb"><svg><use href="#ic-route"/></svg></span> controller vs synthesised
       <span class="rt">rules / total matches / biggest rule</span></div>
     <div class="scroll">
     <table>
@@ -3014,9 +3532,10 @@ set for the error level threshold.</span></pre>
           data plane can refuse it, at the cost of one moved probe and a rule rename that
           detaches <code>sectionName</code> policies. Where you control the data plane - Istio
           and Envoy Gateway both raise the RE2 limit, and OpenShift AI ships Istio -
-          <code>alternation</code> reaches <strong>320</strong> with zero behaviour change, no
-          rename and no naming migration. Take it there, gated on the program-size check, and
-          never as an upstream default.
+          <code>alternation</code> reaches roughly <strong>188</strong> with realistic names,
+          zero behaviour change, no rename and no naming migration. Take it there, gated on a
+          program-size check, and never as an upstream default - with realistic naming it
+          fails on a stock Envoy at <strong>two</strong> adapters.
         </p>
       </div>
     </li>

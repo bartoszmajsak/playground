@@ -685,6 +685,10 @@ status object green - which is worth knowing before diagnosing the next one.
 
 ## 14. `alternation`: 320 adapters for zero behaviour change, on Istio
 
+> **320 is a fixture artifact.** It assumes 10-character adapter names. With
+> realistic naming the same shape reaches ~188 on Istio and **2** on a stock
+> Envoy. See section 25 before quoting it.
+
 > **Read section 16 before acting on this.** Everything below was measured on
 > Istio. On kgateway the same shape reaches **six** adapters, because the RE2
 > program-size limit is a data-plane setting and Istio is the outlier that raises
@@ -1455,6 +1459,76 @@ cheaper and its one measured drawback goes away.
 **Scope of this result.** The EPP here is llm-d's `v0.9.0`. This says nothing
 about whether the upstream GIE endpoint picker implements rewrites - only that the
 one kserve deploys in this configuration does not.
+
+## 25. Realistic names: the alternation dies at two or three adapters
+
+Every number in this document was measured against the fixture's names -
+`lora-budget`, `model-a`, `adapter-a1`. Those are short because they were
+convenient to generate, and both binding limits on the alternation are
+byte-driven. So the fixture flatters it, and by a lot.
+
+Real names are two to three times longer. `publishers/{namespace}/models/` alone
+costs 30 to 45 characters before any model is named, and Envoy's stock RE2
+program-size limit is **100**.
+
+### Computed, per naming profile
+
+| profile | mean adapter name | istio (4096 B cap) | stock Envoy (RE2 100) | envoy-gateway |
+|---|---|---|---|---|
+| spike fixture, `adapter-a1` | 10 chars | 320 | 5 | 320 |
+| realistic, `granite-3-1-8b-instruct` in `genai-serving` | 21 chars | **188** | **2** | 188 |
+| long namespace, `redhat-ods-applications` | 25 chars | **147** | **1** | 147 |
+
+### Measured, three data planes, realistic profile
+
+`genai-serving` / `granite-3-1-8b-instruct` / `sql-generation`,
+`customer-support`, `summarizer-legal`:
+
+| adapters | pattern bytes | istio | kgateway | envoy-gw | kgateway program size |
+|---|---|---|---|---|---|
+| 2 | 96 | ok | ok | ok | under 100 |
+| 3 | 114 | ok | **refused** | ok | **107 > 100** |
+
+Long-namespace profile, kgateway:
+
+| adapters | pattern bytes | kgateway | program size |
+|---|---|---|---|
+| 1 | 100 | ok | under 100 |
+| 2 | 126 | **refused** | **117 > 100** |
+| 3 | 151 | **refused** | **139 > 100** |
+
+### What this changes
+
+**"320 adapters" is a fixture artifact.** Quoting it without the naming caveat
+overstates the option by a factor of two even on Istio, and by two orders of
+magnitude on a stock Envoy.
+
+**On a stock Envoy the alternation is not "bounded", it is unusable.** It fails at
+the counts people actually run - two or three adapters - not at some distant
+ceiling nobody reaches. Section 21 framed kgateway as tolerable because two of
+three implementations raise the limit; with realistic names that framing is too
+generous, because on the one that does not, the shape does not work at all.
+
+**It does not change `nested`.** Its pattern is the base model name plus
+`(/.*)?`. Longer base model names make it slightly longer - about 60 characters
+for `publishers/redhat-ods-applications/models/llama-3-1-8b-instruct(/.*)?` -
+and still constant in adapter count, so it stays comfortably under 100 on every
+data plane. The gap between the two shapes widens with realistic naming rather
+than narrowing.
+
+**It does not change the seven-adapter ceiling.** That one is match *count*, not
+bytes, so name length is irrelevant to it. `current`, `split`, `prefix`,
+`split-noslash` and `collapse` all keep the ceilings recorded in section 2.
+
+### Note on the fixture
+
+The cluster fixture keeps its short names: renaming the namespace and models would
+invalidate every golden file for findings that do not depend on name length, which
+is most of them. What was made realistic is the *pattern content*, which is the
+only thing the byte count and program size depend on -
+`hack/render-scale-route.py realistic|longns`. The header values probed match the
+pattern, so the measurement is honest even though the namespace on the cluster is
+still `lora-budget`.
 
 ---
 

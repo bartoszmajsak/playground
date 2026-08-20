@@ -1,0 +1,28 @@
+# What the alternation reaches with names people actually use.
+#
+# The 320 quoted elsewhere in this spike is a property of the FIXTURE's short
+# names (lora-budget / model-a / adapter-a1), not of the shape. Adapter and
+# namespace names in real deployments are two to three times longer, and both the
+# 4096-byte header cap and the RE2 program-size limit are byte-driven.
+#
+# Envoy's stock RE2 program-size limit is 100 and program size tracks literal
+# bytes almost 1:1, so the pattern may be about 100 characters on a default
+# Envoy. publishers/{namespace}/models/ alone costs 30-45 of that.
+#
+# COMPUTED ceilings (hack/regex-forms.py arithmetic):
+profile	mean-adapter-name	istio-4096B	stock-envoy-RE2-100	envoy-gateway
+spike fixture (model-a, adapter-aN)	10 chars	320	5	320
+realistic (granite-3-1-8b-instruct)	21 chars	188	2	188
+long namespace (redhat-ods-applications)	25 chars	147	1	147
+
+# MEASURED on the cluster, three data planes, realistic profile
+# (genai-serving / granite-3-1-8b-instruct / sql-generation, customer-support, ...)
+adapters	pattern-bytes	istio	kgateway	envoy-gw	kgateway RE2 program size
+2	96	ok	ok	ok	under 100
+3	114	ok	REFUSED	ok	107 > 100
+
+# MEASURED, long-namespace profile, kgateway only
+adapters	pattern-bytes	kgateway	RE2 program size
+1	100	ok	under 100
+2	126	REFUSED	117 > 100
+3	151	REFUSED	139 > 100
