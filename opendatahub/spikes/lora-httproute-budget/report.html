@@ -458,6 +458,7 @@
     <div><dt>shapes measured</dt><dd>9</dd></div>
     <div><dt>data planes</dt><dd>2</dd></div>
     <div><dt>routing probes</dt><dd>83</dd></div>
+    <div><dt>adapter counts vs controller</dt><dd>5</dd></div>
     <div><dt>issues filed</dt><dd>5</dd></div>
   </dl>
 </header>
@@ -647,11 +648,13 @@
   </div>
 
   <div class="note warn">
-    <span class="lbl">and the budget is sticky</span>
+    <span class="lbl">and one way of removing adapters leaves the route behind</span>
     <p>
-      Removing adapters never shrinks the route. Measured: go from seven adapters to three
-      and the route still carries matches for names that no longer exist, still reporting
-      <code>HTTPRoutesReady=True</code>. Adding works, removing does not. Filed as
+      <em>Reducing</em> the adapter list prunes correctly: measured live, 8 adapters down to
+      3 takes the rule from 64 matches to 32, and down to 1 takes it to 16. But
+      <em>clearing <code>spec.model.lora</code> entirely</em> does not. The route keeps the
+      last adapter's matches, naming something that no longer exists, and reports
+      <code>HTTPRoutesReady=True</code> while doing it. Filed as
       <a href="https://github.com/bartoszmajsak/work-items/issues/279">#279</a>.
     </p>
   </div>
@@ -2322,6 +2325,116 @@ set for the error level threshold.</span></pre>
 
 
 <section>
+  <h2>How each number was produced</h2>
+  <p class="sub">
+    Some of this is the real kserve controller reconciling real
+    <code>LLMInferenceService</code> CRs. Some of it is a synthesised route the controller
+    could not produce, because kserve does not implement those shapes yet. Which is which
+    changes how much weight a number carries.
+  </p>
+
+  <div class="panel">
+    <div class="panel-hd"><span class="kb muted">LIS</span> provenance</div>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>number</th><th>produced by</th><th>real controller?</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>the 12-rule route shape</td>
+          <td>captured from a live cluster with <code>capture-routes.sh</code></td>
+          <td><span class="st ok">yes</span></td>
+        </tr>
+        <tr>
+          <td><strong>the 7-adapter ceiling</strong></td>
+          <td><code>spec.model.lora.adapters</code> patched on the CR, controller reconciles, apiserver refuses</td>
+          <td><span class="st ok">yes</span></td>
+        </tr>
+        <tr>
+          <td>72 routing probes</td>
+          <td>replayed against the controller-generated route, backendRefs swapped for echo Deployments so the destination is observable</td>
+          <td><span class="st ok">yes</span> <span class="hint">route is real, backends are not</span></td>
+        </tr>
+        <tr>
+          <td>13 endpoint-picker outcomes</td>
+          <td>real InferencePool, real EPP, real vLLM with two LoRA adapters on a PVC</td>
+          <td><span class="st ok">yes</span></td>
+        </tr>
+        <tr>
+          <td>rule-name cross-wire, policy detach</td>
+          <td>controller-generated routes across four services on a shared gateway</td>
+          <td><span class="st ok">yes</span></td>
+        </tr>
+        <tr class="is-current">
+          <td><strong>candidate ceilings</strong> <span class="hint">12, 15, 22, 58, 63, 320</span></td>
+          <td>routes synthesised by <code>probe-ceiling.sh</code> and validated by the apiserver</td>
+          <td><span class="st warn">no</span> <span class="hint">kserve cannot emit these shapes</span></td>
+        </tr>
+        <tr class="is-current">
+          <td>latency, RE2 program size, anchoring</td>
+          <td>hand-built routes against echo backends</td>
+          <td><span class="st warn">no</span> <span class="hint">measuring Envoy, not kserve</span></td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <h3>Is the synthesised route faithful?</h3>
+  <p>
+    That is the question the candidate ceilings rest on, so it is worth answering with
+    evidence rather than assurance. The synthesised <code>current</code> shape was compared
+    against what the controller actually generated, at four adapter counts:
+  </p>
+
+  <div class="panel">
+    <div class="panel-hd"><span class="kb">HR</span> controller vs synthesised
+      <span class="rt">rules / total matches / biggest rule</span></div>
+    <div class="scroll">
+    <table>
+      <thead><tr><th class="num">adapters</th><th>controller</th><th>synthesised</th><th>agree</th></tr></thead>
+      <tbody>
+        <tr><td class="num">2</td><td class="name">12 / 37 / 24</td><td class="name">12 / 37 / 24</td><td><span class="st ok">exact</span></td></tr>
+        <tr><td class="num">4</td><td class="name">12 / 55 / 40</td><td class="name">12 / 55 / 40</td><td><span class="st ok">exact</span></td></tr>
+        <tr><td class="num">6</td><td class="name">12 / 73 / 56</td><td class="name">12 / 73 / 56</td><td><span class="st ok">exact</span></td></tr>
+        <tr><td class="num">7</td><td class="name">12 / 82 / 64</td><td class="name">12 / 82 / 64</td><td><span class="st ok">exact</span></td></tr>
+        <tr class="is-current"><td class="num">8</td><td class="name">12 / 82 / 64 <span class="hint">stuck</span></td><td class="name">12 / 91 / 72</td><td><span class="st crit">route refused</span></td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <p>
+    The synthesis reproduces the controller's arithmetic exactly at every count the
+    controller can reach, so the linear law the candidate ceilings extrapolate from is
+    verified against real output rather than assumed. Rule <em>names</em> differ - the
+    synthesised route calls them <code>name-v1-completions</code> where the controller says
+    <code>v1-completions-path</code> - which does not affect any budget, and every
+    name-related finding was measured on controller-generated routes rather than these.
+  </p>
+
+  <p>
+    The row at eight adapters is the failure in this document reproduced live: the CR
+    carries eight adapters, the controller logs
+    <code>Too many: 72: must have at most 64 items</code>, the CR goes
+    <code>Ready=False</code>, and the HTTPRoute sits there at seven adapters still reporting
+    <code>Accepted=True</code> and serving traffic.
+  </p>
+
+  <div class="note warn">
+    <span class="lbl">what this does not make real</span>
+    <p>
+      No shape other than <code>current</code> has ever been emitted by kserve, because
+      kserve does not implement them. Every candidate ceiling is what the apiserver accepts
+      for a route of that shape, not what the controller would produce if someone wrote it.
+      A real implementation could add matches this synthesis does not model, and the ceiling
+      would drop accordingly. The numbers are upper bounds on a faithful skeleton, not
+      predictions about a patch nobody has written.
+    </p>
+  </div>
+</section>
+
+
+<section>
   <h2>Recommendation</h2>
   <p class="sub">
     The second data plane split this into two answers: one for a product that controls its
@@ -2333,11 +2446,10 @@ set for the error level threshold.</span></pre>
       <div>
         <h4>Fix the pruning bug and add a pre-flight check</h4>
         <p>
-          Unchanged by everything below, and needed under every shape. Removing adapters
-          never shrinks the route, so the budget is sticky: a service that once had seven
-          carries that cost after dropping to three. And nothing counts the budget before
-          applying, which is why exceeding it arrives as a raw CEL string rather than a
-          condition. If a regex shape is adopted, the check has to count
+          Unchanged by everything below, and needed under every shape. Clearing
+          <code>spec.model.lora</code> leaves the route carrying an adapter that no longer
+          exists, while reporting ready. And nothing counts the budget before applying,
+          which is why exceeding it arrives as a raw CEL string rather than a condition. If a regex shape is adopted, the check has to count
           <strong>RE2 program size</strong> too, not just matches and bytes, because that is
           the limit the data plane enforces and it enforces it silently.
         </p>
@@ -2440,8 +2552,8 @@ set for the error level threshold.</span></pre>
     </div>
     <div class="issue">
       <span class="id"><a href="https://github.com/bartoszmajsak/work-items/issues/279">#279</a></span>
-      <span class="ti">Route pruning never removes stale adapter matches
-        <small>Budget is sticky: drop from seven adapters to three and the route still carries all seven, reporting ready.</small></span>
+      <span class="ti">Clearing spec.model.lora leaves stale adapter matches in the route
+        <small>Reducing the list prunes fine; clearing <code>spec.model.lora</code> leaves the last adapter in the route, reporting ready.</small></span>
       <span><span class="st warn">p2</span></span>
     </div>
     <div class="issue">

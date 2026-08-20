@@ -257,11 +257,13 @@ exactly the shared-gateway, many-models deployment this epic exists to support.
 
 ## 8. Filed separately
 
-- **[#279]** removing all LoRA adapters never prunes the route. Clear
-  `spec.model.lora` and the HTTPRoute keeps **18 matches naming adapters that no
-  longer exist**, with `HTTPRoutesReady=True`. Adding works (A=4 → exactly 40),
-  so it is remove-only. The match budget is therefore *sticky*: a service that
-  once had 7 adapters carries that cost after dropping to 3.
+- **[#279]** clearing `spec.model.lora` never prunes the route. The HTTPRoute
+  keeps matches naming adapters that no longer exist, with
+  `HTTPRoutesReady=True`. Re-checked in section 20: *reducing* the list prunes
+  correctly (8 to 3 takes the rule from 64 matches to 32), so this is narrower
+  than "removing adapters never shrinks the route" - it is the clear-the-field
+  case only.
+
 - **[#280]** `LoRASpec.MaxAdapters` / `MaxCpuAdapters` document a default that is
   never applied. Confirmed live: with 2 adapters configured, vLLM reports
   `vllm:lora_requests_info{max_lora="1"}` - its own default, not the documented
@@ -1064,6 +1066,76 @@ section 16: route `Accepted=True`, proxy serving stale config.
 
 So there is no way to make 4KB of regex readable in place, and the only real
 mitigation is to make reading it unnecessary.
+
+## 20. Provenance: what is the controller and what is a replica
+
+A fair question about every number above: is it the real kserve controller
+reconciling a real `LLMInferenceService`, or a hand-built route standing in for
+one? It is both, in different places, and the distinction changes how much weight
+a number carries.
+
+| number | produced by | real controller |
+|---|---|---|
+| the 12-rule route shape | `capture-routes.sh`, captured live | yes |
+| **the 7-adapter ceiling** | CR patched, controller reconciles, apiserver refuses | yes |
+| 72 routing probes | controller-generated route, backendRefs swapped for echo | yes (route), no (backends) |
+| 13 EPP outcomes | real InferencePool, real EPP, real vLLM, 2 adapters on a PVC | yes |
+| rule-name cross-wire, policy detach | controller routes, 4 services, shared gateway | yes |
+| **candidate ceilings** (12, 15, 22, 58, 63, 320) | `probe-ceiling.sh` synthesis, validated by the apiserver | **no** |
+| latency, RE2 program size, anchoring | hand-built routes, echo backends | **no** (measuring Envoy) |
+
+The candidate ceilings cannot come from the controller: kserve does not implement
+`split`, `alternation` or `nested`, so there is nothing to ask. Synthesis is
+unavoidable. What is avoidable is trusting it blind.
+
+### The synthesis is faithful, checked at four points
+
+`probe-ceiling.sh`'s `current` renderer, compared against what the controller
+actually generated at the same adapter count:
+
+| adapters | controller rules/matches/max | synthesised | agree |
+|---|---|---|---|
+| 2 | 12 / 37 / 24 | 12 / 37 / 24 | exact |
+| 4 | 12 / 55 / 40 | 12 / 55 / 40 | exact |
+| 6 | 12 / 73 / 56 | 12 / 73 / 56 | exact |
+| 7 | 12 / 82 / 64 | 12 / 82 / 64 | exact |
+| 8 | 12 / 82 / 64 **stuck** | 12 / 91 / 72 | route refused |
+
+So the linear law the candidate ceilings extrapolate from is verified against
+real controller output rather than assumed. Rule *names* differ - synthesis says
+`name-v1-completions` where the controller says `v1-completions-path` - which
+affects no budget, and every name-related finding (section 7, section 12) was
+measured on controller-generated routes rather than these.
+
+The row at eight adapters is section 1 reproduced live: CR carries eight
+adapters, controller logs `Too many: 72: must have at most 64 items`, CR goes
+`Ready=False`, and the HTTPRoute sits at seven still reporting `Accepted=True`
+and serving traffic.
+
+**What this does not make real.** No shape other than `current` has ever been
+emitted by kserve. Every candidate ceiling is what the apiserver accepts for a
+route of that shape, not what the controller would produce if someone wrote it. A
+real implementation could add matches this synthesis does not model, and the
+ceiling would drop. These are upper bounds on a faithful skeleton, not
+predictions about a patch nobody has written.
+
+### Correction to #279, and to how this document stated it
+
+Re-running the pruning case against the controller narrows it considerably.
+**Reducing** the adapter list prunes correctly: 8 adapters down to 3 takes the
+rule from 64 matches to 32, and down to 1 takes it to 16, live. The bug is
+specifically **clearing `spec.model.lora` entirely** - the route then keeps the
+last adapter's matches, naming something that no longer exists, with
+`HTTPRoutesReady=True`.
+
+Section 8 stated this correctly ("removing *all* LoRA adapters", "it is
+remove-only"). The decision report generalised it into "removing adapters never
+shrinks the route" and attached a 7-to-3 measurement that does not hold. Fixed
+there. Worth checking the filed issue says the narrow thing too.
+
+The consequence for the recommendation is unchanged - the pre-flight check is
+what actually matters, and it is needed either way - but "the budget is sticky"
+was doing more work in the argument than the evidence supports.
 
 ---
 

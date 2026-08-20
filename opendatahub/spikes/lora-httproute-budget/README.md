@@ -149,6 +149,28 @@ codes rather than destinations. Tier 2 deliberately swaps the EPP out; tier 3
 exists because "which backend" and "what actually happens" turned out to be very
 different questions. The collapse moves 20 destinations and changes 2 outcomes.
 
+## What is real and what is a replica
+
+Worth knowing before quoting a number out of this repo.
+
+The **baseline route** and the **7-adapter ceiling** come from the real kserve
+controller reconciling the real `LLMInferenceService` CRs in
+`manifests/fixtures.yaml` - `capture-routes.sh --sweep` patches
+`spec.model.lora.adapters` and waits for the controller, it does not hand-write a
+route. Tier 2 replays probes against that captured route with backends swapped so
+the destination is observable; tier 3 puts a real InferencePool, EPP and vLLM back
+in the path.
+
+The **candidate ceilings** (`split`, `alternation`, `nested`, ...) are synthesised
+by `probe-ceiling.sh`, because kserve does not implement those shapes and there is
+nothing to ask it for. The synthesis is checked against controller output at four
+adapter counts and reproduces its arithmetic exactly - see FINDINGS section 20 -
+but it is still a skeleton, and a real implementation could add matches it does not
+model.
+
+Everything in `probe-latency.sh`, `probe-regex-cost.sh` and `probe-dataplane.sh`
+is hand-built against echo backends on purpose: those measure Envoy, not kserve.
+
 ## Scripts
 
 | script | answers |
