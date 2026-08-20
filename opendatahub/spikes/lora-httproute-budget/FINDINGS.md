@@ -1214,6 +1214,25 @@ controllers with stale informers. Adding Envoy Gateway (which installs
 restarted. Worth knowing before concluding anything from a multi-controller
 cluster.
 
+### Terminology: control plane vs data plane
+
+An earlier revision of this section used "stock Envoy" as shorthand for "a
+control plane that leaves the RE2 default alone". That is misleading, because it
+reads as *Envoy Gateway*, which is the opposite of the truth.
+
+Istio, kgateway and Envoy Gateway are **control planes**. All three configure the
+same data plane - Envoy. This is not three proxies, it is one proxy configured
+three ways, and what differs is which runtime settings each control plane bakes
+into the bootstrap. Where the limit matters, the control plane is named rather
+than described.
+
+Also worth stating: what was installed is **Envoy Gateway, not the Envoy AI
+Gateway addon**. The regex questions do not need InferencePool support so its
+absence did not block them, but nothing in this spike exercises GIE on Envoy
+Gateway, and the anchoring and ceiling results there say nothing about whether
+its inference extension behaves like Istio's or kgateway's.
+
+
 ## 22. The path axis, if adapters ever get one
 
 A fair question: the header rules need a regex to stay constant, so do the path
