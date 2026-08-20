@@ -1666,18 +1666,48 @@ applies and deletes HTTPRoutes every few seconds, and istiod stabilised at zero
 restarts once that stopped, then stayed stable when routes were added back
 individually.
 
-So the trigger is rate of HTTPRoute change rather than any particular route. Two
-consequences:
+So the trigger is rate of HTTPRoute change rather than any particular route.
 
-- **For this spike's method:** the harness now checks each control plane is Ready
-  and degrades that column to `ctrl-down` rather than reporting stale config as a
-  result. An earlier istio row in section 25 was wrong for exactly this reason and
-  was caught only because the value looked implausible.
-- **For the recommendation:** per-adapter route churn is not merely untidy. Every
-  adapter add or remove rewrites the HTTPRoute, and on this version of Istio a
-  high enough rate of that crashes the control plane. `alternation` retains that
-  churn; `nested` is the only shape that removes it. It is a second, independent
-  argument for the same conclusion.
+### Does normal LoRA management get anywhere near that rate? No.
+
+An earlier draft of this section claimed the crash was "a second, independent
+argument" for `nested`, on the grounds that per-adapter route churn drives
+HTTPRoute rewrites. **That was an overclaim, and measuring it retracts it.**
+
+| what | HTTPRoute writes |
+|---|---|
+| steady state, 180 s, nothing touched | **0** |
+| add one adapter (2 -> 3) | **1** |
+| remove one adapter (3 -> 2) | **1** |
+
+The route is completely stable at rest - generation did not move once in three
+minutes - and an adapter change costs exactly one write, with no amplification and
+no reconcile loop behind it. The probe harness was applying and deleting routes
+across three gateways every ten to fifteen seconds, which is one to two orders of
+magnitude faster than adapter management and is not a workload anything real
+produces.
+
+So the honest reading:
+
+- **The crash is real** and worth reporting to istio: `mergeHTTPRoutes` has a data
+  race that a sufficiently fast writer can hit.
+- **It is not a LoRA problem.** Adding adapters does not storm the control plane,
+  and this is not an argument for or against any shape in this document. The
+  arguments for `nested` are the ceiling, the portability and the constant path
+  axis - not this.
+- **It is a caution for the harness and for anything that reconciles routes in a
+  hot loop** - a controller bug, a retry storm, a test suite like this one.
+
+Note also that the remove case shrank the route from 46 matches back to 37, which
+independently reconfirms the narrowing of #279 in section 20: reducing the adapter
+list prunes correctly.
+
+### The one consequence that stands
+
+**For this spike's method:** the harness now checks each control plane is Ready and
+degrades that column to `ctrl-down` rather than reporting stale config as a result.
+An earlier istio row in section 25 was wrong for exactly this reason and was caught
+only because the value looked implausible.
 
 Separately: enabling `v1alpha2` on the TLSRoute CRD - which this spike did to get
 kgateway to start - also crashed istiod, reproducibly, and reverting it fixed that

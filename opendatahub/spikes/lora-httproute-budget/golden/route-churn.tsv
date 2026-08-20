@@ -1,0 +1,21 @@
+# Does normal LoRA management churn the HTTPRoute?
+#
+# Asked because istiod 1.30.3 crash-loops under rapid HTTPRoute churn (FINDINGS
+# 27), and the obvious conclusion - that adding adapters could storm the control
+# plane - turns out to be wrong.
+#
+# Measured by sampling svc-a-kserve-route's metadata.resourceVersion every 2s.
+what	duration	route-writes	note
+steady state, nothing touched	180s	0	generation did not move (12 -> 12)
+add one adapter (2 -> 3)	60s	1	generation 12 -> 13, 37 -> 46 matches
+remove one adapter (3 -> 2)	60s	1	generation 13 -> 14, 46 -> 37 matches
+this spike's probe harness	per minute	~10-20	apply+delete across three gateways every 10-15s
+#
+# So an adapter change costs exactly one write with no amplification, and the
+# route is completely stable at rest. The harness churn was one to two orders of
+# magnitude faster and is not a workload anything real produces. The istiod race
+# is real and worth reporting upstream, but it is not a LoRA problem and is not an
+# argument for or against any route shape.
+#
+# The remove case also reconfirms the narrowing of #279: reducing the adapter list
+# prunes correctly (46 matches back to 37).

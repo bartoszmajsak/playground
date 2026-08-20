@@ -3323,8 +3323,8 @@ extensionApis:
 <section>
   <h2>Aside: istiod crashes under route churn</h2>
   <p class="sub">
-    Worth recording because it disrupted this spike repeatedly, and because it bears on the
-    churn argument.
+    Worth recording because it disrupted this spike repeatedly - and worth measuring,
+    because the obvious conclusion to draw from it turns out to be wrong.
   </p>
 
   <p>With four Gateway API controllers sharing one node, istiod 1.30.3 crash-looped:</p>
@@ -3345,20 +3345,51 @@ istio.io/istio/pilot/pkg/config/kube/gateway.<span class="hi">mergeHTTPRoutes</s
     change, not any particular route.
   </p>
 
-  <div class="note warn">
-    <span class="lbl">two consequences, one of them about the recommendation</span>
+  <h3>Does LoRA management get anywhere near that rate? No.</h3>
+  <p>
+    An earlier revision of this section claimed the crash was "a second, independent
+    argument" for <code>nested</code>, since per-adapter churn drives HTTPRoute rewrites.
+    <strong>That was an overclaim, and measuring it retracts it.</strong>
+  </p>
+
+  <div class="panel">
+    <div class="panel-hd"><span class="kb"><svg><use href="#k8-route"/></svg></span>
+      HTTPRoute writes, measured <span class="rt">svc-a, resourceVersion sampled every 2s</span></div>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>what</th><th class="num">route writes</th></tr></thead>
+      <tbody>
+        <tr><td>steady state, 180 s, nothing touched</td><td class="num"><span class="st ok">0</span></td></tr>
+        <tr><td>add one adapter <span class="hint">2 &rarr; 3</span></td><td class="num"><span class="st ok">1</span></td></tr>
+        <tr><td>remove one adapter <span class="hint">3 &rarr; 2</span></td><td class="num"><span class="st ok">1</span></td></tr>
+        <tr class="is-current"><td>this spike's probe harness</td><td class="num"><span class="st warn">~10-20 / min</span></td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <p>
+    The route is completely stable at rest - generation did not move once in three minutes -
+    and an adapter change costs exactly one write, with no amplification and no reconcile
+    loop behind it. The harness was applying and deleting routes across three gateways every
+    ten to fifteen seconds, one to two orders of magnitude faster than adapter management
+    and not a workload anything real produces.
+  </p>
+
+  <div class="note">
+    <span class="lbl">so, honestly</span>
     <p>
-      <strong>For the method:</strong> the harness now checks each control plane is Ready and
-      degrades that column to <code>ctrl-down</code> rather than reporting stale config as a
-      result. An earlier istio row was wrong for exactly this reason, and was caught only
-      because the value looked implausible.
+      <strong>The crash is real</strong> and worth reporting upstream: a data race a fast
+      enough writer can hit. <strong>It is not a LoRA problem</strong> - adding adapters does
+      not storm the control plane, and this is not an argument for or against any shape here.
+      The case for <code>nested</code> rests on the ceiling, the portability and the constant
+      path axis, not on this. What it <em>is</em> is a caution for anything that reconciles
+      routes in a hot loop: a controller bug, a retry storm, or a test suite like this one.
     </p>
     <p>
-      <strong>For the shapes:</strong> per-adapter route churn is not merely untidy. Every
-      adapter add or remove rewrites the HTTPRoute, and at a high enough rate that crashes
-      this version of Istio's control plane. <code>alternation</code> retains that churn;
-      <code>nested</code> is the only shape that removes it. That is a second, independent
-      argument for the same conclusion.
+      The one consequence that stands is methodological: the harness now checks each control
+      plane is Ready and degrades that column to <code>ctrl-down</code> rather than reporting
+      stale config as a result. An earlier istio row was wrong for exactly this reason.
     </p>
   </div>
 
