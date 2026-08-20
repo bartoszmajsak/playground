@@ -827,6 +827,126 @@
 
 
 <section>
+  <h2>Could a GIE model-level resource carry the index?</h2>
+  <p class="sub">
+    The index is a table of names, and the Inference Extension has a resource whose whole
+    job is model-level configuration. Worth asking whether the table belongs there instead
+    of in HTTPRoute matches.
+  </p>
+
+  <p>
+    The resource is <strong><code>InferenceModelRewrite</code></strong>
+    (<code>inference.networking.x-k8s.io/v1alpha2</code>, with an <code>llm-d.ai</code>
+    mirror; descendant of the older <code>InferenceModel</code>).
+  </p>
+
+  <div class="panel">
+    <div class="panel-hd"><span class="kb muted">IMR</span> InferenceModelRewrite</div>
+    <pre class="code">spec:
+  <span class="hi">poolRef:</span>                       <span class="c"># which InferencePool this applies to</span>
+    kind: InferencePool
+    name: svc-a-inference-pool
+  rules:
+    - matches:
+        - <span class="hi">model:</span>                 <span class="c"># matches the `model` field IN THE JSON BODY</span>
+            type: Exact
+            value: sql-adapter
+      targets:
+        - modelRewrite: sql-adapter-v2
+          <span class="hi">weight: 100</span></pre>
+  </div>
+
+  <p>
+    The interesting part is <code>matches[].model</code>: it matches <strong>the request
+    body</strong>, which is precisely what HTTPRoute cannot do. That is what makes the
+    question a good one.
+  </p>
+
+  <div class="note warn">
+    <span class="lbl">but it cannot replace the index</span>
+    <p>
+      <code>poolRef</code> is the answer. The resource is scoped <em>by</em> a pool, so it
+      applies only once the request has already reached one. It configures behaviour
+      <em>within</em> a pool; it does not select between them. The question the ceiling
+      exists to answer - <em>which InferencePool owns this adapter name</em> - is the one
+      thing it cannot answer. On the shared endpoint the HTTPRoute still needs a match per
+      adapter.
+    </p>
+  </div>
+
+  <h3>It does two things that matter a lot to <code>nested</code></h3>
+
+  <div class="asks">
+    <div class="ask">
+      <h4>It removes the vLLM half of the migration</h4>
+      <p>
+        Nesting's cost list included re-registering adapters under nested names. With a
+        rewrite the endpoint picker translates
+        <code>llama-3-8b/adapters/sql-adapter</code> back to <code>sql-adapter</code> before
+        vLLM sees it, so <strong>registration does not change at all</strong>. One constant
+        HTTPRoute prefix, plus one rewrite rule per adapter - and custom resources have no
+        64-match cap. That moves the per-adapter table out of a capped object into an
+        uncapped one, which is what this whole document has been trying to do.
+      </p>
+    </div>
+    <div class="ask">
+      <h4>It gives back the visibility nesting loses</h4>
+      <p>
+        The one measured drawback of nesting is that the adapter name never appears in the
+        route, so nothing answers "is <code>sql-adapter</code> routable?". With a rewrite CR
+        per adapter, <code>kubectl get inferencemodelrewrite</code> <em>is</em> the answer -
+        and a better one than grepping a 4KB regex. It also brings per-adapter
+        <strong>weights</strong>, so canarying between adapter versions becomes expressible,
+        which no shape in this document can do.
+      </p>
+    </div>
+  </div>
+
+  <h3>Measured: inert in this deployment</h3>
+
+  <div class="panel">
+    <div class="panel-hd"><span class="kb muted">IMR</span> is anything using it?</div>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>check</th><th>result</th></tr></thead>
+      <tbody>
+        <tr><td>CRDs installed</td><td><span class="st ok">yes, both groups</span></td></tr>
+        <tr><td>instances in cluster</td><td><span class="st warn">0</span></td></tr>
+        <tr><td>kserve controller RBAC</td><td><span class="st ok">get/list/watch on <code>inferencemodelrewrites</code>, <code>inferencemodels</code>, <code>inferenceobjectives</code></span></td></tr>
+        <tr><td>does kserve create any</td><td><span class="st warn">no</span></td></tr>
+        <tr><td>EPP image</td><td class="name">llm-d-router-endpoint-picker:v0.9.0</td></tr>
+        <tr><td>EPP plugins configured</td><td>scheduling only: queue, kv-cache, prefix-cache, no-hit-lru, lora-affinity, max-score-picker</td></tr>
+        <tr class="is-current"><td><strong>rewrite honoured</strong></td><td><span class="st crit">no</span></td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <p>
+    Tested directly: created a rewrite mapping <code>alias-test</code> to
+    <code>adapter-a1</code>, sent <code>{"model":"alias-test"}</code> at the service-scoped
+    path, and vLLM answered <code>The model `alias-test` does not exist</code>. The request
+    passed through the endpoint picker unchanged, so nothing consumed the resource.
+  </p>
+
+  <div class="note">
+    <span class="lbl">worth tracking rather than acting on</span>
+    <p>
+      That kserve's controller already holds RBAC for these kinds while creating none of
+      them suggests the integration is anticipated rather than absent by decision. If the
+      endpoint picker gains rewrite support, <code>nested</code> gets materially cheaper and
+      its one measured drawback disappears.
+    </p>
+    <p>
+      Scope: the endpoint picker here is llm-d's <code>v0.9.0</code>. This says nothing
+      about whether the upstream GIE picker implements rewrites, only that the one kserve
+      deploys in this configuration does not.
+    </p>
+  </div>
+</section>
+
+
+<section>
   <h2>The options</h2>
   <p class="sub">
     Every ceiling below was measured by asking the apiserver to validate a synthesised route
@@ -1790,7 +1910,8 @@ publishers/&lt;ns&gt;/models/<span class="hi">llama-3-8b/adapters/sql-adapter</s
       <p>
         Under nesting the adapter name never appears in the HTTPRoute, so the route stops
         being the place you can learn which adapters are actually routable. Nothing else
-        answers that today. This is small, but it is real work and it is not optional.
+        answers that today - though an <code>InferenceModelRewrite</code> per adapter would,
+        if the endpoint picker ever honours them. Small, but real work and not optional.
       </p>
     </div>
     <div class="ask">

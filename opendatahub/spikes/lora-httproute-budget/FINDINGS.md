@@ -1367,6 +1367,95 @@ hand-crafted client can reach - and on ODH not even that. The rules are not wron
 they are early, and the ceiling will start costing real traffic at the moment the
 producer arrives rather than before it.
 
+## 24. Could a GIE model-level resource carry the index instead?
+
+The index in section 23 is a table of names. Gateway API Inference Extension has a
+resource whose whole job is model-level configuration, so it is worth asking
+whether the index belongs there rather than in HTTPRoute matches.
+
+The resource is **`InferenceModelRewrite`**
+(`inference.networking.x-k8s.io/v1alpha2`, with an `llm-d.ai` mirror; it is the
+descendant of the older `InferenceModel`). Its shape:
+
+```yaml
+spec:
+  poolRef:                       # which InferencePool this applies to
+    kind: InferencePool
+    name: svc-a-inference-pool
+  rules:
+    - matches:
+        - model:                 # matches the `model` field IN THE JSON BODY
+            type: Exact
+            value: sql-adapter
+      targets:
+        - modelRewrite: sql-adapter-v2
+          weight: 100
+```
+
+The interesting part is `matches[].model`: it matches **the request body**, which
+is precisely what HTTPRoute cannot do. That is why the question is a good one.
+
+### It cannot replace the index
+
+`poolRef` is the answer. The resource is scoped **by** a pool, so it applies only
+after the request has already reached one. It configures behaviour *within* a
+pool; it does not select between pools. The question the ceiling exists to answer -
+"which InferencePool owns this adapter name" - is the one thing it cannot answer.
+
+So on the shared endpoint the HTTPRoute still needs a match per adapter, and the
+ceiling stands.
+
+### But it does two things that matter a lot to `nested`
+
+**It removes the vLLM-registration half of the nested migration.** Section 11
+listed re-registering adapters under nested names as part of the cost, and kserve
+currently does dual registration via `--lora-modules`. With a rewrite, the EPP can
+translate `llama-3-8b/adapters/sql-adapter` back to `sql-adapter` before vLLM sees
+it, so **vLLM registration does not change at all**. The combination is coherent:
+
+- HTTPRoute: one constant prefix match, unbounded, because the nested name
+  identifies the owning pool (section 23)
+- rewrite CRs: one rule per adapter for the name translation - and **custom
+  resources have no 64-match cap**
+
+That moves the per-adapter table out of a capped object into an uncapped one,
+which is the thing this whole document has been trying to do.
+
+**It gives back the visibility `nested` loses.** Section 19 found nesting's one
+real cost: the adapter name never appears in the route, so nothing answers "is
+`sql-adapter` routable?". If each adapter has a rewrite CR, then
+`kubectl get inferencemodelrewrite` *is* the answer, and it is a better answer
+than grepping a 4KB regex.
+
+It also brings per-adapter **weights**, so canarying between adapter versions
+becomes expressible - which no HTTPRoute-match shape in this document can do.
+
+### Measured: inert in this deployment
+
+| check | result |
+|---|---|
+| CRDs installed | yes, both groups |
+| instances in cluster | **0** |
+| kserve controller RBAC | has get/list/watch on `inferencemodelrewrites`, `inferencemodels`, `inferenceobjectives` |
+| does kserve create any | **no** |
+| EPP image | `ghcr.io/llm-d/llm-d-router-endpoint-picker:v0.9.0` |
+| EPP plugins configured | scheduling only: queue, kv-cache, prefix-cache, no-hit-lru, lora-affinity, max-score-picker |
+| rewrite honoured | **no** |
+
+Tested directly: created a rewrite mapping `alias-test` to `adapter-a1`, sent
+`{"model":"alias-test"}` at the service-scoped path, and vLLM answered
+``The model `alias-test` does not exist``. The request passed through the endpoint
+picker unchanged, so nothing consumed the resource.
+
+That kserve's controller already holds RBAC for these kinds while creating none of
+them says the integration is anticipated rather than absent by decision. Worth
+tracking: if the EPP gains rewrite support, the nested option gets materially
+cheaper and its one measured drawback goes away.
+
+**Scope of this result.** The EPP here is llm-d's `v0.9.0`. This says nothing
+about whether the upstream GIE endpoint picker implements rewrites - only that the
+one kserve deploys in this configuration does not.
+
 ---
 
 ## Method notes

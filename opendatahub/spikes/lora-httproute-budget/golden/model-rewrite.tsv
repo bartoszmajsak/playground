@@ -1,0 +1,21 @@
+# Can a GIE model-level resource carry the index instead of HTTPRoute matches?
+#
+# InferenceModelRewrite (inference.networking.x-k8s.io/v1alpha2, plus an llm-d.ai
+# mirror) matches the `model` field IN THE JSON BODY and rewrites it to weighted
+# targets, scoped to a poolRef:
+#
+#   spec.poolRef                    which InferencePool this applies to
+#   spec.rules[].matches[].model    Exact match on the body's model field
+#   spec.rules[].targets[]          modelRewrite + weight
+#
+# It matches the body, which is exactly what HTTPRoute cannot do. But it is scoped
+# BY pool, so it applies only AFTER the request has reached one - it cannot answer
+# "which pool owns this adapter", which is the question the ceiling exists for.
+check	result
+CRDs installed	yes, both inference.networking.x-k8s.io and llm-d.ai
+instances in cluster	0
+kserve controller RBAC	has get/list/watch on inferencemodelrewrites, inferencemodels, inferenceobjectives
+kserve creates any	no
+EPP image	ghcr.io/llm-d/llm-d-router-endpoint-picker:v0.9.0
+EPP plugins configured	scheduling only: queue, kv-cache, prefix-cache, no-hit-lru, lora-affinity, max-score-picker
+rewrite honoured	NO - created alias-test -> adapter-a1, sent body model=alias-test, vLLM answered "The model `alias-test` does not exist"
