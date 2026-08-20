@@ -9,7 +9,7 @@ Two things this settles that the small anchoring route cannot:
   * is the minimal-escape form (320 adapters) accepted, and does it anchor the
     same way the re.escape form (297) does?
 
-  render-scale-route.py <istio|kgw> <full|minimal|distinct> <adapters>
+  render-scale-route.py <istio|kgw|eg> <full|minimal|distinct> <adapters>
 
 `distinct` is the honest case. RE2 factors shared prefixes when it compiles, so
 synthetic names like adapter-a1..adapter-a280 produce a far smaller program than
@@ -48,11 +48,12 @@ else:
     tails = ["model-a"] + ["adapter-a%d" % i for i in range(1, n + 1)]
 pattern = esc(prefix) + "(" + "|".join(esc(t) for t in tails) + ")"
 
-parent = ({"group": "gateway.networking.k8s.io", "kind": "Gateway",
-           "name": "kserve-ingress-gateway", "namespace": "kserve"}
-          if target == "istio" else
-          {"group": "gateway.networking.k8s.io", "kind": "Gateway",
-           "name": "kgw", "namespace": NS})
+PARENTS = {
+    "istio": {"name": "kserve-ingress-gateway", "namespace": "kserve"},
+    "kgw":   {"name": "kgw", "namespace": NS},
+    "eg":    {"name": "eg", "namespace": NS},
+}
+parent = dict(PARENTS[target], group="gateway.networking.k8s.io", kind="Gateway")
 
 print(yaml.safe_dump({
     "apiVersion": "gateway.networking.k8s.io/v1", "kind": "HTTPRoute",
@@ -64,11 +65,11 @@ print(yaml.safe_dump({
                  {"name": "alternation",
                   "backendRefs": [{"kind": "Service", "name": "echo-pool",
                                    "port": 8000, "weight": 1}],
-                  "matches": [{"path": {"type": "PathPrefix", "value": "/v1"},
+                  "matches": [{"path": {"type": "PathPrefix", "value": "/scale"},
                                "headers": [{"type": "RegularExpression",
                                             "name": HDR, "value": pattern}]}]},
                  {"name": "terminal",
                   "backendRefs": [{"kind": "Service", "name": "echo-service",
                                    "port": 8000, "weight": 1}],
-                  "matches": [{"path": {"type": "PathPrefix", "value": "/v1"}}]},
+                  "matches": [{"path": {"type": "PathPrefix", "value": "/scale"}}]},
              ]}}, sort_keys=False))

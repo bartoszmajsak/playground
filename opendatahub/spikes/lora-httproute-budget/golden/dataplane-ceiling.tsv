@@ -1,16 +1,21 @@
-# Alternation ceiling by data plane and by whether adapter names share a prefix.
-# Measured with hack/render-scale-route.py; "programs" means the proxy accepted
-# the RouteConfiguration and the last listed name actually routed.
+# Alternation ceiling by data plane, and by whether adapter names share a prefix.
 #
-# The binding limit differs by data plane:
-#   istio      re2.max_program_size.error_level = 32768 -> the CRD's 4096-byte
-#              cap on a header match value binds first
-#   kgateway   unset, so Envoy's compiled-in default of 100 binds first
+# The binding limit is NOT the same everywhere. Envoy refuses to compile a regex
+# whose RE2 program size exceeds re2.max_program_size.error_level, and each
+# Gateway API implementation picks that value:
+#
+#   istio 1.30.3     32768        (set in the proxy's runtime layer)
+#   envoy-gw 1.6     4294967295   (bootstrap layered_runtime, i.e. off;
+#                                  warn_level 1000)
+#   kgateway 2.1.1   unset        -> Envoy's compiled-in default of 100
+#
+# So kgateway is the outlier: two of three raise or remove the limit.
+# Where the limit is not binding, the CRD's 4096-byte cap on a header match
+# value binds instead.
 dataplane	names	adapters	pattern-bytes	re2-program-size	programs
 istio	shared	297	4091	-	yes
 istio	shared	320	4092	-	yes
 istio	shared	321	>4096	-	no (apiserver rejects)
-kgateway	shared	200	2532	-	yes
 kgateway	shared	220	2792	-	yes
 kgateway	shared	240	3052	-	no
 kgateway	shared	280	3572	111	no
@@ -19,3 +24,8 @@ kgateway	distinct	6	100	-	yes
 kgateway	distinct	7	110	106	no
 kgateway	distinct	8	120	115	no
 kgateway	distinct	9	130	124	no
+envoy-gw	distinct	9	130	-	yes
+envoy-gw	distinct	50	581	-	yes
+envoy-gw	distinct	100	1132	-	yes
+envoy-gw	distinct	200	2332	-	yes
+envoy-gw	distinct	300	3532	-	yes

@@ -181,10 +181,14 @@ is hand-built against echo backends on purpose: those measure Envoy, not kserve.
 | `probe-latency.sh` | throughput per shape. **Too noisy to conclude from** - kept because the failure is instructive |
 | `probe-regex-cost.sh` | what does ONE header-regex evaluation cost? (answer: under 0.145 us, i.e. nothing) |
 | `hack/diff-shapes.py` | what does adding ONE adapter look like to a reviewer? (no cluster needed) |
-| `probe-dataplane.sh` | do the regex findings hold on kgateway as well as Istio? (answer: the semantics do, the ceiling does not) |
+| `probe-dataplane.sh` | do the regex findings hold on kgateway and Envoy Gateway as well as Istio? (semantics: yes, all three. ceiling: no, kgateway alone) |
+| `hack/render-adapter-paths.py` | if adapters ever got a publisher path, does the PATH axis hit a ceiling too? |
 
 `probe-dataplane.sh install` needs `v1alpha2` served on the TLSRoute CRD, which
 Gateway API v1.5.1's standard channel disables; the script's notes cover it.
+Installing a controller that brings new CRD groups also leaves already-running
+controllers with stale informers - after adding Envoy Gateway, kgateway silently
+stopped attaching routes until it was restarted.
 
 ## The shapes
 

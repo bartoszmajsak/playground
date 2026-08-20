@@ -1,0 +1,19 @@
+# If adapters ever became path-addressable, does the PATH axis hit a ceiling too?
+#
+# Today it cannot: every path rule in the generated route keys on the service name
+# or the base model name, and neither multiplies by adapter count. Only the two
+# header rules grow. Confirmed against the captured route: an adapter has no
+# publisher path at all, and /publishers/{ns}/models/adapter-a1/v1/chat/completions
+# falls through to the neighbour route.
+#
+# It is worth asking because on ODH the header family is denied outright, so
+# publisher paths are the only authorized way to address a model - which means an
+# adapter has no authorized path-based address today.
+#
+# Note the byte cap differs by axis: Gateway API sets HTTPPathMatch.Value to
+# MaxLength 1024, against HTTPHeaderMatch.Value at 4096. The alternation trick is
+# four times weaker on paths than on headers.
+shape	max-adapters	matches	pattern-bytes	binding-limit
+flat	32	128	63	route-wide 128 matches
+flat-rx	75	4	1018	1024-byte path match value
+nested	unbounded	4	76	nothing

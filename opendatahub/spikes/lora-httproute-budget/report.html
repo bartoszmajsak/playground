@@ -456,9 +456,10 @@
     <div><dt>on istio</dt><dd class="good">320</dd></div>
     <div><dt>nested</dt><dd class="good">&infin;</dd></div>
     <div><dt>shapes measured</dt><dd>9</dd></div>
-    <div><dt>data planes</dt><dd>2</dd></div>
+    <div><dt>data planes</dt><dd>3</dd></div>
     <div><dt>routing probes</dt><dd>83</dd></div>
-    <div><dt>adapter counts vs controller</dt><dd>5</dd></div>
+    <div><dt>doc corrections</dt><dd>4</dd></div>
+    
     <div><dt>issues filed</dt><dd>5</dd></div>
   </dl>
 </header>
@@ -734,7 +735,7 @@
           <td class="name">alternation</td>
           <td><div class="bar"><div class="track"><div class="fill" style="width:99%"></div></div><span class="val">297</span></div></td>
           <td class="num"><span class="st ok">0</span></td><td>4096-byte header</td><td>keeps</td><td>no</td>
-        <td><span class="st crit">istio only</span></td></tr>
+        <td><span class="st warn">not on kgw</span></td></tr>
         <tr class="is-pick">
           <td class="name">nested</td>
           <td><div class="bar"><div class="track"><div class="fill" style="width:100%"></div></div><span class="val">&infin;</span></div></td>
@@ -772,14 +773,14 @@
     </div>
 
     <div class="card">
-      <div class="card-hd"><span class="nm">alternation</span> <span class="st info">7 &rarr; 320</span> <span class="st crit">istio only</span></div>
+      <div class="card-hd"><span class="nm">alternation</span> <span class="st info">7 &rarr; 320</span> <span class="st warn">data-plane dependent</span></div>
       <div class="card-bd">
         <p class="cap">List the names that already exist in one regex. Change nothing else.</p>
         <ul>
           <li class="pro">Zero behaviour change: byte-identical across all 72 probes and all 13 endpoint-picker outcomes</li>
           <li class="pro">No renamed rule, no renamed model, nothing a client sees</li>
           <li class="pro">Anchored exactly on both data planes: <code>adapter-a1</code> matches, <code>adapter-a1x</code> does not</li>
-          <li class="con"><strong>Reaches 6 adapters on kgateway</strong>, which is fewer than today. The RE2 program-size limit is a data-plane setting and Istio is the outlier that raises it</li>
+          <li class="con"><strong>Reaches 6 adapters on kgateway</strong>, which is fewer than today. The RE2 program-size limit is a data-plane setting; Istio and Envoy Gateway raise it, kgateway does not</li>
           <li class="con">Pattern is rewritten whenever the adapter set changes, so route churn stays</li>
         </ul>
       </div>
@@ -895,7 +896,7 @@
         <span class="tmax">320<span class="tunit">on istio</span></span>
         <span class="tbar"><span class="tfill" style="width:99%"></span></span>
         <span class="tmeta"><span>12 rules</span><span>19 matches</span><span class="mv ok">0 moved</span></span>
-        <span class="tbind">4096-byte header &middot; istio only</span>
+        <span class="tbind">RE2 program size &middot; data-plane dependent</span>
       </button>
       <button class="tile" data-shape="nested" aria-pressed="false" aria-controls="yamlpane">
         <span class="tname"><span class="pin">&#9656;</span>nested</span>
@@ -1449,7 +1450,7 @@
         <tr>
           <td class="ax">max adapters</td>
           <td class="num bad">7</td><td class="num">12</td><td class="num">22</td>
-          <td class="num">15</td><td class="num">320 istio / 6 kgw</td><td class="num good">unbounded</td><td class="num">58</td>
+          <td class="num">15</td><td class="num">320 / 6 on kgw</td><td class="num good">unbounded</td><td class="num">58</td>
         </tr>
         <tr>
           <td class="ax">what binds it</td>
@@ -1970,9 +1971,9 @@ then:
 <section>
   <h2>The second data plane, which changes the answer</h2>
   <p class="sub">
-    Every regex finding above was measured on Istio. Installing kgateway beside it and
-    replaying the same patterns produced one result that reverses the recommendation, and
-    one that rescues it.
+    Every regex finding above was measured on Istio. Installing kgateway and Envoy Gateway
+    beside it, and replaying the same patterns against all three, produced one result that
+    transfers cleanly and one that does not transfer at all.
   </p>
 
   <h3>What is portable: the matching semantics</h3>
@@ -1986,34 +1987,35 @@ then:
 
   <div class="panel">
     <div class="panel-hd"><span class="kb">GW</span> anchoring, replayed on both
-      <span class="rt">11 of 11 agree</span></div>
+      <span class="rt">11 of 11 agree, all three</span></div>
     <div class="scroll">
     <table class="matrix">
       <thead>
-        <tr><th>probe</th><th>header value</th><th>expected</th><th>istio</th><th>kgateway</th></tr>
+        <tr><th>probe</th><th>header value</th><th>expected</th><th>istio</th><th>kgateway</th><th>envoy-gw</th></tr>
       </thead>
       <tbody>
-        <tr class="grp"><td colspan="5">alternation <em>- pattern lists model-a, adapter-a1, adapter-a2</em></td></tr>
-        <tr><td class="name">alt-first</td><td><code>&hellip;/model-a</code></td><td>hit</td><td class="m pool same">pool</td><td class="m pool same">pool</td></tr>
-        <tr><td class="name">alt-last</td><td><code>&hellip;/adapter-a2</code></td><td>hit</td><td class="m pool same">pool</td><td class="m pool same">pool</td></tr>
-        <tr><td class="name">alt-absent</td><td><code>&hellip;/adapter-a9</code></td><td>miss</td><td class="m svc same">miss</td><td class="m svc same">miss</td></tr>
-        <tr><td class="name">alt-suffix</td><td><code>&hellip;/adapter-a2<b>x</b></code></td><td>miss</td><td class="m svc same">miss</td><td class="m svc same">miss</td></tr>
-        <tr><td class="name">alt-prefix</td><td><code>&hellip;/<b>x</b>adapter-a2</code></td><td>miss</td><td class="m svc same">miss</td><td class="m svc same">miss</td></tr>
-        <tr><td class="name">alt-embedded</td><td><code>&hellip;/<b>evil/</b>adapter-a2<b>/tail</b></code></td><td>miss</td><td class="m svc same">miss</td><td class="m svc same">miss</td></tr>
-        <tr><td class="name">alt-leading</td><td><code><b>other/</b>publishers/&hellip;/adapter-a2</code></td><td>miss</td><td class="m svc same">miss</td><td class="m svc same">miss</td></tr>
-        <tr class="grp"><td colspan="5">nested <em>- pattern is model-b(/.*)?</em></td></tr>
-        <tr><td class="name">nest-base</td><td><code>&hellip;/model-b</code></td><td>hit</td><td class="m pool same">pool</td><td class="m pool same">pool</td></tr>
-        <tr><td class="name">nest-under</td><td><code>&hellip;/model-b/adapters/x</code></td><td>hit</td><td class="m pool same">pool</td><td class="m pool same">pool</td></tr>
-        <tr><td class="name">nest-sibling</td><td><code>&hellip;/model-b<b>-instruct</b></code></td><td>miss</td><td class="m svc same">miss</td><td class="m svc same">miss</td></tr>
-        <tr><td class="name">nest-embedded</td><td><code>&hellip;/<b>evil/</b>model-b<b>/tail</b></code></td><td>miss</td><td class="m svc same">miss</td><td class="m svc same">miss</td></tr>
+        <tr class="grp"><td colspan="6">alternation <em>- pattern lists model-a, adapter-a1, adapter-a2</em></td></tr>
+        <tr><td class="name">alt-first</td><td><code>&hellip;/model-a</code></td><td>hit</td><td class="m pool same">pool</td><td class="m pool same">pool</td><td class="m pool same">pool</td></tr>
+        <tr><td class="name">alt-last</td><td><code>&hellip;/adapter-a2</code></td><td>hit</td><td class="m pool same">pool</td><td class="m pool same">pool</td><td class="m pool same">pool</td></tr>
+        <tr><td class="name">alt-absent</td><td><code>&hellip;/adapter-a9</code></td><td>miss</td><td class="m svc same">miss</td><td class="m svc same">miss</td><td class="m svc same">miss</td></tr>
+        <tr><td class="name">alt-suffix</td><td><code>&hellip;/adapter-a2<b>x</b></code></td><td>miss</td><td class="m svc same">miss</td><td class="m svc same">miss</td><td class="m svc same">miss</td></tr>
+        <tr><td class="name">alt-prefix</td><td><code>&hellip;/<b>x</b>adapter-a2</code></td><td>miss</td><td class="m svc same">miss</td><td class="m svc same">miss</td><td class="m svc same">miss</td></tr>
+        <tr><td class="name">alt-embedded</td><td><code>&hellip;/<b>evil/</b>adapter-a2<b>/tail</b></code></td><td>miss</td><td class="m svc same">miss</td><td class="m svc same">miss</td><td class="m svc same">miss</td></tr>
+        <tr><td class="name">alt-leading</td><td><code><b>other/</b>publishers/&hellip;/adapter-a2</code></td><td>miss</td><td class="m svc same">miss</td><td class="m svc same">miss</td><td class="m svc same">miss</td></tr>
+        <tr class="grp"><td colspan="6">nested <em>- pattern is model-b(/.*)?</em></td></tr>
+        <tr><td class="name">nest-base</td><td><code>&hellip;/model-b</code></td><td>hit</td><td class="m pool same">pool</td><td class="m pool same">pool</td><td class="m pool same">pool</td></tr>
+        <tr><td class="name">nest-under</td><td><code>&hellip;/model-b/adapters/x</code></td><td>hit</td><td class="m pool same">pool</td><td class="m pool same">pool</td><td class="m pool same">pool</td></tr>
+        <tr><td class="name">nest-sibling</td><td><code>&hellip;/model-b<b>-instruct</b></code></td><td>miss</td><td class="m svc same">miss</td><td class="m svc same">miss</td><td class="m svc same">miss</td></tr>
+        <tr><td class="name">nest-embedded</td><td><code>&hellip;/<b>evil/</b>model-b<b>/tail</b></code></td><td>miss</td><td class="m svc same">miss</td><td class="m svc same">miss</td><td class="m svc same">miss</td></tr>
       </tbody>
     </table>
     </div>
   </div>
 
   <p>
-    Both implementations full-match, and both anchor exactly. Neither shape can capture a
-    neighbouring name or an embedded one. That part transfers.
+    All three full-match, and all three anchor exactly. Neither shape can capture a
+    neighbouring name or an embedded one, on any of them. Gateway API does not specify this
+    behaviour, so it is worth having checked three ways rather than assumed.
   </p>
 
   <h3>What is not portable: how far the pattern can grow</h3>
@@ -2022,8 +2024,9 @@ then:
     <span class="lbl">the finding that reverses the recommendation</span>
     <p>
       Envoy refuses to compile a regex whose <strong>RE2 program size</strong> exceeds a
-      configured limit. <strong>Istio raises that limit to 32768. kgateway leaves Envoy's
-      compiled-in default of 100.</strong> With realistic adapter names, kgateway stops at
+      configured limit, and each implementation picks that value. Istio raises it to 32768;
+      Envoy Gateway turns the check off entirely; <strong>kgateway leaves Envoy's
+      compiled-in default of 100</strong>, and with realistic adapter names stops at
       <strong>six adapters</strong> - fewer than the seven we have today.
     </p>
   </div>
@@ -2088,6 +2091,19 @@ set for the error level threshold.</span></pre>
     kgateway. What I measured was Istio's raised limit, and I generalised it into a claim
     about the option rather than about one data plane.
   </p>
+  <div class="note warn">
+    <span class="lbl">and then a third implementation corrected that too</span>
+    <p>
+      Envoy Gateway also raises the limit - it disables the check outright - and programs
+      <strong>300 adapters</strong> where kgateway refuses at seven. So two of three
+      implementations are fine and kgateway is the odd one out, which is the opposite of
+      what two data planes suggested. The risk is unchanged: the limit is a per-deployment
+      setting Gateway API does not specify and kserve does not control, and one shipping
+      implementation leaves it somewhere the alternation cannot live. But
+      "<code>alternation</code> is Istio-only" was too strong. The accurate version is that
+      it depends on a data-plane setting one major implementation gets wrong.
+    </p>
+  </div>
   <p>
     <code>nested</code>'s pattern is 44 characters and constant, so its program size does
     not depend on adapter count at all. It programmed on both implementations and routed
@@ -2325,6 +2341,233 @@ set for the error level threshold.</span></pre>
 
 
 <section>
+  <h2>Why the limit lands where it does</h2>
+  <p class="sub">
+    Six adapters sounds arbitrary until you know what RE2 is counting. It is arithmetic, and
+    once you can do it the rest of this document stops being surprising.
+  </p>
+
+  <h3>What "program size" means</h3>
+  <p>
+    RE2 does not backtrack. It compiles a pattern into a <strong>program</strong>: a flat
+    list of instructions that a DFA simulation walks. <code>RE2::ProgramSize()</code> returns
+    roughly that instruction count, and for a pattern that is mostly literal text it works
+    out at <strong>about one instruction per byte</strong>.
+  </p>
+  <p>
+    Envoy caps it. The <code>google_re2</code> matcher checks the compiled program against
+    the runtime key <code>re2.max_program_size.error_level</code>, and Envoy's built-in
+    default is <strong>100</strong>. Not 100 characters by intent, but for literal text that
+    is what it amounts to: <em>your regex may be about 100 characters</em>.
+  </p>
+
+  <div class="panel">
+    <div class="panel-hd"><span class="kb muted">RX</span> the 1:1 law, from the measured rows</div>
+    <div class="scroll">
+    <table>
+      <thead><tr><th class="num">adapters</th><th class="num">pattern bytes</th><th class="num">program size</th><th class="num">bytes added</th><th class="num">instructions added</th></tr></thead>
+      <tbody>
+        <tr><td class="num">7</td><td class="num">110</td><td class="num">106</td><td class="num">-</td><td class="num">-</td></tr>
+        <tr><td class="num">8</td><td class="num">120</td><td class="num">115</td><td class="num">+10</td><td class="num">+9</td></tr>
+        <tr><td class="num">9</td><td class="num">130</td><td class="num">124</td><td class="num">+10</td><td class="num">+9</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <h3>Where the 100 goes</h3>
+  <p>The alternation's budget, spent before any adapter is named:</p>
+
+  <div class="panel">
+    <div class="panel-hd"><span class="kb muted">RX</span> the pattern, by cost</div>
+    <pre class="code">publishers/lora\-budget/models/(model-a|sql-coder|chat-tuned|&hellip;)
+<span class="hi">└──────── 30 bytes ─────────┘</span> <span class="c">└─ 7 ─┘</span> <span class="c">└──── ~10 each ────┘</span>
+ <span class="hi">the namespace prefix</span>       <span class="c">base</span>    <span class="c">one adapter name</span></pre>
+  </div>
+
+  <p>
+    <strong>The namespace prefix costs 30 of the 100 before a single adapter is named.</strong>
+    The base model takes 7 more. That leaves roughly 60 instructions, and a realistic adapter
+    name is about 10. Hence six. The ceiling is not really about adapters at all: it is about
+    how many characters are left after <code>publishers/{namespace}/models/</code> has taken
+    its share, which means a longer namespace name lowers it further.
+  </p>
+
+  <div class="note crit">
+    <span class="lbl">this is not a kgateway bug, and kgateway is the outlier</span>
+    <p>
+      kgateway ships Envoy with stock defaults and does not set the key at all. Two other
+      implementations do, so it is kgateway that is unusual:
+    </p>
+    <div class="scroll" style="margin:.7rem 0 0">
+    <table>
+      <thead><tr><th>data plane</th><th class="num">re2.max_program_size.error_level</th><th>set where</th></tr></thead>
+      <tbody>
+        <tr><td class="name">istio 1.30.3</td><td class="num">32768</td><td>runtime layer</td></tr>
+        <tr><td class="name">envoy-gateway 1.6</td><td class="num">4294967295</td><td>bootstrap, i.e. the check is off</td></tr>
+        <tr class="is-current"><td class="name">kgateway 2.1.1</td><td class="num">unset &rarr; 100</td><td>Envoy's compiled-in default</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <h3>Why the synthetic names hid it</h3>
+  <p>
+    At 280 generated names, 3,572 bytes of pattern, the program size was only
+    <strong>111</strong>. RE2 factors shared prefixes when it compiles, so
+    <code>adapter-a1|adapter-a2|&hellip;|adapter-a280</code> collapses to roughly
+    <code>adapter-a</code> plus a digit trie - nearly free. Real adapter names do not rhyme,
+    so nothing factors and every name costs its full length.
+  </p>
+  <p>
+    One rule explains both numbers: <strong>program size tracks the distinct literal content
+    left after factoring</strong>, not the length of the pattern you wrote. It is also why
+    "compress the alternation into a trie" is a trap rather than an optimisation - it would
+    be tuning against the benchmark's naming, and real deployments would get none of it.
+  </p>
+
+  <h3>And why <code>nested</code> is immune</h3>
+
+  <div class="panel">
+    <div class="panel-hd"><span class="kb muted">RX</span> constant, whatever the adapter count</div>
+    <pre class="code">publishers/lora\-budget/models/model\-a(/.*)?
+<span class="c">44 bytes  &rarr;  ~45 instructions  &rarr;  under 100 forever</span></pre>
+  </div>
+
+  <p>
+    The adapter count is not in the pattern, so it cannot push the program size anywhere.
+    <code>nested</code> has always been under the default limit and always will be. That is
+    exactly the property the design docs were reaching for when they asked for "a single
+    fixed prefix regex, constant size, well under the default RE2 program-size limit". They
+    were not making a rough argument about pattern length; they were making a precise one
+    about program size, and it was correct.
+  </p>
+
+  <div class="note">
+    <span class="lbl">what this means for anyone implementing it</span>
+    <p>
+      A pre-flight check that counts matches and bytes is not enough. Bytes are what the CRD
+      caps; <strong>program size is what the data plane caps</strong>, and the two diverge by
+      a factor of thirty depending on how much the names happen to share. The check has to
+      compile the pattern, or the failure lands where nothing is watching: HTTPRoute
+      <code>Accepted=True</code>, Envoy NACKing the config, last good route still serving.
+    </p>
+  </div>
+</section>
+
+
+<section>
+  <h2>Does the path axis need the same trick?</h2>
+  <p class="sub">
+    The header rules need a regex to stay constant. A fair question is whether the path
+    rules do too. Today they do not, and the reason is worth being explicit about.
+  </p>
+
+  <p>
+    Every path rule keys on the <strong>service name</strong> or the <strong>base model
+    name</strong>, and neither multiplies by adapter count. Ten of the twelve rules sit at
+    one match each no matter how many adapters exist. That is exactly why the seven-adapter
+    ceiling is a header problem and not a path problem.
+  </p>
+
+  <div class="note">
+    <span class="lbl">confirmed against the captured route</span>
+    <p>
+      An adapter has <strong>no publisher path at all</strong>.
+      <code>/publishers/{ns}/models/adapter-a1/v1/chat/completions</code> matches nothing in
+      the service's route and falls through to whatever else is on the gateway. Adapters
+      have only ever been addressable by naming them in the request body.
+    </p>
+  </div>
+
+  <h3>Why it is still worth asking</h3>
+  <p>
+    Because of the authorization finding above. On OpenShift AI the header family is denied
+    outright, and publisher paths are the only authorized way to address a <em>model</em>.
+    So an adapter has no authorized path-based address today: it is reachable only via
+    <code>/{ns}/{name}/v1/&hellip;</code> with the adapter named in the body, which
+    authorizes as the <em>instance</em> rather than the model. Giving adapters a publisher
+    path is a plausible consequence of that authorization model, and it would put them on
+    the path axis for the first time.
+  </p>
+
+  <div class="panel">
+    <div class="panel-hd"><span class="kb">HR</span> what adapter paths would cost
+      <span class="rt">measured, apiserver validation</span></div>
+    <div class="scroll">
+    <table>
+      <thead>
+        <tr><th>shape</th><th class="num">max adapters</th><th class="num">matches</th><th class="num">pattern bytes</th><th>binding limit</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="name">flat <span class="hint">one PathPrefix per endpoint per adapter</span></td>
+          <td class="num">32</td><td class="num">128</td><td class="num">63</td>
+          <td>route-wide 128 matches</td>
+        </tr>
+        <tr>
+          <td class="name">flat-rx <span class="hint">one alternation regex per endpoint</span></td>
+          <td class="num">75</td><td class="num">4</td><td class="num">1018</td>
+          <td><strong>1024-byte</strong> path match value</td>
+        </tr>
+        <tr class="is-pick">
+          <td class="name">nested <span class="hint">one wildcard-segment regex per endpoint</span></td>
+          <td class="num">&infin;</td><td class="num">4</td><td class="num">76</td>
+          <td><span class="st ok">nothing</span></td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <p>Three things fall out of that table.</p>
+
+  <div class="asks">
+    <div class="ask">
+      <h4>The byte cap is four times tighter on paths</h4>
+      <p>
+        Gateway API sets <code>HTTPPathMatch.Value</code> to MaxLength <strong>1024</strong>
+        and <code>HTTPHeaderMatch.Value</code> to <strong>4096</strong>. So the alternation
+        buys 32 to 75 here, against 7 to 320 on the header axis. Same trick, a quarter of
+        the room.
+      </p>
+    </div>
+    <div class="ask">
+      <h4><code>PathPrefix</code> cannot express it</h4>
+      <p>
+        A prefix match has no wildcard, so
+        <code>/publishers/{ns}/models/*/v1/completions</code> is not sayable. Collapsing
+        adapter paths <em>requires</em> <code>RegularExpression</code>, which means the path
+        axis inherits the whole RE2 program-size exposure - on kgateway a 1,018-byte path
+        pattern is refused exactly as the header one is.
+      </p>
+    </div>
+    <div class="ask">
+      <h4>Nesting is constant on <em>both</em> axes</h4>
+      <p>
+        <code>/publishers/{ns}/models/{base}(/adapters/[^/]+)?{endpoint}</code> is 76 bytes
+        whatever the adapter count, because the adapter name sits in a wildcard segment
+        instead of being enumerated. The same property that makes the nested header pattern
+        constant shows up independently here.
+      </p>
+    </div>
+  </div>
+
+  <div class="note ok">
+    <span class="lbl">the strongest argument for nesting in this document</span>
+    <p>
+      Every other shape is linear on both axes and needs a separate trick on each. Nesting
+      is the only one that is constant on both, and it gets there for the same structural
+      reason each time: the adapter name stops being something the route has to enumerate.
+      That is a property of the naming scheme, not of the routing, which is why it does not
+      show up in any budget table and why it survives a data plane that caps regex
+      complexity.
+    </p>
+  </div>
+</section>
+
+
+<section>
   <h2>How each number was produced</h2>
   <p class="sub">
     Some of this is the real kserve controller reconciling real
@@ -2475,10 +2718,11 @@ set for the error level threshold.</span></pre>
         <p>
           <code>split-noslash</code> reaches <strong>22</strong> with no regex at all, so no
           data plane can refuse it, at the cost of one moved probe and a rule rename that
-          detaches <code>sectionName</code> policies. On a deployment that ships Istio -
-          which OpenShift AI does - <code>alternation</code> reaches <strong>320</strong>
-          with zero behaviour change, no rename and no naming migration. Take it there, gated
-          on the program-size check, and never as an upstream default.
+          detaches <code>sectionName</code> policies. Where you control the data plane - Istio
+          and Envoy Gateway both raise the RE2 limit, and OpenShift AI ships Istio -
+          <code>alternation</code> reaches <strong>320</strong> with zero behaviour change, no
+          rename and no naming migration. Take it there, gated on the program-size check, and
+          never as an upstream default.
         </p>
       </div>
     </li>
@@ -2487,13 +2731,14 @@ set for the error level threshold.</span></pre>
   <div class="note warn">
     <span class="lbl">what changed, and what I got wrong</span>
     <p>
-      An earlier revision of this document recommended <code>alternation</code> outright and
-      listed the docs' RE2 objection as a correction to them. That was wrong. The objection
-      is accurate for any data plane running Envoy's default program-size limit of 100, which
-      includes kgateway; what I had measured was Istio's raised limit of 32768, and I turned
-      a fact about one data plane into a claim about the option. Measuring a second
-      implementation is what surfaced it, and the same reasoning applies to the other
-      Istio-only findings still listed below as unproven.
+      This document has been wrong twice about the same thing, in opposite directions. First
+      it recommended <code>alternation</code> outright, having measured only Istio's raised
+      RE2 limit and generalised it. Then kgateway refused at six adapters and it swung to
+      "Istio is the outlier". Envoy Gateway then turned out to raise the limit too, so
+      kgateway is the outlier and two of three implementations are fine. Each correction came
+      from adding one more implementation, which is the argument for not stopping at two -
+      and the reason the endpoint-picker findings below, still measured on Istio alone,
+      should be read with suspicion.
     </p>
   </div>
 
@@ -2525,16 +2770,18 @@ set for the error level threshold.</span></pre>
     </li>
     <li>
       <strong>The RE2 limit is not one number.</strong> The docs assume Envoy's default of
-      100. Istio sets 32768; kgateway leaves the default. Both halves matter: the objection
-      is right in general and wrong on Istio, and neither doc says which data plane it is
-      talking about.
+      100. Istio sets 32768, Envoy Gateway disables the check, kgateway leaves the default.
+      The objection is right about the risk and wrong about the prevalence, and neither doc
+      says which data plane it is talking about.
     </li>
     <li>
-      <strong>The rejection of the alternation stands.</strong> This is a retraction. On the
-      strength of the Istio measurement I recorded it as an option the docs had wrongly
-      dismissed; on kgateway with realistic names it reaches six adapters, fewer than we have
-      today. It remains a good answer for an Istio-only product and a bad one for upstream,
-      which is what the docs were arguing.
+      <strong>The rejection of the alternation stands, on the risk if not the odds.</strong>
+      This is a retraction of my own correction. On the strength of the Istio measurement I
+      recorded the alternation as an option the docs had wrongly dismissed; on kgateway with
+      realistic names it reaches six adapters, fewer than we have today. Two of three
+      implementations are in fact fine with it, so "Istio-only" was too strong - but an
+      upstream default still cannot depend on a setting one shipping implementation gets
+      wrong, which is what the docs were arguing.
     </li>
   </ul>
 </section>

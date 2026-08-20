@@ -780,6 +780,10 @@ thing, which is how a real signal gets dismissed as spurious.
 
 ## 16. The second data plane: `alternation` does not survive it
 
+> **Read section 21 before acting on this.** A third implementation (Envoy
+> Gateway) raises the limit as Istio does, so kgateway is the outlier rather than
+> Istio. The risk this section identifies is real; the attribution in it is not.
+
 Sections 9 and 14 were measured on Istio only. Installing kgateway v2.1.1 beside
 it - separate GatewayClass, separate Gateway, same cluster, same patterns -
 produced one result that transfers and one that reverses section 14.
@@ -946,20 +950,20 @@ are. Measured with minimal escaping:
 Quote 320 with the caveat, or quote "roughly 100 to 450 depending on naming".
 A single headline number invites someone to design against it.
 
-### Sort the names
+### Sorting: already done, retracted as a recommendation
 
-The pattern is built from the adapter list in spec order, so re-ordering that
-list in YAML produces a different string, a different route object, and an Envoy
-reprogram, for a change that altered nothing:
+An earlier draft recommended sorting the adapter names so the pattern is a
+function of the *set* rather than the sequence, avoiding an Envoy reprogram when
+someone merely re-orders their YAML.
 
-```
-/(model-a|sql-adapter|chat-adapter)
-/(model-a|chat-adapter|sql-adapter)
-```
+**kserve already does this.** `expandLoRAAdapterMatches` sorts adapters by name
+before generating matches (`config_merge.go`, added in kserve#5822). Verified
+live: patching `svc-a` with the adapters listed as `a2, a1` and then `a3, a1, a2`
+produced route matches in sorted order both times.
 
-Sorting makes the pattern a function of the *set* rather than the sequence. Free,
-and it removes a class of spurious reconcile churn that is otherwise very hard to
-attribute when someone reports "the route keeps changing".
+Any alternation built on that function inherits the sort, so there is nothing to
+fix. Recording it because recommending work that is already merged is worse than
+not recommending it.
 
 ### Chunking, which also happens to fix the kgateway ceiling
 
@@ -997,6 +1001,28 @@ unnecessary: the adapter list already lives in the CR spec, and what is missing 
 a pre-flight count check so that exceeding the budget produces a condition naming
 the adapter that did not fit, instead of a raw CEL string about
 `spec.rules[4].matches[0].headers[0].value`.
+
+### `http.spec` cannot deliver an alternation without a code change
+
+`spec.router.route.http.spec` lets you hand the controller a custom HTTPRoute
+skeleton, and `expectedHTTPRoute` copies it verbatim and then runs
+`expandLoRAAdapterMatches` over it (`router.go:249`). That is genuinely useful:
+the Exact-based candidate shapes (`split`, `split-noslash`, `prefix`,
+`collapse`) can be produced by the **real controller** this way, rather than
+synthesised, because expansion runs on whatever skeleton it is given.
+
+It does not work for `alternation`. `isModelBasedRoutingMatch` tests only the
+header *name*, never the match *type*
+(`config_merge.go`), so a `RegularExpression` model-routing match is treated as
+expandable: the controller appends one copy per adapter, overwriting `Value` with
+a literal while leaving `Type: RegularExpression` in place. The alternation would
+be defeated by the very matches it exists to replace.
+
+So adopting `alternation` needs a controller change - skip expansion when the
+match type is `RegularExpression` - and cannot be done by configuration alone.
+Worth knowing before anyone tries it as a workaround. The same code is arguably
+wrong on its own terms: it produces regex-typed matches holding literal values,
+which work only because a literal is a valid regex that matches itself.
 
 ## 19. Living with the route: diffs, greppability, and an inversion
 
@@ -1136,6 +1162,106 @@ there. Worth checking the filed issue says the narrow thing too.
 The consequence for the recommendation is unchanged - the pre-flight check is
 what actually matters, and it is needed either way - but "the budget is sticky"
 was doing more work in the argument than the evidence supports.
+
+## 21. Three data planes: kgateway is the outlier, not Istio
+
+Section 16 concluded that Istio was unusual in raising the RE2 program-size limit,
+and that an alternation therefore would not survive elsewhere. Adding a third
+implementation shows that was still one data point short.
+
+`re2.max_program_size.error_level`, read from each proxy:
+
+| data plane | value | where |
+|---|---|---|
+| istio 1.30.3 | **32768** | runtime layer, visible at `/runtime` |
+| envoy-gateway 1.6 | **4294967295** | bootstrap `layered_runtime`, i.e. the check is off; `warn_level` 1000 |
+| kgateway 2.1.1 | **unset** | so Envoy's compiled-in default of 100 applies |
+
+Measured behaviour agrees. With distinct names, Envoy Gateway programs **300
+adapters** (3,532 bytes) without complaint, where kgateway refuses at 7.
+
+So the shape of the conclusion inverts: **two of three implementations raise or
+remove the limit, and kgateway alone ships the stock default.** Calling Istio the
+outlier was wrong, and it was wrong for the same reason the original section-14
+error was wrong - generalising from too few implementations.
+
+What survives unchanged is the *risk*: the limit is a per-deployment setting that
+Gateway API does not specify, kserve does not control, and one shipping
+implementation leaves at a value the alternation cannot live with. An upstream
+default still cannot rely on it. But "alternation is Istio-only" is too strong;
+"alternation depends on a data-plane setting that one major implementation gets
+wrong" is the accurate version.
+
+### Anchoring transfers everywhere
+
+All **11 of 11** probes agree across Istio, kgateway and Envoy Gateway
+(`golden/dataplane.tsv`): exact names hit, and suffix, prefix, embedded and
+leading variants all miss, for both the alternation and the nested prefix. Every
+implementation full-matches a `RegularExpression` header match, which Gateway API
+leaves unspecified. That is the assumption both regex shapes rest on, and it is
+now checked three ways.
+
+### Environmental note
+
+Installing a controller that brings new CRD groups leaves already-running
+controllers with stale informers. Adding Envoy Gateway (which installs
+`gateway.networking.x-k8s.io`) silently stopped kgateway attaching routes -
+`status.parents` went empty with nothing logged - until its deployment was
+restarted. Worth knowing before concluding anything from a multi-controller
+cluster.
+
+## 22. The path axis, if adapters ever get one
+
+A fair question: the header rules need a regex to stay constant, so do the path
+rules need one too?
+
+**Today, no.** Every path rule keys on the *service* name or the *base model*
+name, and neither multiplies by adapter count. Ten of the twelve rules are fixed
+at one match each regardless of how many adapters exist. That is exactly why the
+seven-adapter ceiling is a header problem and not a path problem.
+
+Confirmed against the captured route: an adapter has **no publisher path at all**.
+`/publishers/{ns}/models/adapter-a1/v1/chat/completions` matches nothing in the
+service's route and falls through to the neighbour fixture.
+
+### Why it is still worth asking
+
+Section 10 found that on ODH the header family is denied outright, and publisher
+paths are the only authorized way to address a *model*. So an adapter has no
+authorized path-based address today: it is reachable only via
+`/{ns}/{name}/v1/...` with the adapter named in the body, which authorizes as the
+*instance* rather than the model. Giving adapters a publisher path is a plausible
+consequence of that authorization model, and it would put them on the path axis.
+
+Measured (`hack/render-adapter-paths.py`, `golden/adapter-paths.tsv`):
+
+| shape | max adapters | matches | pattern bytes | binding limit |
+|---|---|---|---|---|
+| `flat` one PathPrefix per (endpoint, adapter) | **32** | 128 | 63 | route-wide 128 matches |
+| `flat-rx` one alternation regex per endpoint | **75** | 4 | 1018 | **1024-byte** path match value |
+| `nested` one wildcard-segment regex per endpoint | **unbounded** | 4 | 76 | nothing |
+
+Three things fall out of it.
+
+**The byte cap is four times tighter on paths.** Gateway API sets
+`HTTPPathMatch.Value` to MaxLength 1024 and `HTTPHeaderMatch.Value` to 4096. The
+alternation trick buys 32 to 75 here, against 7 to 320 on the header axis.
+
+**`PathPrefix` cannot express it.** A prefix match has no wildcard, so
+`/publishers/{ns}/models/*/v1/completions` is not sayable. Collapsing adapter
+paths *requires* `RegularExpression`, which means the path axis inherits exactly
+the RE2 program-size exposure section 21 describes - on kgateway a 1,018-byte
+path pattern would be refused just as the header one is.
+
+**Nesting is constant on both axes.** `/publishers/{ns}/models/{base}(/adapters/[^/]+)?{endpoint}`
+is 76 bytes whatever the adapter count, because the adapter name sits in a
+wildcard segment rather than being enumerated. It is the same property that makes
+the nested *header* pattern constant, and it shows up independently on the path
+axis.
+
+That last point is the strongest argument for nesting in this document, and it
+was not made before: every other shape is linear on both axes, and nesting is the
+only one that is constant on both.
 
 ---
 

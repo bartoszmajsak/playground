@@ -8,8 +8,15 @@
 # `evil-prefix/adapter-a1/anything`, and the shape stops being an optimisation
 # and becomes a way to route another tenant's traffic into your pool.
 #
-# So this installs kgateway beside Istio - separate GatewayClass, separate
-# Gateway, same cluster - and replays the anchoring probes against both.
+# So this installs kgateway and Envoy Gateway beside Istio - separate
+# GatewayClasses, separate Gateways, same cluster - and replays the anchoring
+# probes against all three.
+#
+# Gotcha worth knowing: installing a controller that brings NEW CRD groups (Envoy
+# Gateway adds gateway.networking.x-k8s.io) leaves already-running controllers
+# with stale informers, and kgateway silently stops attaching routes -
+# status.parents goes empty with nothing logged. Restart the other controllers
+# after adding one: kubectl -n kgateway-system rollout restart deploy/kgateway
 #
 # What it checks, in order of how much it would hurt to be wrong about:
 #   1. header regex anchoring        full match or partial?
@@ -66,14 +73,17 @@ spec:
 YAML
     kubectl wait --timeout=180s -n "$NS" gateway/kgw --for=condition=Programmed \
         || echo "  !! kgw gateway not Programmed"
-    python3 hack/render-anchoring-route.py kgw | kubectl apply -f -
-    python3 hack/render-anchoring-route.py istio | kubectl apply -f -
+    for gw in istio kgw eg; do python3 hack/render-anchoring-route.py "$gw" | kubectl apply -f -; done
 }
 
 addr_of() {  # gateway -> host:port reachable from the fortio pod
     case "$1" in
       istio) echo "kserve-ingress-gateway-istio.kserve.svc.cluster.local:80" ;;
       kgw)   echo "kgw.$NS.svc.cluster.local:80" ;;
+      # Envoy Gateway names the proxy Service after the Gateway, with a hash
+      # suffix, so ask the cluster rather than guessing it.
+      eg)    echo "$(kubectl -n envoy-gateway-system get svc -l gateway.envoyproxy.io/owning-gateway-name=eg \
+                     -o jsonpath='{.items[0].metadata.name}' </dev/null).envoy-gateway-system.svc.cluster.local:80" ;;
     esac
 }
 
@@ -81,7 +91,7 @@ hit() {  # gateway, header-value -> backend name
     # </dev/null matters: kubectl exec reads stdin, and without it the first
     # probe swallows the whole heredoc the caller is looping over.
     kubectl -n "$NS" exec fortio -- fortio curl -quiet \
-        -H "X-Gateway-Model-Name: $2" "http://$(addr_of "$1")/v1/messages" </dev/null 2>/dev/null \
+        -H "X-Gateway-Model-Name: $2" "http://$(addr_of "$1")/anchor/messages" </dev/null 2>/dev/null \
       | sed -n 's/.*"hostname": *"\(echo-[a-z]*\)-[a-z0-9]*-[a-z0-9]*".*/\1/p' | head -1
 }
 
@@ -89,14 +99,13 @@ hit() {  # gateway, header-value -> backend name
 # reading echo-pool where "miss" is expected is the security-relevant failure.
 probe() {
     local P="publishers/$NS/models"
-    printf 'probe\tvalue\texpect\tistio\tkgateway\n' | tee "$OUT"
+    printf 'probe\tvalue\texpect\tistio\tkgateway\tenvoy-gw\n' | tee "$OUT"
     while IFS='|' read -r label val expect; do
         [[ -z "$label" ]] && continue
-        local i k
-        i=$(hit istio "$val"); k=$(hit kgw "$val")
-        [[ -z "$i" ]] && i=none
-        [[ -z "$k" ]] && k=none
-        printf '%s\t%s\t%s\t%s\t%s\n' "$label" "${val#"$P/"}" "$expect" "$i" "$k" | tee -a "$OUT"
+        local i k e
+        i=$(hit istio "$val"); k=$(hit kgw "$val"); e=$(hit eg "$val")
+        i="${i:-none}"; k="${k:-none}"; e="${e:-none}"
+        printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$label" "${val#"$P/"}" "$expect" "$i" "$k" "$e" | tee -a "$OUT"
     done <<EOF
 alt-first|$P/model-a|hit
 alt-last|$P/adapter-a2|hit
