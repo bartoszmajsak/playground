@@ -3327,6 +3327,17 @@ extensionApis:
     because the obvious conclusion to draw from it turns out to be wrong.
   </p>
 
+  <div class="note">
+    <span class="lbl">orthogonal to everything else in this document</span>
+    <p>
+      This is an <strong>upstream Istio bug</strong>, not a kserve one, and its trigger does
+      not depend on which route shape you pick - every shape keeps the same backendRefs, so
+      <code>current</code>, <code>split</code>, <code>alternation</code> and
+      <code>nested</code> hit it identically. It was found <em>during</em> this work, not
+      caused by it, and fixing the budget does not fix it.
+    </p>
+  </div>
+
   <p>With four Gateway API controllers sharing one node, istiod 1.30.3 crash-looped:</p>
 
   <div class="panel">
@@ -3683,6 +3694,150 @@ if baseOk &amp;&amp; configOk {
       A real implementation could add matches this synthesis does not model, and the ceiling
       would drop accordingly. The numbers are upper bounds on a faithful skeleton, not
       predictions about a patch nobody has written.
+    </p>
+  </div>
+</section>
+
+
+<section>
+  <h2>So what are we actually fixing?</h2>
+  <p class="sub">
+    This document has accumulated a lot of findings. They are not all the same kind of
+    thing, and conflating them is how a decision stalls. Three piles.
+  </p>
+
+  <h3>1. Bugs, ours, fix regardless of what you decide</h3>
+  <p>
+    None of these depend on the shape question. They are wrong today and stay wrong under
+    every option.
+  </p>
+
+  <div class="panel">
+    <div class="panel-hd"><span class="kb mark warn"><svg><use href="#ic-warn"/></svg></span> kserve</div>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>what</th><th>why it matters</th><th class="num">pri</th></tr></thead>
+      <tbody>
+        <tr class="is-current">
+          <td class="name"><a href="https://github.com/bartoszmajsak/work-items/issues/282">#282</a> rule names identical across services</td>
+          <td>A request to one service can be scheduled by another service's endpoint picker. Cross-tenant correctness, on exactly the shared-gateway deployment this epic exists to support.</td>
+          <td class="num"><span class="st crit">p1</span></td>
+        </tr>
+        <tr>
+          <td class="name">pre-flight budget check</td>
+          <td>Nothing counts the budget before applying, so exceeding it surfaces as a raw CEL string on a CR condition while the old route keeps serving. Must count matches <em>and</em> bytes <em>and</em> RE2 program size, because the data plane enforces the last one silently.</td>
+          <td class="num"><span class="st warn">p2</span></td>
+        </tr>
+        <tr>
+          <td class="name"><a href="https://github.com/bartoszmajsak/work-items/issues/279">#279</a> clearing <code>spec.model.lora</code> leaves stale matches</td>
+          <td>The route keeps an adapter that no longer exists, reporting ready. Narrow: reducing the list prunes correctly.</td>
+          <td class="num"><span class="st warn">p2</span></td>
+        </tr>
+        <tr>
+          <td class="name"><a href="https://github.com/bartoszmajsak/work-items/issues/284">#284</a> collision event names the wrong object</td>
+          <td>Fires correctly, points at the base model instead of the colliding adapter, so a real signal reads as spurious.</td>
+          <td class="num"><span class="st mute">p3</span></td>
+        </tr>
+        <tr>
+          <td class="name"><a href="https://github.com/bartoszmajsak/work-items/issues/280">#280</a> MaxAdapters default never applied</td>
+          <td>Status advertises a limit the controller does not enforce.</td>
+          <td class="num"><span class="st mute">p3</span></td>
+        </tr>
+        <tr>
+          <td class="name"><code>isModelBasedRoutingMatch</code> ignores match type</td>
+          <td>A <code>RegularExpression</code> model-routing match gets expanded per adapter anyway, producing regex-typed matches holding literal values. Blocks adopting <code>alternation</code> by configuration.</td>
+          <td class="num"><span class="st mute">p3</span></td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <h3>2. Upstream, not ours to patch, ours to pin and report</h3>
+
+  <div class="panel">
+    <div class="panel-hd"><span class="kb mark"><svg><use href="#ic-code"/></svg></span> istio</div>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>what</th><th>our action</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="name"><a href="https://github.com/bartoszmajsak/work-items/issues/285">#285</a> <code>mergeHTTPRoutes</code> map aliased instead of copied</td>
+          <td>Report upstream with the reproducer. Establish which Istio versions RHOAI ships and whether they carry the path.</td>
+        </tr>
+        <tr>
+          <td class="name"><a href="https://github.com/bartoszmajsak/work-items/issues/283">#283</a> Istio below 1.29 never invokes the endpoint picker</td>
+          <td>Establish a version floor and check it against what RHOAI ships.</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="note">
+    <span class="lbl">and note what these are <em>not</em></span>
+    <p>
+      Neither depends on the shape question. <a href="https://github.com/bartoszmajsak/work-items/issues/285">#285</a>'s
+      trigger is several HTTPRoutes merging on one gateway where the oldest has no
+      InferencePool and two or more later ones do - which is true of
+      <code>current</code>, <code>split</code>, <code>alternation</code> and
+      <code>nested</code> alike, because every shape keeps the same backendRefs. They were
+      found <em>during</em> the budget work, not caused by it, and fixing the budget does
+      not fix them.
+    </p>
+  </div>
+
+  <h3>3. Not a bug at all: a decision nobody has made</h3>
+  <p>
+    The seven-adapter ceiling is not broken code. It is the price of the shared
+    <code>/v1/&hellip;</code> endpoint, and the size of that price depends on a product
+    question that is still open.
+  </p>
+
+  <div class="asks">
+    <div class="ask">
+      <h4>Is the shared endpoint a thing we support?</h4>
+      <p>
+        Nothing in kserve produces the header it needs, no body-based router ships, no SDK
+        sets it, and ODH denies it. Until that changes the budget buys nothing, and the
+        ceiling is theoretical. When it changes, the ceiling becomes the whole problem.
+        <strong>Answer this before choosing a shape.</strong>
+      </p>
+    </div>
+    <div class="ask">
+      <h4>How many adapters, on names how long?</h4>
+      <p>
+        Under about twenty and <code>split-noslash</code> ends the conversation. The regex
+        options only start paying above that, and their ceiling is set by name length rather
+        than by any number in this document.
+      </p>
+    </div>
+    <div class="ask">
+      <h4>Do we control the gateway?</h4>
+      <p>
+        Istio and Envoy AI Gateway raise the RE2 limit; kgateway does not. On kgateway a
+        realistically-named alternation fails at two or three adapters. That decides whether
+        <code>alternation</code> is available at all.
+      </p>
+    </div>
+    <div class="ask">
+      <h4>Are we willing to change a public model identifier once?</h4>
+      <p>
+        The only question <code>nested</code> actually asks. Everything technical about it
+        measured clean on three control planes. It is a naming decision, and it is cheapest
+        now.
+      </p>
+    </div>
+  </div>
+
+  <div class="note crit">
+    <span class="lbl">if you take one thing from this document</span>
+    <p>
+      <strong>Pile 1 is worth doing now and needs no decision.</strong>
+      <a href="https://github.com/bartoszmajsak/work-items/issues/282">#282</a> is a
+      cross-tenant correctness bug and the pre-flight check turns a silent failure into a
+      condition someone can act on. Pile 3 can wait for an answer about the shared endpoint
+      without blocking either.
     </p>
   </div>
 </section>

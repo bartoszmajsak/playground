@@ -1807,6 +1807,72 @@ Not investigated further: whether this predates the multi-controller cluster or
 was introduced by it.
 
 
+## 28. What is actually being fixed
+
+This document accumulated a lot of findings. They are not all the same kind of
+thing, and conflating them is how a decision stalls. Three piles.
+
+### 1. Bugs, ours, fix regardless of what is decided
+
+None depend on the shape question. They are wrong today and stay wrong under
+every option.
+
+| what | why it matters | pri |
+|---|---|---|
+| [#282] rule names identical across services | a request to one service can be scheduled by another's endpoint picker: cross-tenant correctness, on exactly the shared-gateway shape this epic targets | **p1** |
+| pre-flight budget check | nothing counts the budget before applying, so exceeding it surfaces as a raw CEL string while the old route keeps serving. Must count matches **and** bytes **and** RE2 program size (section 21) | p2 |
+| [#279] clearing `spec.model.lora` leaves stale matches | route keeps an adapter that no longer exists, reporting ready. Narrow - reducing the list prunes correctly (section 20) | p2 |
+| [#284] collision event names the wrong object | fires correctly, points at the base model rather than the colliding adapter | p3 |
+| [#280] MaxAdapters default never applied | status advertises a limit the controller does not enforce | p3 |
+| `isModelBasedRoutingMatch` ignores match type | a `RegularExpression` model-routing match is expanded per adapter anyway; blocks adopting `alternation` by configuration (section 19) | p3 |
+
+### 2. Upstream, ours to pin and report
+
+| what | our action |
+|---|---|
+| [#285] `mergeHTTPRoutes` aliases a map instead of copying it | report upstream with the reproducer in `hack/istio-merge-race/`; establish which Istio versions RHOAI ships |
+| [#283] Istio below 1.29 never invokes the endpoint picker | establish a version floor, check against what RHOAI ships |
+
+**Both are orthogonal to the shape question.** #285's trigger is several HTTPRoutes
+merging on one gateway where the oldest has no InferencePool and two or more later
+ones do - true of `current`, `split`, `alternation` and `nested` alike, because
+every shape keeps the same backendRefs. They were found *during* this work, not
+caused by it, and fixing the budget does not fix them.
+
+### 3. Not a bug: a decision nobody has made
+
+The seven-adapter ceiling is not broken code. It is the price of the shared
+`/v1/...` endpoint (section 23), and the size of that price turns on questions
+still open:
+
+1. **Is the shared endpoint a thing we support?** Nothing in kserve produces the
+   header it needs, no body-based router ships, no SDK sets it, and ODH denies it.
+   Until that changes the budget buys nothing. When it changes, the ceiling becomes
+   the whole problem. Answer this before choosing a shape.
+2. **How many adapters, on names how long?** Under about twenty and `split-noslash`
+   ends it. The regex options only start paying above that, and their ceiling is set
+   by name length rather than by any headline number here (section 25).
+3. **Do we control the gateway?** Istio and Envoy AI Gateway raise the RE2 limit;
+   kgateway does not, and a realistically-named alternation fails there at two or
+   three adapters.
+4. **Are we willing to change a public model identifier once?** The only question
+   `nested` actually asks. Everything technical about it measured clean on three
+   control planes.
+
+### The short version
+
+**Pile 1 is worth doing now and needs no decision.** #282 is a cross-tenant
+correctness bug, and the pre-flight check turns a silent failure into a condition
+someone can act on. Pile 3 can wait for an answer about the shared endpoint without
+blocking either.
+
+[#279]: https://github.com/bartoszmajsak/work-items/issues/279
+[#280]: https://github.com/bartoszmajsak/work-items/issues/280
+[#282]: https://github.com/bartoszmajsak/work-items/issues/282
+[#283]: https://github.com/bartoszmajsak/work-items/issues/283
+[#284]: https://github.com/bartoszmajsak/work-items/issues/284
+[#285]: https://github.com/bartoszmajsak/work-items/issues/285
+
 ---
 
 ## Method notes
