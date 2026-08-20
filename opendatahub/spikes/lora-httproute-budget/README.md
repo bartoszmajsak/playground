@@ -184,6 +184,13 @@ is hand-built against echo backends on purpose: those measure Envoy, not kserve.
 | `probe-dataplane.sh` | do the regex findings hold on kgateway and Envoy Gateway as well as Istio? (semantics: yes, all three. ceiling: no, kgateway alone) |
 | `hack/render-adapter-paths.py` | if adapters ever got a publisher path, does the PATH axis hit a ceiling too? |
 
+The short version of all of it is in FINDINGS section 23: vLLM and the endpoint
+picker both read the model from the request **body**, `X-Gateway-Model-Name`
+selects nothing, and the two rules that cause the ceiling exist only to let an
+HTTPRoute match on it. Turn model-based routing off and the route drops from 12
+rules to 10 with every working request unchanged.
+
+
 `probe-dataplane.sh install` needs `v1alpha2` served on the TLSRoute CRD, which
 Gateway API v1.5.1's standard channel disables; the script's notes cover it.
 Installing a controller that brings new CRD groups also leaves already-running

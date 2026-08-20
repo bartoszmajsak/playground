@@ -1263,6 +1263,97 @@ That last point is the strongest argument for nesting in this document, and it
 was not made before: every other shape is linear on both axes, and nesting is the
 only one that is constant on both.
 
+## 23. What actually addresses an adapter, and what the ceiling is really for
+
+Everything above treats the seven-adapter ceiling as a problem to be solved. This
+section asks what the rule causing it is *for*, and the answer changes the shape
+of the recommendation.
+
+### vLLM is body-only. So is the endpoint picker.
+
+kserve registers each adapter with vLLM under two **body-level** names
+(`workload_lora.go`): the bare name and the fully qualified one.
+
+```
+--lora-modules '{"name":"adapter-a1","path":"/mnt/lora/adapter-a1"}'
+               '{"name":"publishers/lora-budget/models/adapter-a1","path":"/mnt/lora/adapter-a1"}'
+```
+
+vLLM never sees an HTTP header. Neither does the endpoint picker: it answers
+`400 model not found in request body` when the body has no `model`, whatever the
+header says.
+
+Measured end to end against real vLLM (`golden/addressing.tsv`):
+
+| path | body `model` | header | served |
+|---|---|---|---|
+| `/{ns}/{name}/v1/chat/completions` | qualified adapter | none | **adapter-a1** |
+| `/{ns}/{name}/v1/chat/completions` | bare adapter name | none | **adapter-a1** |
+| `/publishers/{ns}/models/{base}/v1/chat/completions` | qualified adapter | none | **adapter-a1** |
+| `/v1/chat/completions` | qualified **base** | `adapter-a1` | **model-a** |
+| `/v1/chat/completions` | `adapter-a2` | `adapter-a1` | **adapter-a2** |
+| `/v1/chat/completions` | *absent* | `adapter-a1` | **400** |
+
+Read the last three rows together. When body and header disagree, **the body wins
+every time**, and a header with no body model is a 400. `X-Gateway-Model-Name`
+does not select the adapter and never did. It exists so an HTTPRoute can *match*
+on the requested model, because Gateway API cannot route on a request body.
+
+### Which means the ceiling is optional
+
+`v1-model-routing` and `v1-catch-all-model-routing` are the only two rules that
+scale with adapter count, and they exist purely to serve that header. Switching
+model-based routing off (`serving.kserve.io/model-based-routing-enabled: "false"`,
+which makes `stripModelBasedRoutingRules` run) removes both:
+
+| state | rules | matches | rules scaling with adapters | adapter reachable via path + body |
+|---|---|---|---|---|
+| enabled | 12 | 37 | 2 | yes |
+| **disabled** | **10** | **10** | **0** | **yes** |
+
+Verified live on `svc-a` with two adapters loaded: with the rules gone, all three
+path+body forms still resolved to the adapter. **The seven-adapter ceiling
+disappears entirely and nothing that works today stops working.**
+
+### So is there a gap in the routing layer?
+
+Yes, and it is the opposite of what the ceiling suggests. Adapters are not
+hard to address - they are addressable today at zero match cost. The gap is on the
+*producer* side of header addressing:
+
+- kserve **consumes** `X-Gateway-Model-Name` (matches on it, expands it, strips
+  it) but nothing in kserve **produces** it. `grep` finds only the config default
+  and the match logic.
+- A body-based router is the intended producer - it reads `model` from the body
+  and sets the header - and none is deployed here or shipped by kserve.
+- No OpenAI SDK sets a non-standard routing header, so in practice only a
+  hand-crafted client can use this mode.
+- On ODH the mode is refused outright by `deny-misrouted-model-header` (section
+  10).
+
+So the entire match budget, and every shape in this document, is spent on the
+consumer half of a body-based-routing design whose producer half does not exist
+yet. The rules are not wrong - a shared `/v1/chat/completions` endpoint serving
+many models is exactly what the Gateway API Inference Extension is for - they are
+just early.
+
+### What follows
+
+Before optimising the shape of a rule, establish whether anyone is paying for
+something they can use:
+
+1. **If header addressing has no producer in your deployment**, the annotation
+   above is a zero-cost fix available today. The ceiling is not raised, it is
+   removed, and no working request changes.
+2. **On ODH specifically** the mode is denied, so this is free there now.
+3. **If and when a body-based router ships**, the ceiling comes back and the
+   shape question in this document becomes live again - at which point `nested`
+   is the answer for the reasons in sections 21 and 22.
+
+This does not retract any measurement above. It reprices them: every ceiling in
+this document is the cost of a feature that is not finished, and the cheapest
+option was never on the list of shapes.
+
 ---
 
 ## Method notes

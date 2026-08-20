@@ -445,7 +445,8 @@
       <p class="standfirst">
         An <code>LLMInferenceService</code> stops accepting LoRA adapters at seven, and
         fails silently when it does. Here is what actually causes it, what each way out
-        costs, and why the right answer turned out to depend on which gateway you ship.
+        costs, why the right answer depends on which gateway you ship - and why the
+        cheapest option was never on the list of shapes.
       </p>
     </div>
   </div>
@@ -457,6 +458,7 @@
     <div><dt>nested</dt><dd class="good">&infin;</dd></div>
     <div><dt>shapes measured</dt><dd>9</dd></div>
     <div><dt>data planes</dt><dd>3</dd></div>
+    <div><dt>ceiling with routing off</dt><dd class="good">none</dd></div>
     <div><dt>routing probes</dt><dd>83</dd></div>
     <div><dt>doc corrections</dt><dd>4</dd></div>
     
@@ -668,6 +670,125 @@
     and matches were. Folding four rules into one moved the binding constraint from the
     route-wide 128 back onto the per-rule 64, and the ceiling fell from twelve to seven.
   </p>
+</section>
+
+
+<section>
+  <h2>What actually addresses an adapter</h2>
+  <p class="sub">
+    Before optimising the rule that causes the ceiling, it is worth asking what it is for.
+    The answer reprices every option in this document.
+  </p>
+
+  <p>
+    kserve registers each adapter with vLLM under two <strong>body-level</strong> names: the
+    bare name and the fully qualified one. vLLM never sees an HTTP header.
+  </p>
+
+  <div class="panel">
+    <div class="panel-hd"><span class="kb muted">P</span> how the adapter is registered</div>
+    <pre class="code">--lora-modules <span class="hi">'{"name":"adapter-a1","path":"/mnt/lora/adapter-a1"}'</span>
+               <span class="hi">'{"name":"publishers/&lt;ns&gt;/models/adapter-a1","path":"/mnt/lora/adapter-a1"}'</span></pre>
+  </div>
+
+  <p>
+    Neither does the endpoint picker: it answers
+    <code>400 model not found in request body</code> when the body has no
+    <code>model</code>, whatever the header says. Measured end to end against real vLLM:
+  </p>
+
+  <div class="panel">
+    <div class="panel-hd"><span class="kb">HR</span> what gets served
+      <span class="rt">real vLLM, real EPP</span></div>
+    <div class="scroll">
+    <table>
+      <thead>
+        <tr><th>path</th><th>body <code>model</code></th><th>header</th><th>served</th></tr>
+      </thead>
+      <tbody>
+        <tr class="grp"><td colspan="4">path picks the pool, body picks the adapter <em>- no header anywhere</em></td></tr>
+        <tr><td class="name">/{ns}/{name}/v1/chat/completions</td><td>qualified adapter</td><td class="m nbr">none</td><td class="m pool">adapter-a1</td></tr>
+        <tr><td class="name">/{ns}/{name}/v1/chat/completions</td><td>bare adapter name</td><td class="m nbr">none</td><td class="m pool">adapter-a1</td></tr>
+        <tr><td class="name">/publishers/{ns}/models/{base}/v1/&hellip;</td><td>qualified adapter</td><td class="m nbr">none</td><td class="m pool">adapter-a1</td></tr>
+        <tr class="grp"><td colspan="4">body and header made to disagree on purpose</td></tr>
+        <tr><td class="name">/v1/chat/completions</td><td>qualified <b>base</b></td><td class="m svc">adapter-a1</td><td class="m pool chg">model-a</td></tr>
+        <tr><td class="name">/v1/chat/completions</td><td><b>adapter-a2</b></td><td class="m svc">adapter-a1</td><td class="m pool chg">adapter-a2</td></tr>
+        <tr class="is-current"><td class="name">/v1/chat/completions</td><td><em>absent</em></td><td class="m svc">adapter-a1</td><td class="m nbr"><span class="st crit">400</span></td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="note crit">
+    <span class="lbl">read the last three rows together</span>
+    <p>
+      When body and header disagree, <strong>the body wins every time</strong>, and a header
+      with no body model is a 400. <code>X-Gateway-Model-Name</code> does not select the
+      adapter and never did. It exists so an HTTPRoute can <em>match</em> on the requested
+      model, because Gateway API cannot route on a request body.
+    </p>
+  </div>
+
+  <h3>Which means the ceiling is optional</h3>
+  <p>
+    <code>rules[4]</code> and <code>rules[11]</code> are the only two that scale with adapter
+    count, and they exist purely to serve that header. Switching model-based routing off
+    makes <code>stripModelBasedRoutingRules</code> remove both:
+  </p>
+
+  <div class="panel">
+    <div class="panel-hd"><span class="kb muted">LIS</span>
+      <code>serving.kserve.io/model-based-routing-enabled: "false"</code>
+      <span class="rt">measured on svc-a with 2 adapters loaded</span></div>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>state</th><th class="num">rules</th><th class="num">matches</th><th class="num">rules scaling with adapters</th><th>adapter reachable via path + body</th></tr></thead>
+      <tbody>
+        <tr class="is-current"><td class="name">enabled</td><td class="num">12</td><td class="num">37</td><td class="num">2</td><td><span class="st ok">yes</span></td></tr>
+        <tr class="is-pick"><td class="name">disabled</td><td class="num">10</td><td class="num">10</td><td class="num"><span class="st ok">0</span></td><td><span class="st ok">yes</span></td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <p>
+    Verified live: with the rules gone, all three path+body forms still resolved to the
+    adapter. <strong>The seven-adapter ceiling disappears entirely and nothing that works
+    today stops working.</strong>
+  </p>
+
+  <h3>So is there a gap in the routing layer?</h3>
+  <p>
+    Yes, and it is the opposite of what the ceiling suggests. Adapters are not hard to
+    address; they are addressable today at zero match cost. The gap is on the
+    <em>producer</em> side of header addressing:
+  </p>
+  <ul>
+    <li>kserve <strong>consumes</strong> <code>X-Gateway-Model-Name</code> - matches on it,
+      expands it, strips it - but nothing in kserve <strong>produces</strong> it</li>
+    <li>a body-based router is the intended producer, reading <code>model</code> from the
+      body and setting the header, and none is deployed here or shipped by kserve</li>
+    <li>no OpenAI SDK sets a non-standard routing header, so in practice only a hand-crafted
+      client can use this mode</li>
+    <li>on OpenShift AI the mode is refused outright by <code>deny-misrouted-model-header</code></li>
+  </ul>
+
+  <div class="note warn">
+    <span class="lbl">what this does and does not mean</span>
+    <p>
+      The entire match budget, and every shape in this document, is spent on the consumer
+      half of a body-based-routing design whose producer half does not exist yet. The rules
+      are not <em>wrong</em> - a shared <code>/v1/chat/completions</code> endpoint serving
+      many models is exactly what the Gateway API Inference Extension is for - they are
+      early.
+    </p>
+    <p>
+      This retracts no measurement above. It reprices them: every ceiling here is the cost of
+      a feature that is not finished, and <strong>the cheapest option was never on the list
+      of shapes</strong>. If and when a body-based router ships, the ceiling returns and the
+      shape question becomes live again.
+    </p>
+  </div>
 </section>
 
 
@@ -2680,9 +2801,24 @@ set for the error level threshold.</span></pre>
 <section>
   <h2>Recommendation</h2>
   <p class="sub">
-    The second data plane split this into two answers: one for a product that controls its
-    own gateway, one for upstream kserve which does not.
+    One question comes before the shapes, and then the data planes split the rest into two
+    answers: one for a product that controls its own gateway, one for upstream kserve which
+    does not.
   </p>
+
+  <div class="note crit">
+    <span class="lbl">first, check whether you are paying for anything</span>
+    <p>
+      The two rules that cause the ceiling exist only to serve
+      <code>X-Gateway-Model-Name</code>, which nothing in kserve produces, no OpenAI SDK
+      sets, and ODH denies. Adapters are fully reachable today by path plus body at zero
+      match cost. If header addressing has no producer in your deployment, setting
+      <code>serving.kserve.io/model-based-routing-enabled: "false"</code> removes the
+      ceiling outright - 12 rules and 37 matches down to 10 and 10, measured, with every
+      working request unchanged. Everything below is what to do when that is not an option,
+      or once a body-based router ships and the mode becomes real.
+    </p>
+  </div>
 
   <ol class="steps">
     <li>

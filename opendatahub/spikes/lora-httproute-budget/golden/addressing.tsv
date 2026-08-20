@@ -1,0 +1,17 @@
+# How is a LoRA adapter actually addressed? Measured against real vLLM + real EPP.
+#
+# vLLM registers each adapter under two BODY-level names (--lora-modules): the bare
+# name and the fully qualified one. It never sees an HTTP header. The endpoint
+# picker also reads the body - it answers 400 "model not found in request body"
+# when the body has no model, whatever the header says.
+#
+# So X-Gateway-Model-Name selects nothing. It exists only so an HTTPRoute can match
+# on the requested model, because Gateway API cannot route on a body.
+mode	path	body-model	header	served	note
+path+body	/{ns}/{name}/v1/chat/completions	qualified adapter	-	adapter-a1	works, no header
+path+body	/{ns}/{name}/v1/chat/completions	bare adapter	-	adapter-a1	works, no header
+path+body	/{ns}/{name}/v1/chat/completions	qualified base	-	model-a	works, no header
+path+body	/publishers/{ns}/models/{base}/v1/chat/completions	qualified adapter	-	adapter-a1	works, no header
+header	/v1/chat/completions	qualified base	adapter-a1	model-a	BODY wins, header ignored
+header	/v1/chat/completions	adapter-a2	adapter-a1	adapter-a2	BODY wins, header ignored
+header	/v1/chat/completions	(absent)	adapter-a1	400	EPP: model not found in request body

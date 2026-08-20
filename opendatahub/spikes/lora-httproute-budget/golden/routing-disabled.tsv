@@ -1,0 +1,6 @@
+# What happens when model-based routing is switched off?
+# Annotation: serving.kserve.io/model-based-routing-enabled: "false"
+# stripModelBasedRoutingRules removes rules[4] and rules[11].
+state	rules	matches	rules-scaling-with-adapters	adapter reachable via path+body
+enabled	12	37	2 (v1-model-routing, v1-catch-all-model-routing)	yes
+disabled	10	10	0	yes
