@@ -2683,6 +2683,40 @@ inference-access:
       <strong>not</strong> a reason to keep them as separate rules - it is a
       <code>when</code> predicate on the path.
     </p>
+    <div class="panel">
+      <div class="panel-hd"><span class="kb"><svg><use href="#k8-policy"/></svg></span>
+        checked against Models-as-a-Service too <span class="rt">maas-billing @ 02b092ee</span></div>
+      <div class="scroll">
+      <table>
+        <thead><tr><th>policy</th><th>attaches to</th><th>discriminates by</th></tr></thead>
+        <tbody>
+          <tr><td class="name">AuthPolicy <span class="hint">maas-api</span></td><td><code>HTTPRoute maas-api-route</code> <span class="hint">whole object</span></td><td>-</td></tr>
+          <tr><td class="name">TokenRateLimitPolicy <span class="hint">default deny</span></td><td><code>Gateway maas-default-gateway</code></td><td><code>when: request.path.startsWith(&hellip;)</code></td></tr>
+          <tr><td class="name">TelemetryPolicy</td><td><code>Gateway maas-default-gateway</code></td><td>-</td></tr>
+          <tr><td class="name">per-route TRLPs <span class="hint">generated</span></td><td><code>spec.targetRef.name</code> = the gateway <span class="hint">postrender.go:92</span></td><td><code>when</code> predicates</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+
+    <div class="note ok">
+      <span class="lbl">two independent teams, same conclusion</span>
+      <p>
+        <strong>Zero</strong> occurrences of <code>sectionName</code> anywhere in that repo -
+        yaml, Go or templates - and <strong>zero</strong> references to any kserve rule name.
+        Every policy attaches to a whole Gateway or a whole HTTPRoute and does its own
+        discrimination with a <code>when</code> predicate on <code>request.path</code>. MaaS
+        arrived at the same pattern as odh-model-controller without sharing the code, which
+        is about as good as evidence for a convention gets.
+      </p>
+      <p>
+        So consolidating the path families, or renaming rules under
+        <code>split-noslash</code>, <strong>breaks nothing in either consumer</strong>. The
+        rename risk this report has been careful about is real only for policies nobody has
+        written.
+      </p>
+    </div>
+
     <p>
       What survives is the argument <em>for</em> sharding: a shard is a whole object, and a
       policy targeting a whole object cannot be detached by a rule rename. That still beats

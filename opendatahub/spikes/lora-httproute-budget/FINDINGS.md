@@ -2246,6 +2246,20 @@ say "this rule fired". So per-endpoint policy differentiation is a `when`
 predicate, not a rule split - which removes the last argument for keeping the
 path families as one rule per endpoint (section 30).
 
+**Checked the other consumer too.** `maas-billing/models-as-a-service` @ `02b092ee`:
+**zero** `sectionName` occurrences repo-wide across yaml, Go and templates, and
+**zero** references to any kserve rule name. Its three static policies attach to
+whole objects - `AuthPolicy` to `HTTPRoute maas-api-route`, `TokenRateLimitPolicy`
+and `TelemetryPolicy` to `Gateway maas-default-gateway` - and the generated
+per-route TRLPs set `spec.targetRef.name` to the gateway
+(`postrender.go:92`). Discrimination is the same pattern: the default-deny TRLP
+uses `when: '!request.path.startsWith("/maas-api") && ...'`. Two teams, no shared
+code, same convention.
+
+So consolidating the path families or renaming rules under `split-noslash` breaks
+nothing in either consumer. The rename risk is real only for policies nobody has
+written.
+
 **And nothing pins a policy to a rule section today.** Every `sectionName`
 in kserve and odh-model-controller refers to a Gateway *listener*
 (`router_discovery.go:419 selectListeners`, `ParentReference.SectionName`), which
