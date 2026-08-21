@@ -2137,6 +2137,42 @@ installed in the spike cluster. It is the template's CEL evaluated against each
 path, cross-checked against that template's own request-flow table. Nobody should
 act on the SAR column without running it against a real Authorino.
 
+## 29b. Is the kgateway regex limit a bug we can wait out?
+
+Asked directly, and the answer is three things, only one of which is kgateway's
+fault.
+
+**1. It is not a conformance violation.** Gateway API rates
+`HTTPHeaderMatch.type: RegularExpression` as **Implementation-specific** - its
+weakest support level - against **Core** for `Exact`. Read from the CRD in the
+cluster, which also says:
+
+> Since RegularExpression HeaderMatchType has implementation-specific
+> conformance, implementations can support POSIX, PCRE or any other dialects of
+> regular expressions. Please read the implementation's documentation to
+> determine the supported dialect.
+
+So the spec guarantees neither that regex header matching works, nor at what
+size, nor in which dialect. The 4096-byte `maxLength` on the value is field
+validation, not a promise that anything will program it.
+
+**2. That is why `alternation` stays gated.** Not because kgateway is behind, but
+because the feature it rests on is unspecified on three axes at once - support,
+size and dialect - plus anchoring, which section 9 had to measure because nothing
+states it. kgateway raising its limit tomorrow would not create a guarantee.
+Building the adapter index on `Exact` (Core) versus `RegularExpression`
+(Implementation-specific) is the whole difference between `split-noslash` and
+`alternation`, and it is a portability difference, not a performance one.
+
+**3. But the silent accept IS a bug.** The HTTPRoute reports `Accepted` while the
+Envoy proxy NACKs the entire RouteConfiguration:
+`RE2 program size of 117 > max program size of 100 set for the error level
+threshold`. No status anywhere reflects it. That is separable from the limit and
+worth reporting regardless of whether the limit ever moves - a restrictive limit
+is a constraint, an invisible one is a trap. It is also the same class as the
+pre-flight check this report already recommends: the budget is enforced somewhere
+nobody is looking.
+
 ## 30. The endpoint set is the other half of the budget
 
 Every ceiling in this document assumes **four** endpoints, because that is what

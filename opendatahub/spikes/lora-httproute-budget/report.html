@@ -869,11 +869,24 @@
         <p>
           On Istio and Envoy Gateway it reaches roughly <strong>175 to 240</strong> adapters,
           set by adapter name length rather than by any headline number, with zero behaviour
-          change and no rename. OpenShift AI ships Istio, so it is available there. It must
-          never be an upstream default: wherever the RE2 program-size limit is left at
-          Envoy's stock 100 it fails at <strong>one or two</strong> adapters, and matching
-          Istio would need that limit raised to about <strong>3550</strong>, which kgateway
-          does not expose. Gate it on a program-size pre-flight check, not on a byte count.
+          change and no rename. OpenShift AI ships Istio, so it is available there.
+        </p>
+        <p>
+          <strong>The gate is the specification, not kgateway being behind.</strong> Gateway
+          API rates <code>RegularExpression</code> header matching
+          <em>Implementation-specific</em>, its weakest support level, against <em>Core</em>
+          for <code>Exact</code> - and says outright that implementations "can support POSIX,
+          PCRE or any other dialects". So neither the size a pattern may reach, nor its
+          dialect, nor how it anchors is guaranteed by anything. Build the adapter index on
+          it and the ceiling is whatever the weakest data plane you support allows, now and
+          in every future version. kgateway raising its limit tomorrow would not create the
+          guarantee.
+        </p>
+        <p>
+          Concretely today: wherever the RE2 program-size limit is left at Envoy's stock 100
+          it fails at <strong>one or two</strong> adapters, and matching Istio needs about
+          <strong>3550</strong>. Gate it on a program-size pre-flight check rather than a
+          byte count, and never ship it as an upstream default.
         </p>
       </div>
     </li>
@@ -1056,6 +1069,14 @@
             in its own commit message, then deep-copied <code>configs[0]</code>'s map only. The fallback branch that takes a
             later config's map by reference is still aliasing on <code>origin/master</code>. Report it as an
             <strong>incomplete fix</strong>, with <code>hack/istio-merge-race/</code>.</td>
+        </tr>
+        <tr>
+          <td class="name">kgateway accepts a route its own proxy refuses</td>
+          <td>Separable from the size limit and true regardless of it: the HTTPRoute reports
+            <code>Accepted</code> while the Envoy proxy NACKs the whole RouteConfiguration
+            with <code>RE2 program size of 117 &gt; max program size of 100</code>. No status
+            anywhere reflects it. A restrictive limit is a constraint; an invisible one is a
+            trap. Worth reporting even if the limit never moves.</td>
         </tr>
         <tr>
           <td class="name"><a href="https://github.com/bartoszmajsak/work-items/issues/283">#283</a> Istio below 1.29 never invokes the endpoint picker</td>
