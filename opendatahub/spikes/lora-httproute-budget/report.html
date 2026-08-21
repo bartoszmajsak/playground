@@ -1,4 +1,4 @@
-<title>The Seven-Adapter Ceiling</title>
+<title>The LoRA Route Budget</title>
 
 <!--
   Resource glyphs.
@@ -79,7 +79,9 @@
   </defs>
 </svg>
 
-<style>
+<title>The LoRA Route Budget</title>
+
+  <style>
   :root {
     /* chrome: one blue, the way a console has one chrome colour */
     --kind:       #2C62D6;
@@ -617,12 +619,14 @@
   </p>
   <div class="titlerow">
     <div>
-      <h1>The Seven-Adapter Ceiling</h1>
+      <h1>The LoRA Route Budget</h1>
       <p class="standfirst">
-        An <code>LLMInferenceService</code> stops accepting LoRA adapters at seven, and
-        fails silently when it does. Here is what actually causes it, what each way out
-        costs, why the right answer depends on which gateway you ship, and what the
-        budget is actually buying.
+        Every LoRA adapter on an <code>LLMInferenceService</code> costs matches in an
+        HTTPRoute, and an HTTPRoute holds 128. Today that stops at
+        <strong>seven adapters</strong> and fails silently - but seven is not a constant, it
+        is <em>paths times models</em>, so it drops to four the moment someone adds two API
+        endpoints. Here is what the budget actually buys, what each way of raising it costs,
+        and why the answer turned out to be structural rather than a rename.
       </p>
     </div>
   </div>
