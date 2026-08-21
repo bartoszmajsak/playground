@@ -1,0 +1,67 @@
+# Which endpoints exist, which carry a model, and which the route covers.
+#
+# Inventory read from the LIVE vLLM: kubectl exec ... curl localhost:8000/openapi.json
+# on vllm/vllm-openai-cpu:v0.19.0 serving a chat model. The set is TASK DEPENDENT:
+# an embedding or reranker model exposes /v1/embeddings, /pooling, /score, /rerank,
+# /classify, which are absent here. So the union across model types is larger than
+# any single server shows.
+#
+# "model-in-body" is the only class the model-routing rule can serve: the gateway
+# has nothing else to match on. "stateful-id" requests name a prior response, not a
+# model, so they cannot be model-routed at all. "no-model" needs no per-model match.
+method	path	class	in-route-today
+POST	/detokenize	model-in-body	no
+GET	/health	no-model	no
+POST	/inference/v1/generate	model-in-body	no
+POST	/invocations	no-model	no
+POST	/is_scaling_elastic_ep	no-model	no
+GET	/load	no-model	no
+GET	/metrics	no-model	no
+GET	/ping	no-model	no
+POST	/ping	no-model	no
+POST	/scale_elastic_ep	no-model	no
+POST	/tokenize	model-in-body	no
+POST	/v1/chat/completions	model-in-body	yes
+POST	/v1/chat/completions/batch	model-in-body	no
+POST	/v1/chat/completions/render	model-in-body	no
+POST	/v1/completions	model-in-body	yes
+POST	/v1/completions/render	model-in-body	no
+POST	/v1/messages	model-in-body	yes
+POST	/v1/messages/count_tokens	model-in-body	no
+GET	/v1/models	no-model	no
+POST	/v1/responses	model-in-body	yes
+GET	/v1/responses/{response_id}	stateful-id	no
+POST	/v1/responses/{response_id}/cancel	stateful-id	no
+GET	/version	no-model	no
+
+# 11 of 23 operations carry a model. The route covers 4 of them.
+# Model-bearing and NOT routed today: /tokenize, /detokenize,
+# /v1/messages/count_tokens, /v1/chat/completions/batch, /v1/chat/completions/render,
+# /v1/completions/render, /inference/v1/generate.
+
+# MEASURED: does ONE PathPrefix /{ns}/{name}/v1 rule with
+# ReplacePrefixMatch=/v1 rewrite correctly for every endpoint underneath it?
+# Route epbudget-probe on the istio gateway, real vLLM backend.
+request	status	note
+/epbudget/svc-a/v1/chat/completions	200	rewritten to /v1/chat/completions
+/epbudget/svc-a/v1/models	200	rewritten to /v1/models
+/epbudget/svc-a/v1/messages/count_tokens	200	sub-path, not covered by the route today
+/epbudget/svc-a/health	200	fell to the catch-all rule, rewritten to /health
+
+# So one rule per path FAMILY covers every endpoint, present and future, and
+# ReplacePrefixMatch strips exactly the leading segments regardless of suffix.
+# Today kserve emits one rule per endpoint per family instead, because each
+# carries its own URLRewrite back to that endpoint path and Gateway API filters
+# are per RULE, not per match. That is what spends the 16 rule slots.
+
+# COMPUTED ceilings vs endpoint count: hack/endpoint-budget.py
+# (validated against the measured 7 / 12 / 22 at 4 endpoints)
+shape	path-family	E=4	E=5	E=6	E=8	E=11
+current	per-endpoint	7	5	4	infeasible	infeasible
+split	per-endpoint	12	infeasible	infeasible	infeasible	infeasible
+split-noslash	per-endpoint	22	infeasible	infeasible	infeasible	infeasible
+collapse	per-endpoint	58	57	56	infeasible	infeasible
+current	v1-prefix	7	5	4	3	1
+split	v1-prefix	12	10	8	6	4
+split-noslash	v1-prefix	23	19	16	12	9
+collapse	v1-prefix	61	61	61	61	61

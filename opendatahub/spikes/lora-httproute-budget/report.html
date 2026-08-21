@@ -2416,6 +2416,222 @@ window.SIM_ROUTES = {"alternation":[{"r":"lora-budget/svc-a-kserve-route","rules
 </section>
 
 
+<section id="endpoints">
+  <h2>What adding an endpoint costs</h2>
+  <p class="sub">
+    Every ceiling in this document assumes <strong>four</strong> API endpoints, because that
+    is what kserve templates today. The budget is paths times models, so that assumption is
+    load-bearing and nobody had priced it. Read from the live vLLM's
+    <code>/openapi.json</code>, not from memory.
+  </p>
+
+  <div class="panel">
+    <div class="panel-hd"><span class="kb"><svg><use href="#k8-vllm"/></svg></span>
+      what this server actually serves <span class="rt">vllm-openai-cpu 0.19.0 &middot; 23 operations</span></div>
+    <div class="scroll">
+    <table>
+      <thead>
+        <tr><th>class</th><th class="num">count</th><th>can the gateway route on it?</th><th>examples</th></tr>
+      </thead>
+      <tbody>
+        <tr class="is-current">
+          <td class="name">model in the body</td><td class="num">11</td>
+          <td><span class="st ok">yes</span> the only class the routing rule can serve</td>
+          <td><code>/v1/chat/completions</code>, <code>/v1/messages</code>, <code>/tokenize</code></td>
+        </tr>
+        <tr>
+          <td class="name">stateful id in the path</td><td class="num">2</td>
+          <td><span class="st crit">no</span> names a prior response, not a model</td>
+          <td><code>/v1/responses/{id}</code>, <code>&hellip;/{id}/cancel</code></td>
+        </tr>
+        <tr>
+          <td class="name">no model at all</td><td class="num">10</td>
+          <td><span class="st mute">n/a</span> needs no per-model match</td>
+          <td><code>/v1/models</code>, <code>/health</code>, <code>/metrics</code></td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="note warn">
+    <span class="lbl">the route covers four of the eleven</span>
+    <p>
+      Model-bearing and <strong>not routed today</strong>:
+      <code>/v1/messages/count_tokens</code>, <code>/v1/chat/completions/batch</code>,
+      <code>/v1/chat/completions/render</code>, <code>/v1/completions/render</code>,
+      <code>/tokenize</code>, <code>/detokenize</code>,
+      <code>/inference/v1/generate</code>. Two of those are not under <code>/v1/</code> at
+      all, so no <code>/v1</code>-shaped rule reaches them either.
+    </p>
+    <p>
+      And this set is <strong>task dependent</strong>. A chat model exposes no
+      <code>/v1/embeddings</code>; an embedding or reranker model adds
+      <code>/v1/embeddings</code>, <code>/pooling</code>, <code>/score</code>,
+      <code>/rerank</code> and <code>/classify</code>. ODH's own AuthPolicy already carves
+      out <code>/v1/files</code> and <code>/v1/batches</code>, which nothing serves yet. The
+      union across model types is comfortably past ten.
+    </p>
+  </div>
+
+  <div class="panel">
+    <div class="panel-hd"><span class="kb mark warn"><svg><use href="#ic-warn"/></svg></span>
+      adapter ceiling by endpoint count <span class="rt">hack/endpoint-budget.py &middot; computed</span></div>
+    <div class="scroll">
+    <table>
+      <thead>
+        <tr><th>shape</th><th class="num">4 <span class="hint">today</span></th><th class="num">5</th><th class="num">6</th><th class="num">8</th><th class="num">11</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="name">current</td><td class="num">7</td><td class="num">5</td><td class="num">4</td><td class="num"><span class="st crit">none</span></td><td class="num"><span class="st crit">none</span></td></tr>
+        <tr><td class="name">split</td><td class="num">12</td><td class="num"><span class="st crit">none</span></td><td class="num"><span class="st crit">none</span></td><td class="num"><span class="st crit">none</span></td><td class="num"><span class="st crit">none</span></td></tr>
+        <tr class="is-pick"><td class="name">split-noslash</td><td class="num">22</td><td class="num"><span class="st crit">none</span></td><td class="num"><span class="st crit">none</span></td><td class="num"><span class="st crit">none</span></td><td class="num"><span class="st crit">none</span></td></tr>
+        <tr><td class="name">collapse <span class="hint">dropped</span></td><td class="num">58</td><td class="num">57</td><td class="num">56</td><td class="num"><span class="st crit">none</span></td><td class="num"><span class="st crit">none</span></td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="note crit">
+    <span class="lbl">the recommendation is one endpoint from impossible</span>
+    <p>
+      <code>split-noslash</code> spends <strong>15 of 16 rule slots</strong> at four
+      endpoints. A fifth needs 18. It does not degrade, it stops being expressible - and so
+      does <code>split</code>. <code>current</code> survives to six and stops at eight.
+      <strong>None of this is about adapters.</strong> The rule budget is exhausted by
+      endpoints before the match budget is exhausted by models.
+    </p>
+  </div>
+
+  <h3>Why the rules multiply, and the one-line fix</h3>
+  <p>
+    Each path rule carries its own <code>URLRewrite</code> back to that endpoint's path, and
+    Gateway API filters are per <strong>rule</strong>, not per match. Four matches in one
+    rule cannot have four different rewrites, which is why there is a rule per endpoint per
+    path family - eight of the twelve rules, before any model routing.
+  </p>
+
+  <figure class="fig">
+    <div class="figbox">
+    <svg viewBox="0 0 820 250" role="img" preserveAspectRatio="xMidYMid meet"
+         aria-label="Today, four separate rules each match one endpoint path and each carries its own URLRewrite filter back to that endpoint. Consolidated, a single rule matches the /v1 prefix and one URLRewrite to /v1 strips the same leading segments for every endpoint underneath, so new endpoints cost no rules at all.">
+      <defs>
+        <marker id="ep1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+
+      <text x="0" y="16" font-size="10" font-weight="700" fill="currentColor" font-family="ui-monospace, monospace" letter-spacing=".07em">TODAY &middot; ONE RULE PER ENDPOINT</text>
+      <g font-size="8.5" font-family="ui-monospace, monospace">
+        <rect x="0" y="32" width="330" height="34" rx="5" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".55"/>
+        <text x="12" y="46" fill="currentColor">rules[0]  PathPrefix /{ns}/{name}/v1/completions</text>
+        <text x="12" y="59" fill="var(--warn)">          rewrite &rarr; /v1/completions</text>
+        <rect x="0" y="72" width="330" height="34" rx="5" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".55"/>
+        <text x="12" y="86" fill="currentColor">rules[1]  &hellip;/v1/chat/completions</text>
+        <text x="12" y="99" fill="var(--warn)">          rewrite &rarr; /v1/chat/completions</text>
+        <rect x="0" y="112" width="330" height="34" rx="5" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".55"/>
+        <text x="12" y="126" fill="currentColor">rules[2]  &hellip;/v1/responses</text>
+        <text x="12" y="139" fill="var(--warn)">          rewrite &rarr; /v1/responses</text>
+        <rect x="0" y="152" width="330" height="34" rx="5" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".55"/>
+        <text x="12" y="166" fill="currentColor">rules[3]  &hellip;/v1/messages</text>
+        <text x="12" y="179" fill="var(--warn)">          rewrite &rarr; /v1/messages</text>
+      </g>
+      <text x="0" y="206" font-size="9.5" fill="var(--crit)" font-weight="650">4 rules per path family, x2 families = 8 of 16 slots</text>
+      <text x="0" y="222" font-size="9" fill="currentColor" opacity=".7">each new endpoint costs 2 more, and a 5th makes split-noslash inexpressible</text>
+
+      <line x1="392" y1="26" x2="392" y2="232" stroke="currentColor" stroke-width="1" opacity=".16"/>
+
+      <text x="422" y="16" font-size="10" font-weight="700" fill="var(--kind)" font-family="ui-monospace, monospace" letter-spacing=".07em">CONSOLIDATED &middot; ONE RULE, ANY ENDPOINT</text>
+      <g font-size="8.5" font-family="ui-monospace, monospace">
+        <rect x="422" y="32" width="330" height="34" rx="5" fill="var(--kind-dim)" stroke="var(--kind)" stroke-width="1.4"/>
+        <text x="434" y="46" fill="currentColor">rules[0]  PathPrefix /{ns}/{name}/v1</text>
+        <text x="434" y="59" fill="var(--kind)">          rewrite &rarr; /v1</text>
+      </g>
+      <g font-size="8.5" font-family="ui-monospace, monospace" opacity=".75">
+        <text x="434" y="86" fill="currentColor">/v1/chat/completions</text>
+        <text x="434" y="102" fill="currentColor">/v1/messages/count_tokens</text>
+        <text x="434" y="118" fill="currentColor">/v1/models</text>
+        <text x="434" y="134" fill="currentColor">&hellip;anything added later</text>
+      </g>
+      <path d="M604 82 C 660 82 660 52 700 52" fill="none" stroke="var(--kind)" stroke-width="1.2" marker-end="url(#ep1)" opacity=".6"/>
+      <path d="M604 98 C 660 98 660 56 700 56" fill="none" stroke="var(--kind)" stroke-width="1.2" marker-end="url(#ep1)" opacity=".45"/>
+      <path d="M604 114 C 660 114 660 60 700 60" fill="none" stroke="var(--kind)" stroke-width="1.2" marker-end="url(#ep1)" opacity=".3"/>
+      <text x="422" y="206" font-size="9.5" fill="var(--kind)" font-weight="650">2 rules total, constant in endpoint count</text>
+      <text x="422" y="222" font-size="9" fill="currentColor" opacity=".7">ReplacePrefixMatch strips the matched prefix, whatever follows it</text>
+    </svg>
+    </div>
+    <figcaption>
+      The rules multiply because the rewrite is per rule. Matching the <code>/v1</code>
+      prefix once needs only one rewrite, because <code>ReplacePrefixMatch</code> replaces
+      the matched prefix and leaves the rest alone.
+    </figcaption>
+  </figure>
+
+  <div class="panel">
+    <div class="panel-hd"><span class="kb mark ok"><svg><use href="#k8-route"/></svg></span>
+      measured, not assumed <span class="rt">one /v1 rule, real vLLM, istio</span></div>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>request</th><th class="num">status</th><th>rewritten to</th></tr></thead>
+      <tbody>
+        <tr><td class="name"><code>/epbudget/svc-a/v1/chat/completions</code></td><td class="num">200</td><td><code>/v1/chat/completions</code></td></tr>
+        <tr><td class="name"><code>/epbudget/svc-a/v1/models</code></td><td class="num">200</td><td><code>/v1/models</code></td></tr>
+        <tr class="is-current"><td class="name"><code>/epbudget/svc-a/v1/messages/count_tokens</code></td><td class="num">200</td><td><code>/v1/messages/count_tokens</code> <span class="hint">not in the route today</span></td></tr>
+        <tr><td class="name"><code>/epbudget/svc-a/health</code></td><td class="num">200</td><td><code>/health</code> <span class="hint">via the catch-all</span></td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-hd"><span class="kb mark ok"><svg><use href="#ic-grid"/></svg></span>
+      what consolidation buys <span class="rt">same shapes, path families collapsed</span></div>
+    <div class="scroll">
+    <table>
+      <thead>
+        <tr><th>shape</th><th class="num">4</th><th class="num">5</th><th class="num">6</th><th class="num">8</th><th class="num">11</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="name">current</td><td class="num">7</td><td class="num">5</td><td class="num">4</td><td class="num">3</td><td class="num">1</td></tr>
+        <tr><td class="name">split</td><td class="num">12</td><td class="num">10</td><td class="num">8</td><td class="num">6</td><td class="num">4</td></tr>
+        <tr class="is-pick"><td class="name">split-noslash</td><td class="num">23</td><td class="num">19</td><td class="num">16</td><td class="num">12</td><td class="num">9</td></tr>
+        <tr><td class="name">collapse <span class="hint">dropped</span></td><td class="num">61</td><td class="num">61</td><td class="num">61</td><td class="num">61</td><td class="num">61</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="note ok">
+    <span class="lbl">so the structural answer is on the path axis, not the header one</span>
+    <p>
+      Consolidating the path families keeps every shape <em>expressible</em> as endpoints
+      grow, and it is the difference between <code>split-noslash</code> dying at five
+      endpoints and reaching eleven. It costs one thing: non-inference <code>/v1/</code>
+      paths like <code>/v1/models</code> go through the endpoint picker rather than direct to
+      the Service. That was already measured for the collapse - the picker passes bodyless
+      paths straight through, <code>200</code>, and <code>/v1/models</code> answers normally.
+    </p>
+    <p>
+      It is also the only change here that is <strong>free of the naming argument</strong>.
+      It touches no model identifier, no header value and nothing a client sends.
+    </p>
+  </div>
+
+  <div class="note warn">
+    <span class="lbl">the two endpoints no shape can route</span>
+    <p>
+      <code>GET /v1/responses/{id}</code> and <code>POST /v1/responses/{id}/cancel</code>
+      carry no model anywhere - not in the path, not in the body. On a service-scoped path
+      that is fine, the URL names the service. On the shared endpoint there is nothing to
+      route on, and the endpoint picker answers
+      <code>400 model not found in request body</code>. Any stateful API added later has the
+      same shape. Solving it needs the id to encode its pool, or session affinity - neither
+      is a routing-budget question, and neither is in scope here.
+    </p>
+  </div>
+</section>
+
+
 <section id="dropped">
   <h2>Also evaluated, and dropped</h2>
   <p class="sub">
@@ -4655,6 +4871,27 @@ if baseOk &amp;&amp; configOk {
     </li>
     <li>
       <div>
+        <h4>Consolidate the path families first, or the rest is moot</h4>
+        <p>
+          Eight of the twelve rules are one-per-endpoint-per-family, each carrying its own
+          <code>URLRewrite</code>. Match <code>PathPrefix /{ns}/{name}/v1</code> once and
+          rewrite to <code>/v1</code> instead: measured to strip exactly the same leading
+          segments for every endpoint underneath, including
+          <code>/v1/messages/count_tokens</code>, which the route does not cover today. Two
+          rules per family become one, and endpoint count stops consuming rule slots.
+        </p>
+        <p>
+          This is not an optimisation, it is a precondition. At four endpoints
+          <code>split-noslash</code> spends <strong>15 of 16</strong> rule slots; a fifth
+          endpoint needs 18 and the shape stops being expressible. Consolidated it reaches
+          eleven endpoints. It also costs nothing anyone can see - no model identifier, no
+          header, nothing a client sends - which makes it the one recommendation here that
+          the naming argument does not touch.
+        </p>
+      </div>
+    </li>
+    <li>
+      <div>
         <h4>Take <code>split-noslash</code>, everywhere</h4>
         <p>
           7 &rarr; <strong>22</strong> for exactly one moved probe, and the moved one is a
@@ -4666,8 +4903,10 @@ if baseOk &amp;&amp; configOk {
           targets the whole HTTPRoute, so it is unaffected.
         </p>
         <p>
-          Be honest about what this is: <strong>headroom, not an answer</strong>. 22 is still
-          a ceiling and it is still linear in adapter count.
+          Be honest about what this is: <strong>headroom, not an answer</strong>. 22 is
+          still a ceiling, still linear in adapter count, and it assumes today's four
+          endpoints - see <a href="#endpoints">what adding an endpoint costs</a>. With the
+          consolidation above it is 23 at four endpoints and 9 at eleven.
         </p>
       </div>
     </li>

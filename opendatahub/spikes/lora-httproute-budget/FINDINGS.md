@@ -2137,6 +2137,98 @@ installed in the spike cluster. It is the template's CEL evaluated against each
 path, cross-checked against that template's own request-flow table. Nobody should
 act on the SAR column without running it against a real Authorino.
 
+## 30. The endpoint set is the other half of the budget
+
+Every ceiling in this document assumes **four** endpoints, because that is what
+kserve templates. The budget is paths times models, so that assumption is
+load-bearing and nothing here had priced it.
+
+### What a server actually serves
+
+Read from the live vLLM (`kubectl exec ... curl localhost:8000/openapi.json`,
+`vllm-openai-cpu:v0.19.0`, chat model): **23 operations**, classified by whether
+the gateway has anything to match on.
+
+| class | count | routable | examples |
+|---|---|---|---|
+| model in the body | **11** | yes, the only class the routing rule can serve | `/v1/chat/completions`, `/v1/messages`, `/tokenize` |
+| stateful id in the path | 2 | **no** - names a prior response, not a model | `/v1/responses/{id}`, `.../{id}/cancel` |
+| no model at all | 10 | n/a, needs no per-model match | `/v1/models`, `/health`, `/metrics` |
+
+**The route covers 4 of the 11.** Model-bearing and unrouted:
+`/v1/messages/count_tokens`, `/v1/chat/completions/batch`,
+`/v1/chat/completions/render`, `/v1/completions/render`, `/tokenize`,
+`/detokenize`, `/inference/v1/generate`. Two are not under `/v1/` at all.
+
+The set is also **task dependent**: a chat model exposes no `/v1/embeddings`; an
+embedding or reranker model adds `/v1/embeddings`, `/pooling`, `/score`,
+`/rerank`, `/classify`. ODH's AuthPolicy already carves out `/v1/files` and
+`/v1/batches`, which nothing serves yet. The union is comfortably past ten.
+
+### What that does to the ceilings
+
+`hack/endpoint-budget.py`, validated against the measured 7 / 12 / 22 at E=4
+before it projects anything.
+
+| shape | E=4 | E=5 | E=6 | E=8 | E=11 |
+|---|---|---|---|---|---|
+| `current` | 7 | 5 | 4 | **none** | **none** |
+| `split` | 12 | **none** | **none** | **none** | **none** |
+| `split-noslash` | 22 | **none** | **none** | **none** | **none** |
+| `collapse` | 58 | 57 | 56 | **none** | **none** |
+
+**The recommendation is one endpoint from impossible.** `split-noslash` spends 15
+of 16 rule slots at four endpoints; a fifth needs 18. It does not degrade, it
+stops being expressible. None of that is about adapters - the *rule* budget is
+exhausted by endpoints before the *match* budget is exhausted by models.
+
+### Why the rules multiply
+
+Each path rule carries its own `URLRewrite` (`ReplacePrefixMatch` back to that
+endpoint's path) and Gateway API filters are per **rule**, not per match. Four
+matches in one rule cannot have four rewrites. That is eight of the twelve rules
+before any model routing, and it is forced by the API rather than careless.
+
+### The fix, measured
+
+One rule per family matching `PathPrefix /{ns}/{name}/v1` with
+`ReplacePrefixMatch: /v1`. Applied as `epbudget-probe` against real vLLM on
+Istio:
+
+| request | status | rewritten to |
+|---|---|---|
+| `/epbudget/svc-a/v1/chat/completions` | 200 | `/v1/chat/completions` |
+| `/epbudget/svc-a/v1/models` | 200 | `/v1/models` |
+| `/epbudget/svc-a/v1/messages/count_tokens` | 200 | `/v1/messages/count_tokens` |
+| `/epbudget/svc-a/health` | 200 | `/health`, via the catch-all |
+
+`ReplacePrefixMatch` replaces the matched prefix and leaves the suffix alone, so
+one rewrite covers every endpoint underneath, present and future. Consolidated:
+
+| shape | E=4 | E=5 | E=6 | E=8 | E=11 |
+|---|---|---|---|---|---|
+| `current` | 7 | 5 | 4 | 3 | 1 |
+| `split` | 12 | 10 | 8 | 6 | 4 |
+| `split-noslash` | **23** | 19 | 16 | 12 | **9** |
+| `collapse` | 61 | 61 | 61 | 61 | 61 |
+
+Cost: non-inference `/v1/` paths go through the endpoint picker rather than
+direct to the Service. Already measured for the collapse - the picker passes
+bodyless paths straight through, and `GET /v1/models` answers normally
+(`golden/epp-current.tsv`). It touches no model identifier, no header and nothing
+a client sends, so it is the only recommendation in this document the naming
+argument does not reach.
+
+### The two endpoints no shape can route
+
+`GET /v1/responses/{id}` and `POST /v1/responses/{id}/cancel` carry no model
+anywhere. Service-scoped paths are fine - the URL names the service. On the
+shared endpoint there is nothing to route on and the picker answers `400 model
+not found in request body`. Any stateful API added later has the same shape.
+Fixing it needs the id to encode its pool, or session affinity. Not a
+routing-budget question.
+
+
 ## Method notes
 
 **The probe set moved the answer.** The first run had 57 probes and one
