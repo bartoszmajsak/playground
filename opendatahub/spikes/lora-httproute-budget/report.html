@@ -2613,7 +2613,10 @@ window.SIM_ROUTES = {"alternation":[{"r":"lora-budget/svc-a-kserve-route","rules
     </p>
     <p>
       It is also the only change here that is <strong>free of the naming argument</strong>.
-      It touches no model identifier, no header value and nothing a client sends.
+      It touches no model identifier, no header value and nothing a client sends - and it
+      costs nothing on the policy side either, because
+      <a href="#shard">the AuthPolicy decides on request attributes rather than on which
+      rule matched</a>, so collapsing rules removes no policy granularity that anyone has.
     </p>
   </div>
 
@@ -2653,11 +2656,38 @@ window.SIM_ROUTES = {"alternation":[{"r":"lora-budget/svc-a-kserve-route","rules
       targets the whole HTTPRoute.
     </p>
     <p>
-      But the naming clearly sets it up, and it is a real capability to keep. That is an
-      argument against flattening the rules - and an argument <em>for</em> sharding, because
-      a shard is a whole object, and a policy that targets a whole object cannot be detached
-      by a rule rename. It is strictly more robust than <code>sectionName</code>, which this
-      report already measured going green while covering a quarter of its traffic.
+      An earlier pass of this section said the naming still sets the capability up and it is
+      worth keeping. That was too generous, and the policy itself says why:
+      <strong>the decision is already made inside the policy, not by which rule matched.</strong>
+      Kuadrant's <code>targetRef</code> is a
+      <code>LocalPolicyTargetReferenceWithSectionName</code>, so pinning to a rule is
+      available - and the rendered AuthPolicy uses it <strong>zero</strong> times, while
+      gating <strong>five</strong> of its rules on <code>when</code> predicates over
+      <code>request.path</code> and <code>request.headers</code>, with per-rule
+      <code>priority</code> to order them.
+    </p>
+    <div class="panel">
+      <div class="panel-hd"><span class="kb"><svg><use href="#k8-policy"/></svg></span> the mechanism it uses instead <span class="rt">authpolicy_llm_isvc_userdefined.yaml</span></div>
+      <pre class="code"><span class="c"># no sectionName anywhere; the rule decides for itself</span>
+inference-access:
+  when:
+    - patternRef: has-ns-and-name
+    - predicate: <span class="hi">"!request.path.startsWith('/v1/')"</span>
+    - predicate: <span class="hi">"!request.path.matches('^/publishers/[^/]+/models/')"</span></pre>
+    </div>
+    <p>
+      That is strictly more expressive than a rule name. A predicate can key on the path
+      shape, a header value, the caller's identity and combinations of all three; a
+      <code>sectionName</code> can only say "this rule fired". So wanting different policy
+      for <code>/v1/chat/completions</code> than for <code>/v1/completions</code> is
+      <strong>not</strong> a reason to keep them as separate rules - it is a
+      <code>when</code> predicate on the path.
+    </p>
+    <p>
+      What survives is the argument <em>for</em> sharding: a shard is a whole object, and a
+      policy targeting a whole object cannot be detached by a rule rename. That still beats
+      <code>sectionName</code>, which this report measured going green while covering a
+      quarter of its former traffic.
     </p>
   </div>
 

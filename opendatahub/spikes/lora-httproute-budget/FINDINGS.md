@@ -2235,7 +2235,18 @@ Prompted by a question about why the path rules are separate at all - the readin
 being that named rules exist so policies can be pinned per endpoint by
 `sectionName`.
 
-**Checked: nothing pins a policy to a rule section today.** Every `sectionName`
+**Checked, and the answer is stronger than "nobody uses it": the policy makes the
+decision itself.** Kuadrant's `targetRef` is a
+`LocalPolicyTargetReferenceWithSectionName` (`authpolicy_types.go:302`), so rule
+pinning is available. The rendered ODH policy uses it **zero** times and instead
+gates **five** of its rules on `when` predicates over `request.path` and
+`request.headers`, ordered by per-rule `priority`. A predicate can key on path
+shape, header value, caller identity and combinations; a `sectionName` can only
+say "this rule fired". So per-endpoint policy differentiation is a `when`
+predicate, not a rule split - which removes the last argument for keeping the
+path families as one rule per endpoint (section 30).
+
+**And nothing pins a policy to a rule section today.** Every `sectionName`
 in kserve and odh-model-controller refers to a Gateway *listener*
 (`router_discovery.go:419 selectListeners`, `ParentReference.SectionName`), which
 is a different field from a policy's `targetRef.sectionName`. odh-model-controller's
