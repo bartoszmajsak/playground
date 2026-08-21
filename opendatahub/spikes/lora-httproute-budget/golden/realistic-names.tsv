@@ -1,19 +1,28 @@
 # What the alternation reaches with names people actually use.
 #
-# The 320 quoted elsewhere in this spike is a property of the FIXTURE's short
-# names (lora-budget / model-a / adapter-a1), not of the shape. Adapter and
-# namespace names in real deployments are two to three times longer, and both the
-# 4096-byte header cap and the RE2 program-size limit are byte-driven.
+# SUPERSEDES an earlier version of this file that quoted 188 for "realistic" and
+# 147 for "long namespace" and blamed the namespace for the gap. Both numbers
+# matched neither escaping form and had no recorded derivation, and the
+# attribution was wrong: the namespace is paid ONCE as a prefix, the adapter name
+# is paid N times. Ten extra characters of namespace cost about ONE adapter.
 #
-# Envoy's stock RE2 program-size limit is 100 and program size tracks literal
-# bytes almost 1:1, so the pattern may be about 100 characters on a default
-# Envoy. publishers/{namespace}/models/ alone costs 30-45 of that.
+# Two different limits bind, depending on the data plane:
+#   HTTPHeaderMatch.Value maxLength 4096   apiserver, applies everywhere
+#   re2.max_program_size.error_level       Envoy; istio 32768, envoy-gateway
+#                                          4294967295 (off), kgateway unset -> 100
 #
-# COMPUTED ceilings (hack/regex-forms.py arithmetic):
-profile	mean-adapter-name	istio-4096B	stock-envoy-RE2-100	envoy-gateway
-spike fixture (model-a, adapter-aN)	10 chars	320	5	320
-realistic (granite-3-1-8b-instruct)	21 chars	188	2	188
-long namespace (redhat-ods-applications)	25 chars	147	1	147
+# COMPUTED, hack/alternation-ceiling.py. Re-runnable arithmetic, no cluster.
+mean-adapter-name	re.escape (shipped)	minimal escaping	RE2 left at 100
+10 chars (spike fixture)	297	320	5
+16 chars	237	252	2
+20 chars	175	192	2
+24 chars	155	168	1
+30 chars	118	130	1
+
+# namespace length barely matters: same names, two namespace lengths
+namespace	mean-adapter-name	re.escape	minimal
+genai-serving (13 chars)	20 chars	175	192
+redhat-ods-applications (23 chars)	20 chars	175	191
 
 # MEASURED on the cluster, three data planes, realistic profile
 # (genai-serving / granite-3-1-8b-instruct / sql-generation, customer-support, ...)
@@ -26,3 +35,7 @@ adapters	pattern-bytes	kgateway	RE2 program size
 1	100	ok	under 100
 2	126	REFUSED	117 > 100
 3	151	REFUSED	139 > 100
+
+# Fitted from those three rejections: program size ~= 0.865 * bytes + 8.4
+# To reach the 4096-byte ceiling a data plane needs a program-size limit of ~3550.
+# kgateway does not expose the setting, so there it is unavailable, not untuned.

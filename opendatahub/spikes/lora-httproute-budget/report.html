@@ -1182,7 +1182,7 @@
         every adapter that will ever exist</li>
     </ul>
     <p style="margin-top:.6rem">
-      That is the real reason <code>nested</code> is unbounded, and it is a stronger argument
+      That is the real reason <code>nested</code> is unbounded, and it was a stronger argument
       than the byte counts. It makes the name self-describing about ownership, so the index
       collapses to a rule about naming rather than a table of entries.
     </p>
@@ -1353,15 +1353,15 @@
   <p class="sub">
     Every ceiling below was measured by asking the apiserver to validate a synthesised route
     at rising adapter counts. Every "requests moved" figure is a diff of where 72 real
-    requests actually landed, before and after. Nine shapes were measured; these are the five
-    still in contention. The other four are in
+    requests actually landed, before and after. Nine shapes were measured; these are the four
+    still in contention. The other five are in
     <a href="#dropped">also evaluated, and dropped</a>, with the numbers and the reason each
     one lost.
   </p>
 
   <div class="panel">
     <div class="panel-hd"><span class="kb"><svg><use href="#k8-route"/></svg></span> route shapes
-      <span class="rt">5 in contention &middot; svc-a &middot; lora-budget</span></div>
+      <span class="rt">4 in contention &middot; svc-a &middot; lora-budget</span></div>
     <div class="scroll">
     <table>
       <thead>
@@ -1386,21 +1386,16 @@
           <td><div class="bar"><div class="track"><div class="fill warn" style="width:4%"></div></div><span class="val">12</span></div></td>
           <td class="num"><span class="st ok">0</span></td><td>128 / route</td><td>keeps</td><td><span class="st warn">yes, 1&rarr;4</span></td>
         <td><span class="st ok">yes</span></td></tr>
-        <tr>
+        <tr class="is-pick">
           <td class="name">split-noslash</td>
           <td><div class="bar"><div class="track"><div class="fill warn" style="width:7%"></div></div><span class="val">22</span></div></td>
           <td class="num"><span class="st ok">1</span></td><td>128 / route</td><td>keeps</td><td><span class="st warn">yes, 1&rarr;4</span></td>
         <td><span class="st ok">yes</span></td></tr>
         <tr>
           <td class="name">alternation</td>
-          <td><div class="bar"><div class="track"><div class="fill" style="width:99%"></div></div><span class="val">188</span></div></td>
+          <td><div class="bar"><div class="track"><div class="fill" style="width:75%"></div></div><span class="val">175-240</span></div></td>
           <td class="num"><span class="st ok">0</span></td><td>RE2 program size</td><td>keeps</td><td>no</td>
         <td><span class="st warn">not on kgw</span></td></tr>
-        <tr class="is-pick">
-          <td class="name">nested</td>
-          <td><div class="bar"><div class="track"><div class="fill" style="width:100%"></div></div><span class="val">&infin;</span></div></td>
-          <td class="num">7</td><td><span class="st ok">none</span></td><td>keeps</td><td>no</td>
-        <td><span class="st ok">yes</span></td></tr>
       </tbody>
     </table>
     </div>
@@ -1419,34 +1414,33 @@
 
   <div class="cards">
     <div class="card pick">
-      <div class="card-hd"><span class="nm">nested</span> <span class="st info">7 &rarr; unbounded</span> <span class="st ok">recommended</span></div>
+      <div class="card-hd"><span class="nm">split-noslash</span> <span class="st info">7 &rarr; 22</span> <span class="st ok">recommended</span></div>
       <div class="card-bd">
-        <p class="cap">Serve adapters beneath the base model; match one 44-character prefix.</p>
+        <p class="cap">Split the routing rule per endpoint, and drop the trailing-slash duplicates.</p>
         <ul>
-          <li class="pro">Adapter count leaves the route arithmetic entirely: 19 matches, constant</li>
-          <li class="pro">The only shape that programmed identically on <strong>both</strong> data planes at any size</li>
-          <li class="pro">Renames nothing, keeps path scope, needs no body-based router or ConfigMap</li>
-          <li class="pro">Prefix anchoring proven safe on both: <code>model-b</code> does not capture <code>model-b-instruct</code></li>
-          <li class="con">Changes the model string clients send. The real cost, and it is not in any budget table</li>
-          <li class="con">Couples adapter names to the base model name</li>
+          <li class="pro">Triples the ceiling for exactly one moved probe</li>
+          <li class="pro"><strong>No regex at all</strong>, so no data plane can refuse it and no program-size limit applies. The only option here immune to the kgateway problem</li>
+          <li class="pro">Nothing a client sends changes: same paths, same model names</li>
+          <li class="pro">The twins it drops only compensate for an undocumented <code>Exact</code> match choice</li>
+          <li class="con">Renames a rule 1&rarr;4, which detaches any hand-written <code>sectionName</code> policy and cannot be safely aliased. ODH's own AuthPolicy targets the whole route, so it is unaffected</li>
+          <li class="con">Header-addressed <code>/v1/completions/</code> stops reaching the pool</li>
+          <li class="con">22 is still a ceiling. It buys room, not an answer</li>
         </ul>
       </div>
     </div>
-
     <div class="card">
-      <div class="card-hd"><span class="nm">alternation</span> <span class="st info">7 &rarr; 188</span> <span class="st warn">data-plane dependent</span></div>
+      <div class="card-hd"><span class="nm">alternation</span> <span class="st info">7 &rarr; 175-240</span> <span class="st warn">data-plane dependent</span></div>
       <div class="card-bd">
         <p class="cap">List the names that already exist in one regex. Change nothing else.</p>
         <ul>
           <li class="pro">Zero behaviour change: byte-identical across all 72 probes and all 13 endpoint-picker outcomes</li>
           <li class="pro">No renamed rule, no renamed model, nothing a client sees</li>
           <li class="pro">Anchored exactly on both data planes: <code>adapter-a1</code> matches, <code>adapter-a1x</code> does not</li>
-          <li class="con"><strong>Reaches 2 adapters where the RE2 limit is left at 100</strong> with realistic names, which is fewer than anyone runs. Istio and Envoy Gateway raise the RE2 limit; kgateway leaves it at 100</li>
+          <li class="con"><strong>Reaches 1 to 2 adapters where the RE2 limit is left at 100</strong>, which is fewer than anyone runs. Istio and Envoy Gateway raise it; kgateway leaves Envoy's default. Matching Istio there would need the limit raised to about <strong>3550</strong>, and kgateway does not expose it</li>
           <li class="con">Pattern is rewritten whenever the adapter set changes, so route churn stays</li>
         </ul>
       </div>
     </div>
-
     <div class="card">
       <div class="card-hd"><span class="nm">split</span> <span class="st info">7 &rarr; 12</span></div>
       <div class="card-bd">
@@ -1459,19 +1453,6 @@
         </ul>
       </div>
     </div>
-
-    <div class="card">
-      <div class="card-hd"><span class="nm">split-noslash</span> <span class="st info">7 &rarr; 22</span> <span class="st ok">portable</span></div>
-      <div class="card-bd">
-        <p class="cap">Split, and drop the trailing-slash duplicates.</p>
-        <ul>
-          <li class="pro">Triples the ceiling for exactly one moved probe, with no regex at all so no data plane can refuse it</li>
-          <li class="pro">The twins only compensate for an undocumented <code>Exact</code> match choice</li>
-          <li class="con">Same 1&rarr;4 rename problem as <code>split</code></li>
-          <li class="con">Header-addressed <code>/v1/completions/</code> stops reaching the pool</li>
-        </ul>
-      </div>
-    </div>
   </div>
 </section>
 
@@ -1479,8 +1460,9 @@
   <h2>Browse the shapes</h2>
   <p class="sub">
     Pick a shape to see the routing rules it actually generates. The path family is
-    identical in every one, so only the model-routing rules are shown. Five shapes here, the
-    ones still in contention.
+    identical in every one, so only the model-routing rules are shown. <code>nested</code> is
+    kept here even though it is no longer a candidate, because its rules are the clearest
+    illustration of what it was trading.
   </p>
 
   <div class="explorer">
@@ -1500,7 +1482,7 @@
         <span class="tbind">128 matches per route</span>
       </button>
       <button class="tile" data-shape="split-noslash" aria-pressed="false" aria-controls="yamlpane">
-        <span class="tname">split-noslash</span>
+        <span class="tname"><span class="pin">&#9656;</span>split-noslash</span>
         <span class="tmax">22<span class="tunit">adapters</span></span>
         <span class="tbar"><span class="tfill" style="width:7%"></span></span>
         <span class="tmeta"><span>15 rules</span><span>25 matches</span><span class="mv">1 moved</span></span>
@@ -1508,13 +1490,13 @@
       </button>
       <button class="tile" data-shape="alternation" aria-pressed="false" aria-controls="yamlpane">
         <span class="tname">alternation</span>
-        <span class="tmax">188<span class="tunit">istio, real names</span></span>
-        <span class="tbar"><span class="tfill" style="width:99%"></span></span>
+        <span class="tmax">175-240<span class="tunit">istio, by name length</span></span>
+        <span class="tbar"><span class="tfill" style="width:75%"></span></span>
         <span class="tmeta"><span>12 rules</span><span>19 matches</span><span class="mv ok">0 moved</span></span>
         <span class="tbind">RE2 program size &middot; data-plane dependent</span>
       </button>
       <button class="tile" data-shape="nested" aria-pressed="false" aria-controls="yamlpane">
-        <span class="tname"><span class="pin">&#9656;</span>nested</span>
+        <span class="tname">nested</span>
         <span class="tmax">&infin;<span class="tunit">adapters</span></span>
         <span class="tbar"><span class="tfill" style="width:100%"></span></span>
         <span class="tmeta"><span>12 rules</span><span>19 matches</span><span class="mv">7 moved</span></span>
@@ -1540,7 +1522,7 @@
 
 <script>
 (function () {
-  var DATA = {"alternation": {"binds": "RE2 program size (istio: 32768, kgateway: 100)", "matches": 19, "maxA": 320, "moved": 0, "note": "One regex listing the names that already exist. Match count stops growing; the pattern grows instead. Reaches 320 on Istio, which raises Envoy's RE2 program-size limit to 32768 - and <strong>6 on kgateway</strong>, which does not.", "routing": [["v1-model-routing", 8], ["v1-catch-all-model-routing", 1]], "rules": 12, "yaml": "- name: v1-model-routing\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: RegularExpression\n      value: publishers/lora\\-budget/models/(model\\-a|adapter\\-a1|adapter\\-a2)\n    path:\n      type: Exact\n      value: /v1/completions\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: RegularExpression\n      value: publishers/lora\\-budget/models/(model\\-a|adapter\\-a1|adapter\\-a2)\n    path:\n      type: Exact\n      value: /v1/completions/\n  # ... 6 more matches of the same form\n\n- name: v1-catch-all-model-routing\n  backendRefs:\n  - kind: Service\n    name: svc-a-kserve-workload-svc\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: RegularExpression\n      value: publishers/lora\\-budget/models/(model\\-a|adapter\\-a1|adapter\\-a2)\n    path:\n      type: PathPrefix\n      value: /"}, "collapse": {"binds": "128 matches per route", "matches": 16, "maxA": 58, "moved": 20, "note": "Drop the path from the routing rule. Large ceiling, but the rule now matches every path rather than four.", "routing": [["v1-model-routing", 3], ["v1-catch-all-model-routing", 3]], "rules": 12, "yaml": "- name: v1-model-routing\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/adapter-a1\n  # ... 1 more matches of the same form\n\n- name: v1-catch-all-model-routing\n  backendRefs:\n  - kind: Service\n    name: svc-a-kserve-workload-svc\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: PathPrefix\n      value: /\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/adapter-a1\n    path:\n      type: PathPrefix\n      value: /\n  # ... 1 more matches of the same form"}, "collapse-dedup": {"binds": "64 matches in one rule", "matches": 13, "maxA": 63, "moved": 20, "note": "Collapse, plus deleting the catch-all it renders unreachable. Behaviourally identical to collapse.", "routing": [["v1-model-routing", 3]], "rules": 11, "yaml": "- name: v1-model-routing\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/adapter-a1\n  # ... 1 more matches of the same form"}, "current": {"binds": "64 matches in one rule", "matches": 37, "maxA": 7, "moved": null, "note": "Today. The rule holds every path crossed with every model, so the 64-per-rule cap arrives at the seventh adapter.", "routing": [["v1-model-routing", 24], ["v1-catch-all-model-routing", 3]], "rules": 12, "yaml": "- name: v1-model-routing\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/completions\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/completions/\n  # ... 22 more matches of the same form\n\n- name: v1-catch-all-model-routing\n  backendRefs:\n  - kind: Service\n    name: svc-a-kserve-workload-svc\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: PathPrefix\n      value: /\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/adapter-a1\n    path:\n      type: PathPrefix\n      value: /\n  # ... 1 more matches of the same form"}, "nested": {"binds": "nothing in the route", "matches": 19, "maxA": null, "moved": 7, "note": "Adapters served beneath the base model, so one 44-character prefix covers all of them. The adapter axis leaves the route entirely and the pattern never grows, which is why this is the only shape no data plane can refuse. Costs the name clients send.", "routing": [["v1-model-routing", 8], ["v1-catch-all-model-routing", 1]], "rules": 12, "yaml": "- name: v1-model-routing\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: RegularExpression\n      value: publishers/lora\\-budget/models/model\\-a(/.*)?\n    path:\n      type: Exact\n      value: /v1/completions\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: RegularExpression\n      value: publishers/lora\\-budget/models/model\\-a(/.*)?\n    path:\n      type: Exact\n      value: /v1/completions/\n  # ... 6 more matches of the same form\n\n- name: v1-catch-all-model-routing\n  backendRefs:\n  - kind: Service\n    name: svc-a-kserve-workload-svc\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: RegularExpression\n      value: publishers/lora\\-budget/models/model\\-a(/.*)?\n    path:\n      type: PathPrefix\n      value: /"}, "prefix": {"binds": "64 matches in one rule", "matches": 25, "maxA": 15, "moved": 8, "note": "PathPrefix makes the twins redundant without splitting. Reaches further down each endpoint&rsquo;s sub-paths, which moves eight requests.", "routing": [["v1-model-routing", 12], ["v1-catch-all-model-routing", 3]], "rules": 12, "yaml": "- name: v1-model-routing\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - path:\n      type: PathPrefix\n      value: /v1/completions\n    headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n  - path:\n      type: PathPrefix\n      value: /v1/chat/completions\n    headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n  # ... 10 more matches of the same form\n\n- name: v1-catch-all-model-routing\n  backendRefs:\n  - kind: Service\n    name: svc-a-kserve-workload-svc\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: PathPrefix\n      value: /\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/adapter-a1\n    path:\n      type: PathPrefix\n      value: /\n  # ... 1 more matches of the same form"}, "split": {"binds": "128 matches per route", "matches": 37, "maxA": 12, "moved": 0, "note": "The same matches spread over four rules, so the per-rule cap stops binding and the route-wide 128 takes over. Renames a rule one-to-four.", "routing": [["v1-model-routing-v1-completions", 6], ["v1-model-routing-v1-chat-completions", 6], ["v1-model-routing-v1-responses", 6], ["v1-model-routing-v1-messages", 6], ["v1-catch-all-model-routing", 3]], "rules": 15, "yaml": "- name: v1-model-routing-v1-completions\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/completions\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/completions/\n  # ... 4 more matches of the same form\n\n- name: v1-model-routing-v1-chat-completions\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/chat/completions\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/chat/completions/\n  # ... 4 more matches of the same form\n\n- name: v1-model-routing-v1-responses\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/responses\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/responses/\n  # ... 4 more matches of the same form\n\n- name: v1-model-routing-v1-messages\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/messages\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/messages/\n  # ... 4 more matches of the same form\n\n- name: v1-catch-all-model-routing\n  backendRefs:\n  - kind: Service\n    name: svc-a-kserve-workload-svc\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: PathPrefix\n      value: /\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/adapter-a1\n    path:\n      type: PathPrefix\n      value: /\n  # ... 1 more matches of the same form"}, "split-noslash": {"binds": "128 matches per route", "matches": 25, "maxA": 22, "moved": 1, "note": "As split, minus the trailing-slash twins - which only exist because the header rule uses Exact. One request moves.", "routing": [["v1-model-routing-v1-completions", 3], ["v1-model-routing-v1-chat-completions", 3], ["v1-model-routing-v1-responses", 3], ["v1-model-routing-v1-messages", 3], ["v1-catch-all-model-routing", 3]], "rules": 15, "yaml": "- name: v1-model-routing-v1-completions\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/completions\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/adapter-a1\n    path:\n      type: Exact\n      value: /v1/completions\n  # ... 1 more matches of the same form\n\n- name: v1-model-routing-v1-chat-completions\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/chat/completions\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/adapter-a1\n    path:\n      type: Exact\n      value: /v1/chat/completions\n  # ... 1 more matches of the same form\n\n- name: v1-model-routing-v1-responses\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/responses\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/adapter-a1\n    path:\n      type: Exact\n      value: /v1/responses\n  # ... 1 more matches of the same form\n\n- name: v1-model-routing-v1-messages\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/messages\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/adapter-a1\n    path:\n      type: Exact\n      value: /v1/messages\n  # ... 1 more matches of the same form\n\n- name: v1-catch-all-model-routing\n  backendRefs:\n  - kind: Service\n    name: svc-a-kserve-workload-svc\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: PathPrefix\n      value: /\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/adapter-a1\n    path:\n      type: PathPrefix\n      value: /\n  # ... 1 more matches of the same form"}};
+  var DATA = {"alternation": {"binds": "RE2 program size (istio: 32768, kgateway: 100)", "matches": 19, "maxA": 320, "moved": 0, "note": "One regex listing the names that already exist. Match count stops growing; the pattern grows instead, so the ceiling is set by adapter NAME LENGTH: 320 on these short fixture names, <strong>175 to 240</strong> on realistic ones, and <strong>1 to 2</strong> wherever Envoy's RE2 program-size limit is left at 100, which is what kgateway does.", "routing": [["v1-model-routing", 8], ["v1-catch-all-model-routing", 1]], "rules": 12, "yaml": "- name: v1-model-routing\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: RegularExpression\n      value: publishers/lora\\-budget/models/(model\\-a|adapter\\-a1|adapter\\-a2)\n    path:\n      type: Exact\n      value: /v1/completions\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: RegularExpression\n      value: publishers/lora\\-budget/models/(model\\-a|adapter\\-a1|adapter\\-a2)\n    path:\n      type: Exact\n      value: /v1/completions/\n  # ... 6 more matches of the same form\n\n- name: v1-catch-all-model-routing\n  backendRefs:\n  - kind: Service\n    name: svc-a-kserve-workload-svc\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: RegularExpression\n      value: publishers/lora\\-budget/models/(model\\-a|adapter\\-a1|adapter\\-a2)\n    path:\n      type: PathPrefix\n      value: /"}, "collapse": {"binds": "128 matches per route", "matches": 16, "maxA": 58, "moved": 20, "note": "Drop the path from the routing rule. Large ceiling, but the rule now matches every path rather than four.", "routing": [["v1-model-routing", 3], ["v1-catch-all-model-routing", 3]], "rules": 12, "yaml": "- name: v1-model-routing\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/adapter-a1\n  # ... 1 more matches of the same form\n\n- name: v1-catch-all-model-routing\n  backendRefs:\n  - kind: Service\n    name: svc-a-kserve-workload-svc\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: PathPrefix\n      value: /\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/adapter-a1\n    path:\n      type: PathPrefix\n      value: /\n  # ... 1 more matches of the same form"}, "collapse-dedup": {"binds": "64 matches in one rule", "matches": 13, "maxA": 63, "moved": 20, "note": "Collapse, plus deleting the catch-all it renders unreachable. Behaviourally identical to collapse.", "routing": [["v1-model-routing", 3]], "rules": 11, "yaml": "- name: v1-model-routing\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/adapter-a1\n  # ... 1 more matches of the same form"}, "current": {"binds": "64 matches in one rule", "matches": 37, "maxA": 7, "moved": null, "note": "Today. The rule holds every path crossed with every model, so the 64-per-rule cap arrives at the seventh adapter.", "routing": [["v1-model-routing", 24], ["v1-catch-all-model-routing", 3]], "rules": 12, "yaml": "- name: v1-model-routing\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/completions\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/completions/\n  # ... 22 more matches of the same form\n\n- name: v1-catch-all-model-routing\n  backendRefs:\n  - kind: Service\n    name: svc-a-kserve-workload-svc\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: PathPrefix\n      value: /\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/adapter-a1\n    path:\n      type: PathPrefix\n      value: /\n  # ... 1 more matches of the same form"}, "nested": {"binds": "nothing in the route", "matches": 19, "maxA": null, "moved": 7, "note": "<strong>Rejected, kept here to inspect.</strong> Adapters served beneath the base model, so one 44-character prefix covers all of them and the pattern never grows. Technically the strongest shape measured. It loses because it puts the base model's name inside the adapter's public name, and an adapter is a model in its own right.", "routing": [["v1-model-routing", 8], ["v1-catch-all-model-routing", 1]], "rules": 12, "yaml": "- name: v1-model-routing\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: RegularExpression\n      value: publishers/lora\\-budget/models/model\\-a(/.*)?\n    path:\n      type: Exact\n      value: /v1/completions\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: RegularExpression\n      value: publishers/lora\\-budget/models/model\\-a(/.*)?\n    path:\n      type: Exact\n      value: /v1/completions/\n  # ... 6 more matches of the same form\n\n- name: v1-catch-all-model-routing\n  backendRefs:\n  - kind: Service\n    name: svc-a-kserve-workload-svc\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: RegularExpression\n      value: publishers/lora\\-budget/models/model\\-a(/.*)?\n    path:\n      type: PathPrefix\n      value: /"}, "prefix": {"binds": "64 matches in one rule", "matches": 25, "maxA": 15, "moved": 8, "note": "PathPrefix makes the twins redundant without splitting. Reaches further down each endpoint&rsquo;s sub-paths, which moves eight requests.", "routing": [["v1-model-routing", 12], ["v1-catch-all-model-routing", 3]], "rules": 12, "yaml": "- name: v1-model-routing\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - path:\n      type: PathPrefix\n      value: /v1/completions\n    headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n  - path:\n      type: PathPrefix\n      value: /v1/chat/completions\n    headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n  # ... 10 more matches of the same form\n\n- name: v1-catch-all-model-routing\n  backendRefs:\n  - kind: Service\n    name: svc-a-kserve-workload-svc\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: PathPrefix\n      value: /\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/adapter-a1\n    path:\n      type: PathPrefix\n      value: /\n  # ... 1 more matches of the same form"}, "split": {"binds": "128 matches per route", "matches": 37, "maxA": 12, "moved": 0, "note": "The same matches spread over four rules, so the per-rule cap stops binding and the route-wide 128 takes over. Renames a rule one-to-four.", "routing": [["v1-model-routing-v1-completions", 6], ["v1-model-routing-v1-chat-completions", 6], ["v1-model-routing-v1-responses", 6], ["v1-model-routing-v1-messages", 6], ["v1-catch-all-model-routing", 3]], "rules": 15, "yaml": "- name: v1-model-routing-v1-completions\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/completions\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/completions/\n  # ... 4 more matches of the same form\n\n- name: v1-model-routing-v1-chat-completions\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/chat/completions\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/chat/completions/\n  # ... 4 more matches of the same form\n\n- name: v1-model-routing-v1-responses\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/responses\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/responses/\n  # ... 4 more matches of the same form\n\n- name: v1-model-routing-v1-messages\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/messages\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/messages/\n  # ... 4 more matches of the same form\n\n- name: v1-catch-all-model-routing\n  backendRefs:\n  - kind: Service\n    name: svc-a-kserve-workload-svc\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: PathPrefix\n      value: /\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/adapter-a1\n    path:\n      type: PathPrefix\n      value: /\n  # ... 1 more matches of the same form"}, "split-noslash": {"binds": "128 matches per route", "matches": 25, "maxA": 22, "moved": 1, "note": "As split, minus the trailing-slash twins - which only exist because the header rule uses Exact. One request moves.", "routing": [["v1-model-routing-v1-completions", 3], ["v1-model-routing-v1-chat-completions", 3], ["v1-model-routing-v1-responses", 3], ["v1-model-routing-v1-messages", 3], ["v1-catch-all-model-routing", 3]], "rules": 15, "yaml": "- name: v1-model-routing-v1-completions\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/completions\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/adapter-a1\n    path:\n      type: Exact\n      value: /v1/completions\n  # ... 1 more matches of the same form\n\n- name: v1-model-routing-v1-chat-completions\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/chat/completions\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/adapter-a1\n    path:\n      type: Exact\n      value: /v1/chat/completions\n  # ... 1 more matches of the same form\n\n- name: v1-model-routing-v1-responses\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/responses\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/adapter-a1\n    path:\n      type: Exact\n      value: /v1/responses\n  # ... 1 more matches of the same form\n\n- name: v1-model-routing-v1-messages\n  backendRefs:\n  - kind: InferencePool\n    name: svc-a-inference-pool\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: Exact\n      value: /v1/messages\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/adapter-a1\n    path:\n      type: Exact\n      value: /v1/messages\n  # ... 1 more matches of the same form\n\n- name: v1-catch-all-model-routing\n  backendRefs:\n  - kind: Service\n    name: svc-a-kserve-workload-svc\n  matches:\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/model-a\n    path:\n      type: PathPrefix\n      value: /\n  - headers:\n    - name: X-Gateway-Model-Name\n      type: Exact\n      value: publishers/lora-budget/models/adapter-a1\n    path:\n      type: PathPrefix\n      value: /\n  # ... 1 more matches of the same form"}};
 
   function esc(s) {
     return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -1956,10 +1938,8 @@
       <code>alternation</code> is the point of this table: <strong>every cell is identical
       to today</strong>. Not "close enough" - byte-identical across all 72 probes, which is
       what zero behaviour change means concretely. <code>split</code> matches it.
-      <code>split-noslash</code> differs in exactly one cell.
-      <code>nested</code> touches nothing about paths at all: it
-      only changes which <em>names</em> match, which is why its cost sits outside this
-      table entirely.
+      <code>split-noslash</code> differs in exactly one cell, and that cell is a
+      trailing-slash path no OpenAI client emits.
     </p>
   </div>
 
@@ -2311,7 +2291,7 @@ window.SIM_ROUTES = {"alternation":[{"r":"lora-budget/svc-a-kserve-route","rules
 <section>
   <h2>Trade-offs, exactly</h2>
   <p class="sub">
-    The five shapes still in contention, and every axis that costs something. A dash means
+    The four shapes still in contention, and every axis that costs something. A dash means
     the shape does not touch that axis at all. <strong>Works on kgateway</strong> is the row
     that changed the answer.
   </p>
@@ -2323,75 +2303,75 @@ window.SIM_ROUTES = {"alternation":[{"r":"lora-budget/svc-a-kserve-route","rules
       <thead>
         <tr>
           <th></th>
-          <th>current</th><th>split</th><th>split-noslash</th>
-          <th>alternation</th><th class="pickcol">nested</th>
+          <th>current</th><th>split</th><th class="pickcol">split-noslash</th>
+          <th>alternation</th>
         </tr>
       </thead>
       <tbody>
         <tr>
           <td class="ax">max adapters</td>
           <td class="num bad">7</td><td class="num">12</td><td class="num">22</td>
-          <td class="num">188 istio / 2 kgw</td><td class="num good">unbounded</td>
+          <td class="num">175-240 istio / 1-2 kgw</td>
         </tr>
         <tr>
           <td class="ax">what binds it</td>
           <td>64/rule</td><td>128/route</td><td>128/route</td>
-          <td>RE2 program size</td><td class="good">nothing</td>
+          <td>RE2 program size</td>
         </tr>
         <tr>
           <td class="ax">rule slots used <span class="hint">of 16</span></td>
           <td class="num">12</td><td class="num warnc">15</td><td class="num warnc">15</td>
-          <td class="num">12</td><td class="num">12</td>
+          <td class="num">12</td>
         </tr>
         <tr>
           <td class="ax">requests that move <span class="hint">of 72</span></td>
           <td>-</td><td class="good">0</td><td class="good">1</td>
-          <td class="good">0</td><td>7</td>
+          <td class="good">0</td>
         </tr>
         <tr>
           <td class="ax">outcomes that change <span class="hint">real EPP</span></td>
           <td>-</td><td class="good">0</td><td>1</td>
-          <td class="good">0</td><td>not measured</td>
+          <td class="good">0</td>
         </tr>
         <tr>
           <td class="ax">renames rules</td>
           <td>-</td><td class="bad">yes, 1&rarr;4</td><td class="bad">yes, 1&rarr;4</td>
-          <td class="good">no</td><td class="good">no</td>
+          <td class="good">no</td>
         </tr>
         <tr>
           <td class="ax">policy migration</td>
           <td>-</td><td class="bad">unaliasable</td><td class="bad">unaliasable</td>
-          <td class="good">none</td><td class="good">none</td>
+          <td class="good">none</td>
         </tr>
         <tr>
           <td class="ax">client-visible strings change</td>
           <td>-</td><td class="good">no</td><td class="good">no</td>
-          <td class="good">no</td><td class="bad">yes</td>
+          <td class="good">no</td>
         </tr>
         <tr>
           <td class="ax">route rewritten per adapter</td>
           <td class="warnc">yes</td><td class="warnc">yes</td><td class="warnc">yes</td>
-          <td class="warnc">yes</td><td class="good">no</td>
+          <td class="warnc">yes</td>
         </tr>
         <tr>
           <td class="ax">uses a header regex</td>
           <td>no</td><td>no</td><td>no</td>
-          <td class="warnc">yes</td><td class="warnc">yes</td>
+          <td class="warnc">yes</td>
         </tr>
         <tr>
           <td class="ax">works on kgateway</td>
           <td>yes</td><td class="good">yes</td><td class="good">yes</td>
-          <td class="bad">2 adapters</td><td class="good">yes</td>
+          <td class="bad">2 adapters</td>
         </tr>
         <tr>
           <td class="ax">added request latency</td>
           <td>-</td><td class="good">none</td><td class="good">none</td>
-          <td class="good">below noise</td><td class="good">below noise</td>
+          <td class="good">below noise</td>
         </tr>
         <tr>
           <td class="ax">reversible</td>
           <td>-</td><td>yes</td><td>yes</td>
-          <td class="good">yes</td><td class="warnc">only before clients adopt</td>
+          <td class="good">yes</td>
         </tr>
       </tbody>
     </table>
@@ -2401,13 +2381,18 @@ window.SIM_ROUTES = {"alternation":[{"r":"lora-budget/svc-a-kserve-route","rules
   <div class="note">
     <span class="lbl">read these three rows together</span>
     <p>
-      <strong>Renames rules</strong>, <strong>client-visible strings change</strong> and
-      <strong>works on kgateway</strong> are the rows that decide this.
-      <code>split</code> pays in policy migration. <code>alternation</code> pays nothing at
-      all until you move it off Istio, at which point it pays everything.
-      <code>nested</code> pays once, in client naming, and is the only shape that both
-      survives an arbitrary data plane and stops the route being rewritten every time an
-      adapter changes.
+      <strong>Renames rules</strong> and <strong>works on kgateway</strong> are the rows
+      that decide this. <code>split-noslash</code> pays once in policy migration and is then
+      immune to any data plane, because it contains no regex to refuse.
+      <code>alternation</code> pays nothing at all until you move it off Istio, at which
+      point it pays everything.
+    </p>
+    <p>
+      <strong>Route rewritten per adapter</strong> is <code>yes</code> in every remaining
+      column, and that is not an oversight. The only shape that answered <code>no</code> did
+      it by putting the base model's name inside the adapter's, which is the shape this
+      report now rejects on naming grounds. Nothing that keeps flat adapter names can avoid
+      rewriting the route when the adapter set changes.
     </p>
   </div>
 
@@ -2434,9 +2419,10 @@ window.SIM_ROUTES = {"alternation":[{"r":"lora-budget/svc-a-kserve-route","rules
 <section id="dropped">
   <h2>Also evaluated, and dropped</h2>
   <p class="sub">
-    Four more shapes were measured to the same standard as the five above - same synthesised
+    Five more shapes were measured to the same standard as the four above - same synthesised
     routes, same 72 replayed requests, same golden files. They are here rather than deleted
-    so nobody measures them again, and because two of them carry findings worth keeping.
+    so nobody measures them again, and because two of them carry findings worth keeping. One
+    of them was this document's recommendation until the naming question was put properly.
   </p>
 
   <div class="panel">
@@ -2448,6 +2434,12 @@ window.SIM_ROUTES = {"alternation":[{"r":"lora-budget/svc-a-kserve-route","rules
         <tr><th>shape</th><th class="num">max adapters</th><th class="num">moved</th><th>binding limit</th><th>why it lost</th></tr>
       </thead>
       <tbody>
+        <tr class="is-current">
+          <td class="name">nested</td><td class="num">unbounded</td><td class="num">7</td><td><span class="st ok">nothing in the route</span></td>
+          <td>Everything technical about it measured clean. Dropped because it makes an
+            adapter's public name contain its base model's name, and an adapter is a model in
+            its own right. See below.</td>
+        </tr>
         <tr>
           <td class="name">prefix</td><td class="num">15</td><td class="num">8</td><td>64 / rule</td>
           <td><code>split-noslash</code> reaches 22 for <strong>one</strong> moved request. The
@@ -2485,6 +2477,50 @@ window.SIM_ROUTES = {"alternation":[{"r":"lora-budget/svc-a-kserve-route","rules
       configuration of requirements under which one of them is the right answer.
       <code>split-prefix</code> is the clearest: same 22 as <code>split-noslash</code>, same
       rename, eight moved requests instead of one.
+    </p>
+  </div>
+
+  <div class="note crit">
+    <span class="lbl"><code>nested</code> lost on product semantics, not on any measurement</span>
+    <p>
+      It was the recommendation here for most of this spike, and on the numbers it still
+      wins everything: unbounded on both axes, constant pattern, identical on three control
+      planes, no rule rename, no measurable latency, and the only shape that stops the route
+      being rewritten every time an adapter changes. None of that is retracted.
+    </p>
+    <p>
+      What it costs is that <code>publishers/{ns}/models/{base}/adapters/{adapter}</code>
+      puts an implementation detail in a public identifier. <strong>A LoRA adapter is a model
+      people ship.</strong> It has its own card, its own evals, its own consumers, and those
+      consumers do not care that it happens to be implemented as low-rank weights over a
+      base. Two consequences make that concrete:
+    </p>
+    <ul>
+      <li>
+        <strong>It names things by how they were trained.</strong> A full fine-tune of the
+        same base, served as its own LLMInferenceService, gets a flat name. A LoRA serving
+        the same purpose to the same callers gets a nested one. The training method becomes
+        visible in the API for no reason the caller can act on.
+      </li>
+      <li>
+        <strong>It breaks on re-basing.</strong> Retrain the adapter against
+        <code>granite-3-2</code> and its identifier has to change, because the identifier
+        encodes the base. That is a breaking change to every client, forced by something they
+        should not be able to observe.
+      </li>
+    </ul>
+    <p>
+      The argument for nesting is real but it is all operational - an adapter cannot be
+      served without its base, shares its instance, tokenizer, context window and hardware.
+      All true, and all of it belongs in metadata rather than in the name.
+    </p>
+    <p>
+      Earlier revisions of this document priced the rename as a one-time migration cost and
+      recommended paying it. That under-priced it: it is not a migration, it is a modelling
+      error that keeps costing. <strong>The simulator still carries
+      <code>nested</code></strong> - select it and watch the flat name
+      <code>&hellip;/models/adapter-a1</code> stop matching. That is the whole objection in
+      one click.
     </p>
   </div>
 
@@ -2570,7 +2606,16 @@ window.SIM_ROUTES = {"alternation":[{"r":"lora-budget/svc-a-kserve-route","rules
 
 
 <section>
-  <h2>What adopting <code>nested</code> would ask for</h2>
+  <h2>What <code>nested</code> would have bought</h2>
+  <div class="note crit">
+    <span class="lbl">rejected, and this section is the evidence for why that was hard</span>
+    <p>
+      Everything below measured clean and none of it is retracted. <code>nested</code> is
+      not a candidate because an adapter's public name should not contain its base model's
+      name - the argument is in <a href="#dropped">also evaluated, and dropped</a>. Read this
+      as what the naming decision costs, priced exactly.
+    </p>
+  </div>
   <p class="sub">
     The only shape that removes the ceiling permanently, and the only one whose cost is not
     a routing decision. Worth being precise about what you would be signing up to.
@@ -3190,6 +3235,12 @@ then:
       expressible for the first time. Comparing it to the body is still a separate piece of
       work.
     </p>
+    <p>
+      With <code>nested</code> now rejected on naming grounds, that route to per-adapter
+      authorization closes with it and nothing replaces it - an adapter still has no path to
+      authorize. <strong>Giving adapters their own publisher path becomes unavoidable
+      work</strong> rather than a side effect of a routing decision.
+    </p>
   </div>
 
   <div class="note">
@@ -3696,7 +3747,8 @@ set for the error level threshold.</span></pre>
 
   <p>
     The adapter count is not in the pattern, so it cannot push the program size anywhere.
-    <code>nested</code> has always been under the default limit and always will be. That is
+    <code>nested</code> has always been under the default limit and always will be, which is
+    the cleanest single measure of what was given up by rejecting it on naming. That is
     exactly the property the design docs were reaching for when they asked for "a single
     fixed prefix regex, constant size, well under the default RE2 program-size limit". They
     were not making a rough argument about pattern length; they were making a precise one
@@ -3726,35 +3778,58 @@ set for the error level threshold.</span></pre>
   </p>
 
   <p>
-    Real names are two to three times longer.
-    <code>publishers/{namespace}/models/</code> alone costs 30 to 45 characters before any
-    model is named, and Envoy's compiled-in RE2 program-size limit is <strong>100</strong>, which kgateway does not override.
+    Real adapter names are roughly twice as long, and every one of them is paid again in
+    the pattern. Envoy's compiled-in RE2 program-size limit is <strong>100</strong>, which
+    kgateway does not override.
   </p>
 
   <div class="panel">
     <div class="panel-hd"><span class="kb mark"><svg><use href="#ic-regex"/></svg></span>
-      the same shape, three naming profiles <span class="rt">computed</span></div>
+      adapters in one alternation, by adapter name length <span class="rt">hack/alternation-ceiling.py</span></div>
     <div class="scroll">
     <table>
       <thead>
-        <tr><th>profile</th><th class="num">mean adapter name</th><th class="num">istio <span class="hint">4096 B</span></th><th class="num">RE2 limit 100 <span class="hint">kgateway</span></th><th class="num">envoy-gw</th></tr>
+        <tr><th>mean adapter name</th><th class="num">re.escape <span class="hint">shipped</span></th><th class="num">minimal escaping</th><th class="num">RE2 left at 100</th></tr>
       </thead>
       <tbody>
+        <tr>
+          <td class="name">10 chars <span class="hint">the spike fixture</span></td>
+          <td class="num">297</td><td class="num">320</td><td class="num"><span class="st crit">5</span></td>
+        </tr>
         <tr class="is-current">
-          <td class="name">spike fixture <span class="hint">adapter-a1</span></td>
-          <td class="num">10 chars</td><td class="num">320</td><td class="num">5</td><td class="num">320</td>
+          <td class="name">16 chars <span class="hint">sql-generation, code-review-tuned</span></td>
+          <td class="num">237</td><td class="num">252</td><td class="num"><span class="st crit">2</span></td>
+        </tr>
+        <tr class="is-current">
+          <td class="name">20 chars <span class="hint">customer-support-v2</span></td>
+          <td class="num">175</td><td class="num">192</td><td class="num"><span class="st crit">2</span></td>
         </tr>
         <tr>
-          <td class="name">realistic <span class="hint">granite-3-1-8b-instruct</span></td>
-          <td class="num">21 chars</td><td class="num">188</td><td class="num"><span class="st crit">2</span></td><td class="num">188</td>
+          <td class="name">24 chars</td>
+          <td class="num">155</td><td class="num">168</td><td class="num"><span class="st crit">1</span></td>
         </tr>
         <tr>
-          <td class="name">long namespace <span class="hint">redhat-ods-applications</span></td>
-          <td class="num">25 chars</td><td class="num">147</td><td class="num"><span class="st crit">1</span></td><td class="num">147</td>
+          <td class="name">30 chars</td>
+          <td class="num">118</td><td class="num">130</td><td class="num"><span class="st crit">1</span></td>
         </tr>
       </tbody>
     </table>
     </div>
+  </div>
+
+  <div class="note warn">
+    <span class="lbl">correcting a number this document carried</span>
+    <p>
+      Earlier revisions quoted <strong>188</strong> for realistic names and
+      <strong>147</strong> for a long namespace, and attributed the gap to the namespace.
+      Both were wrong, and the attribution was the worse error. The namespace is paid
+      <em>once</em> as a prefix: going from <code>genai-serving</code> to
+      <code>redhat-ods-applications</code>, ten characters longer, costs about
+      <strong>one</strong> adapter out of 4096 bytes. The adapter name is paid
+      <strong>N times</strong>, so it is the only length that moves the ceiling. Those two
+      figures also matched neither escaping form and had no recorded derivation;
+      <code>hack/alternation-ceiling.py</code> replaces them with arithmetic you can re-run.
+    </p>
   </div>
 
   <div class="panel">
@@ -3806,18 +3881,23 @@ set for the error level threshold.</span></pre>
   <div class="note ok">
     <span class="lbl">what it does not change</span>
     <p>
-      <strong><code>nested</code> is unaffected.</strong> Its pattern is the base model name
-      plus <code>(/.*)?</code> - about 60 characters even for
-      <code>publishers/redhat-ods-applications/models/llama-3-1-8b-instruct(/.*)?</code> -
-      and constant in adapter count, so it stays under 100 on every data plane. The gap
-      between the two shapes <em>widens</em> with realistic naming rather than narrowing.
+      <strong>The match-count ceilings are unaffected.</strong> <code>current</code>,
+      <code>split</code> and <code>split-noslash</code> are bound by how many
+      <em>matches</em> a route may hold, not by how many bytes a pattern is, so name length
+      is irrelevant to them. 7, 12 and 22 stand whatever you call things. That is a large
+      part of why <code>split-noslash</code> is the recommendation: it is the only option
+      whose ceiling does not move when someone picks a longer name.
     </p>
+  </div>
+
+  <div class="note">
+    <span class="lbl">what raising the limit would take</span>
     <p>
-      <strong>The seven-adapter ceiling is unaffected.</strong> That one is match
-      <em>count</em>, not bytes, so name length is irrelevant to it.
-      Every shape bound by match count rather than pattern bytes keeps the ceiling it has:
-      <code>current</code>, <code>split</code> and <code>split-noslash</code> in the options
-      table, and all four dropped shapes.
+      To reach the byte ceiling on a data plane that enforces RE2, the limit has to be about
+      <strong>3550</strong> - roughly 35 times Envoy's stock 100. Istio's 32768 clears it
+      comfortably and Envoy Gateway disables the check, which is why both reach the byte cap.
+      kgateway does not expose <code>re2.max_program_size.error_level</code> at all, so on
+      kgateway this is not a tuning exercise, it is unavailable.
     </p>
   </div>
 
@@ -4162,7 +4242,7 @@ if baseOk &amp;&amp; configOk {
           <td class="num">75</td><td class="num">4</td><td class="num">1018</td>
           <td><strong>1024-byte</strong> path match value</td>
         </tr>
-        <tr class="is-pick">
+        <tr>
           <td class="name">nested <span class="hint">one wildcard-segment regex per endpoint</span></td>
           <td class="num">&infin;</td><td class="num">4</td><td class="num">76</td>
           <td><span class="st ok">nothing</span></td>
@@ -4214,6 +4294,17 @@ if baseOk &amp;&amp; configOk {
       That is a property of the naming scheme, not of the routing, which is why it does not
       show up in any budget table and why it survives a data plane that caps regex
       complexity.
+    </p>
+  </div>
+
+  <div class="note crit">
+    <span class="lbl">and the same objection applies here</span>
+    <p>
+      <code>nested</code> is constant on this axis for exactly the reason it is constant on
+      the header axis: the adapter's name contains its base model's. That is the property
+      this report rejects, so the path axis has no unbounded option either. If adapters ever
+      get a publisher path - today they have none - it will be
+      <code>flat-rx</code> at about 75, or enumeration at 32.
     </p>
   </div>
 </section>
@@ -4470,8 +4561,8 @@ if baseOk &amp;&amp; configOk {
       <h4>How many adapters, on names how long?</h4>
       <p>
         Under about twenty and <code>split-noslash</code> ends the conversation. The regex
-        options only start paying above that, and their ceiling is set by name length rather
-        than by any number in this document.
+        options only start paying above that, and their ceiling is set by <em>adapter</em>
+        name length rather than by any headline number: 237 at 16 characters, 175 at 20.
       </p>
     </div>
     <div class="ask">
@@ -4483,11 +4574,13 @@ if baseOk &amp;&amp; configOk {
       </p>
     </div>
     <div class="ask">
-      <h4>Are we willing to change a public model identifier once?</h4>
+      <h4>Is a LoRA adapter a model, or a variant of one?</h4>
       <p>
-        The only question <code>nested</code> actually asks. Everything technical about it
-        measured clean on three control planes. It is a naming decision, and it is cheapest
-        now.
+        Answered here as <strong>a model</strong>, which is what removed <code>nested</code>
+        and with it the only shape that lifted the ceiling for free. It also implies work
+        nobody has scoped: an adapter has no publisher path today and cannot be authorized as
+        itself, so it is a first-class model that the routing and authorization layers do not
+        treat as one.
       </p>
     </div>
   </div>
@@ -4508,8 +4601,8 @@ if baseOk &amp;&amp; configOk {
 <section>
   <h2>Recommendation</h2>
   <p class="sub">
-    The data planes split this into two answers: one for a product that controls its own
-    gateway, one for upstream kserve which does not.
+    Nothing here removes the ceiling while adapter names stay flat. The steps buy room and
+    time; the last one is the only one that ends it.
   </p>
 
   <div class="note">
@@ -4530,6 +4623,22 @@ if baseOk &amp;&amp; configOk {
     </p>
   </div>
 
+  <div class="note crit">
+    <span class="lbl">this recommendation was reversed, and it is worth saying why</span>
+    <p>
+      Until late in this spike the answer here was <code>nested</code>: serve adapters beneath
+      the base model, match one constant prefix, and the ceiling disappears. Every measurement
+      supporting that still holds. It was dropped on a question no measurement asks - whether
+      an adapter's public name should contain its base model's name - and the answer is no,
+      because an adapter is a model people ship, not a variant of someone else's. The full
+      argument is in <a href="#dropped">also evaluated, and dropped</a>.
+    </p>
+    <p>
+      What that costs is honesty about the rest: with flat names the index cannot be
+      compressed, so steps 2 and 3 buy headroom and step 4 is the real fix.
+    </p>
+  </div>
+
   <ol class="steps">
     <li>
       <div>
@@ -4546,30 +4655,54 @@ if baseOk &amp;&amp; configOk {
     </li>
     <li>
       <div>
-        <h4>Upstream: <code>nested</code> is the answer, and the docs said so</h4>
+        <h4>Take <code>split-noslash</code>, everywhere</h4>
         <p>
-          It is the only shape that is portable, unbounded, keeps path scope, renames no
-          rules and stops the route being rewritten per adapter. Its pattern is 44 characters
-          and constant, so no program-size limit can reach it. Measured identical on Istio
-          and kgateway, anchoring exact on both. The cost is a one-time change to a public
-          model identifier, and that is a product decision rather than a routing one. The
-          window for making it is now, while header-addressed adapter routing has close to no
-          adoption.
+          7 &rarr; <strong>22</strong> for exactly one moved probe, and the moved one is a
+          trailing-slash path no OpenAI client emits. It contains <strong>no regex</strong>,
+          so no data plane can refuse it and no program-size limit applies - the only option
+          here that is immune to the kgateway problem. Nothing a client sends changes. The
+          cost is a rule rename 1&rarr;4 that detaches hand-written <code>sectionName</code>
+          policies and cannot be safely aliased; odh-model-controller's own AuthPolicy
+          targets the whole HTTPRoute, so it is unaffected.
+        </p>
+        <p>
+          Be honest about what this is: <strong>headroom, not an answer</strong>. 22 is still
+          a ceiling and it is still linear in adapter count.
         </p>
       </div>
     </li>
     <li>
       <div>
-        <h4>Before that lands: <code>split-noslash</code> portably, <code>alternation</code> on Istio</h4>
+        <h4>Consider <code>alternation</code> only where you own the data plane</h4>
         <p>
-          <code>split-noslash</code> reaches <strong>22</strong> with no regex at all, so no
-          data plane can refuse it, at the cost of one moved probe and a rule rename that
-          detaches <code>sectionName</code> policies. Where you control the data plane - Istio
-          and Envoy Gateway both raise the RE2 limit, and OpenShift AI ships Istio -
-          <code>alternation</code> reaches roughly <strong>188</strong> with realistic names,
-          zero behaviour change, no rename and no naming migration. Take it there, gated on a
-          program-size check, and never as an upstream default - with realistic naming it
-          fails at <strong>two</strong> adapters wherever the RE2 limit is left at 100.
+          On Istio and Envoy Gateway it reaches roughly <strong>175 to 240</strong> adapters,
+          set by adapter name length rather than by any headline number, with zero behaviour
+          change and no rename. OpenShift AI ships Istio, so it is available there. It must
+          never be an upstream default: wherever the RE2 program-size limit is left at
+          Envoy's stock 100 it fails at <strong>one or two</strong> adapters, and matching
+          Istio would need that limit raised to about <strong>3550</strong>, which kgateway
+          does not expose. Gate it on a program-size pre-flight check, not on a byte count.
+        </p>
+      </div>
+    </li>
+    <li>
+      <div>
+        <h4>Then get the index out of the HTTPRoute</h4>
+        <p>
+          This is the only step that ends the problem rather than deferring it. If adapters
+          keep flat names - and they should - then the map from model name to InferencePool
+          has no structure to exploit, so inside a route you can only enumerate it or compress
+          the enumeration. Both are linear in something and both hit a cap.
+        </p>
+        <p>
+          The map belongs where the body is already being read: a body-based router plus a
+          pool-level model index. GIE's <code>InferenceModelRewrite</code> cannot do it today
+          because it is scoped by <code>poolRef</code>, so it only applies once you have
+          already reached a pool - it answers "which model", never "which pool". That is a gap
+          in the current API rather than a law, and closing it is a cross-repo dependency, not
+          a kserve-local choice. <strong>It is also the same work that would close the
+          path-versus-body authorization gap</strong>, since both need the name that vLLM will
+          actually act on to be the name something authoritative reads.
         </p>
       </div>
     </li>

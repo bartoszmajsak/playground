@@ -55,18 +55,20 @@ checks the controller trips over, without the controller or any traffic.
 `alternation` and `nested` are the two constant-size shapes - 12 rules, 19
 matches, unchanged at any adapter count. See sections 9 and 14.
 
-`alternation`'s row is the fixture-name figure. With realistic names it is **188**
-on Istio and **2** where the RE2 limit is left at 100 - section 25, and the number
-the report quotes.
+`alternation`'s row is the fixture-name figure and it is a poor guide. The
+ceiling is set by *adapter* name length: **237** at 16 characters, **175** at 20,
+against 297 for the fixture's 10 - and **1 to 2** wherever the RE2 limit is left
+at 100. Section 25, corrected.
 
-**Five of these nine are in contention**, and the report's tables carry only
+**Four of these nine are in contention**, and the report's tables carry only
 those: `current` as the baseline, `split` and `split-noslash` as the
-minimal-change options, `alternation` as the compressed one, `nested` as the one
-that removes the enumeration. The other four are recorded here and summarised in
-the report's *also evaluated, and dropped* section:
+minimal-change options, `alternation` as the compressed one. The other five are
+recorded here and summarised in the report's *also evaluated, and dropped*
+section:
 
 | dropped | beaten by | on what |
 |---|---|---|
+| `nested` | a product decision, not a measurement | unbounded on both axes and clean on three control planes, but it puts the base model's name inside the adapter's public name. A LoRA is a model people ship, with its own card, evals and consumers; naming it by its base leaks the training method into the API and breaks on re-basing. See section 11 |
 | `prefix` | `split-noslash` | 15 vs 22, and 8 moved vs 1. Its one advantage, no rule rename, is shared by `alternation` and `nested` |
 | `split-prefix` | `split-noslash` | strictly: same 22, same unaliasable 1:4 rename, 8 moved instead of 1 |
 | `collapse-dedup` | `collapse` | +5 adapters for a rule rename and a move back to the tighter per-rule cap |
@@ -516,7 +518,32 @@ authorize it - as a planned follow-up. That is the path by which header
 addressing becomes supported on ODH, and it re-raises Phase 2 as a cross-repo
 dependency rather than a kserve-local optimisation.
 
-## 11. Decision brief: the nested served-name change
+## 11. Decision brief: the nested served-name change (REJECTED)
+
+**Outcome: rejected, on naming rather than on any measurement.** Everything in
+this section still holds technically and none of it is retracted. It loses
+because `publishers/{ns}/models/{base}/adapters/{adapter}` puts an implementation
+detail in a public identifier:
+
+- A full fine-tune of the same base, shipped as its own LLMInferenceService, gets
+  a flat name. A LoRA serving the same purpose to the same callers gets a nested
+  one. That names things by **how they were trained**, which the caller cannot act
+  on.
+- Re-base the adapter onto a newer base and its identifier must change, because
+  the identifier encodes the base. A breaking change forced by something clients
+  should not be able to observe.
+
+The counter-argument is real but entirely operational - an adapter cannot be
+served without its base, shares its instance, tokenizer, context window and
+hardware. All true, and all of it belongs in metadata rather than in the name.
+Earlier revisions priced this as a one-time migration; that under-priced it.
+
+A consequence worth naming: `nested` was also the only shape that would have made
+per-adapter RBAC expressible (section 29). Rejecting it means giving adapters
+their own publisher path becomes unavoidable work rather than a side effect.
+
+Everything from here down is the original brief, kept because it prices the
+decision exactly.
 
 `nested` is the only shape that makes the adapter axis disappear without BBR
 (section 9). Everything below the routing layer is a naming decision, and that
@@ -1599,8 +1626,25 @@ program-size limit is **100**.
 | profile | mean adapter name | istio (4096 B cap) | stock Envoy (RE2 100) | envoy-gateway |
 |---|---|---|---|---|
 | spike fixture, `adapter-a1` | 10 chars | 320 | 5 | 320 |
-| realistic, `granite-3-1-8b-instruct` in `genai-serving` | 21 chars | **188** | **2** | 188 |
-| long namespace, `redhat-ods-applications` | 25 chars | **147** | **1** | 147 |
+| 16-char adapter names | 16 chars | **237** | **2** | 237 |
+| 20-char adapter names | 20 chars | **175** | **2** | 175 |
+| 24-char adapter names | 24 chars | **155** | **1** | 155 |
+
+**Correction.** Earlier revisions of this file quoted **188** and **147** and
+blamed the gap on namespace length. Both numbers matched neither escaping form
+and had no recorded derivation, and the attribution was the worse error: the
+namespace is paid **once** as a prefix, so ten extra characters of it cost about
+**one** adapter out of 4096 bytes. The adapter name is paid **N times** and is the
+only length that moves the ceiling. `hack/alternation-ceiling.py` replaces both
+with arithmetic that can be re-run. Minimal escaping adds roughly 15-20 adapters
+at every size; `re.escape`, which is what ships, escapes every `-` and adapter
+names are full of them.
+
+To reach the 4096-byte ceiling a data plane needs an RE2 program-size limit of
+about **3550** (fitted from three measured rejections: 114B->107, 126B->117,
+151B->139). Istio's 32768 clears it, Envoy Gateway disables the check, and
+kgateway does not expose the setting at all - so there it is unavailable rather
+than untuned.
 
 ### Measured, three data planes, realistic profile
 
