@@ -1,0 +1,93 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: shard-1
+  namespace: lora-budget
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: kserve-ingress-gateway
+      namespace: kserve
+  rules:
+    # deliberately the SAME rule name in every shard, to see whether sharding
+    # inherits the cross-service rule-name problem (#282)
+    - name: v1-model-routing
+      matches:
+        - path: { type: PathPrefix, value: /shard/v1/chat/completions }
+          headers:
+            - name: X-Gateway-Model-Name
+              type: Exact
+              value: publishers/lora-budget/models/model-a
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path: { type: ReplacePrefixMatch, replacePrefixMatch: /v1/chat/completions }
+      backendRefs:
+        - group: inference.networking.k8s.io
+          kind: InferencePool
+          name: svc-a-inference-pool
+          port: 8000
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: shard-2
+  namespace: lora-budget
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: kserve-ingress-gateway
+      namespace: kserve
+  rules:
+    # deliberately the SAME rule name in every shard, to see whether sharding
+    # inherits the cross-service rule-name problem (#282)
+    - name: v1-model-routing
+      matches:
+        - path: { type: PathPrefix, value: /shard/v1/chat/completions }
+          headers:
+            - name: X-Gateway-Model-Name
+              type: Exact
+              value: publishers/lora-budget/models/adapter-a1
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path: { type: ReplacePrefixMatch, replacePrefixMatch: /v1/chat/completions }
+      backendRefs:
+        - group: inference.networking.k8s.io
+          kind: InferencePool
+          name: svc-a-inference-pool
+          port: 8000
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: shard-3
+  namespace: lora-budget
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: kserve-ingress-gateway
+      namespace: kserve
+  rules:
+    # deliberately the SAME rule name in every shard, to see whether sharding
+    # inherits the cross-service rule-name problem (#282)
+    - name: v1-model-routing
+      matches:
+        - path: { type: PathPrefix, value: /shard/v1/chat/completions }
+          headers:
+            - name: X-Gateway-Model-Name
+              type: Exact
+              value: publishers/lora-budget/models/adapter-a2
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path: { type: ReplacePrefixMatch, replacePrefixMatch: /v1/chat/completions }
+      backendRefs:
+        - group: inference.networking.k8s.io
+          kind: InferencePool
+          name: svc-a-inference-pool
+          port: 8000
+

@@ -1,0 +1,44 @@
+# Can the model-routing rules live in their own HTTPRoutes?
+#
+# Every Gateway API cap is PER ROUTE - 16 rules, 64 matches per rule, 128 matches
+# per route - and nothing caps how many routes attach to a Gateway. So the budget
+# is only a budget if all the matches have to be in one route, and they do not.
+#
+# Shape probed: three HTTPRoutes, each carrying ONE model-routing rule for one
+# model, all backendRef'ing svc-a's InferencePool, on /shard/v1/chat/completions
+# so they do not collide with the fixture's own route. Rule name deliberately
+# IDENTICAL in all three, to see whether sharding inherits #282.
+#
+# manifests/shard-probe.yaml, applied to the istio gateway, real vLLM backends.
+
+# MEASURED: does each shard resolve, and is the right adapter served?
+shard	header	served	verdict
+shard-1	publishers/lora-budget/models/model-a	model-a	ok
+shard-2	publishers/lora-budget/models/adapter-a1	publishers/lora-budget/models/adapter-a1	ok
+shard-3	publishers/lora-budget/models/adapter-a2	publishers/lora-budget/models/adapter-a2	ok
+
+# MEASURED: does adding routes cost any existing route its endpoint-picker config?
+# This is the istio#58392 failure mode - ext_proc lost for all but the first route
+# when several merge on one gateway. Envoy config_dump, before and after.
+state	envoy routes	with typed_per_filter_config
+before	99	80
+after	102	83
+
+# +3 routes, +3 with ext_proc. Nothing lost. Each shard route carries its own
+# per-route ext_proc config, so the picker is in the path for all of them.
+# istio 1.30.3, which has the istio#58393 fix. On 1.28.1-1.28.4 this is exactly
+# the shape that breaks.
+
+# MEASURED: the three shards share one rule name. Did their EPP configs collide?
+check	result
+distinct ext_proc configs across the 3 shards	1
+clusters	all outbound|54321||svc-a-inference-pool-ip-...
+verdict	benign HERE because all three target the SAME pool. Shards spanning
+	different pools would hit #282, so shard rule names must be unique.
+
+# COMPUTED: models per shard route (hack/endpoint-budget.py)
+style	E=4	E=5	E=6	E=8	E=11	binds on
+one rule per shard	16	12	10	8	5	64 / rule
+one rule per endpoint per shard	32	25	21	16	11	128 / route
+
+# Shards themselves are unbounded.

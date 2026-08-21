@@ -2632,6 +2632,141 @@ window.SIM_ROUTES = {"alternation":[{"r":"lora-budget/svc-a-kserve-route","rules
 </section>
 
 
+<section id="shard">
+  <h2>Sharding: the budget is per route, and routes are free</h2>
+  <p class="sub">
+    Every cap in this document - 16 rules, 64 matches per rule, 128 matches per route - is
+    scoped to <strong>one HTTPRoute</strong>. Nothing in Gateway API caps how many routes
+    attach to a Gateway. So the ceiling is only a ceiling if all the matches have to live in
+    one object, and they do not.
+  </p>
+
+  <div class="note">
+    <span class="lbl">first, about the per-endpoint rules</span>
+    <p>
+      The obvious reading of eight near-identical path rules is that they exist so a policy
+      can be pinned to one of them by <code>sectionName</code> - different rate limits for
+      <code>/v1/chat/completions</code> than for <code>/v1/completions</code>, say. Worth
+      checking, and the answer is that <strong>nothing does this today</strong>: every
+      <code>sectionName</code> in kserve and odh-model-controller refers to a Gateway
+      <em>listener</em>, which is a different field, and odh-model-controller's AuthPolicy
+      targets the whole HTTPRoute.
+    </p>
+    <p>
+      But the naming clearly sets it up, and it is a real capability to keep. That is an
+      argument against flattening the rules - and an argument <em>for</em> sharding, because
+      a shard is a whole object, and a policy that targets a whole object cannot be detached
+      by a rule rename. It is strictly more robust than <code>sectionName</code>, which this
+      report already measured going green while covering a quarter of its traffic.
+    </p>
+  </div>
+
+  <h3>Measured, on the real gateway</h3>
+  <p>
+    Three HTTPRoutes, one model-routing rule each, all pointing at <code>svc-a</code>'s
+    InferencePool, on a path that does not collide with the fixture's own route. Rule name
+    deliberately identical in all three.
+  </p>
+
+  <div class="panel">
+    <div class="panel-hd"><span class="kb"><svg><use href="#k8-route"/></svg></span>
+      each shard resolves <span class="rt">manifests/shard-probe.yaml &middot; real vLLM</span></div>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>shard</th><th>header</th><th>served</th></tr></thead>
+      <tbody>
+        <tr><td class="name">shard-1</td><td><code>&hellip;/model-a</code></td><td><span class="st ok">model-a</span></td></tr>
+        <tr><td class="name">shard-2</td><td><code>&hellip;/adapter-a1</code></td><td><span class="st ok">adapter-a1</span></td></tr>
+        <tr><td class="name">shard-3</td><td><code>&hellip;/adapter-a2</code></td><td><span class="st ok">adapter-a2</span></td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-hd"><span class="kb mark ok"><svg><use href="#k8-ep"/></svg></span>
+      and nothing lost its endpoint picker <span class="rt">envoy config_dump, before and after</span></div>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>state</th><th class="num">envoy routes</th><th class="num">with per-route ext_proc</th></tr></thead>
+      <tbody>
+        <tr><td class="name">before</td><td class="num">99</td><td class="num">80</td></tr>
+        <tr class="is-current"><td class="name">after 3 shards</td><td class="num">102</td><td class="num">83</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="note ok">
+    <span class="lbl">that was the test that mattered</span>
+    <p>
+      <strong>+3 routes, +3 with ext_proc, nothing lost.</strong> Several routes merging on
+      one gateway is exactly the shape of
+      <a href="https://github.com/istio/istio/issues/58392">istio#58392</a>, where every
+      InferencePool but the first lost its picker config. This cluster runs 1.30.3, which
+      carries the fix. On <strong>1.28.1 through 1.28.4 this is the shape that breaks</strong>,
+      so sharding hard-depends on a version floor of 1.28.5 or 1.29.0.
+    </p>
+  </div>
+
+  <div class="panel">
+    <div class="panel-hd"><span class="kb mark"><svg><use href="#ic-grid"/></svg></span>
+      models per shard <span class="rt">hack/endpoint-budget.py &middot; computed</span></div>
+    <div class="scroll">
+    <table>
+      <thead>
+        <tr><th>shard shape</th><th class="num">4 endpoints</th><th class="num">6</th><th class="num">8</th><th class="num">11</th><th>binds on</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="name">one rule per shard</td><td class="num">16</td><td class="num">10</td><td class="num">8</td><td class="num">5</td><td>64 / rule</td></tr>
+        <tr class="is-pick"><td class="name">one rule per endpoint per shard</td><td class="num">32</td><td class="num">21</td><td class="num">16</td><td class="num">11</td><td>128 / route</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="note ok">
+    <span class="lbl">what this actually buys</span>
+    <p>
+      <strong>32 adapters per shard at today's four endpoints, and shards are unbounded.</strong>
+      It is the only structure in this document that lifts the ceiling arbitrarily
+      <em>while keeping flat adapter names</em> - so it is the answer that survives the
+      naming argument that removed <code>nested</code>. It also needs no controller change to
+      try: <code>spec.router.route.http.refs</code> accepts user-supplied routes today, and
+      <code>getHTTPRouteNames</code> iterates <strong>every</strong> ref, so each shard gets
+      its own AuthPolicy automatically. That is the opposite of what happens with
+      controller-generated extra routes, which would get none.
+    </p>
+  </div>
+
+  <div class="note warn">
+    <span class="lbl">three things it inherits</span>
+    <ul>
+      <li>
+        <strong>Rule names must be unique per shard.</strong> All three shards here carried
+        the name <code>v1-model-routing</code> and produced one identical ext_proc config -
+        benign, because all three target the same pool. Shards spanning different pools is
+        precisely <a href="https://github.com/bartoszmajsak/work-items/issues/282">#282</a>,
+        where one service's request is scheduled by another's picker.
+      </li>
+      <li>
+        <strong>It maximises exposure to the merge path.</strong> More routes on one gateway
+        is more of the code that
+        <a href="https://github.com/bartoszmajsak/work-items/issues/285">#285</a> is still
+        open against on <code>origin/master</code>. Sharding makes the buggiest function in
+        the stack the hottest one.
+      </li>
+      <li>
+        <strong>Someone has to own the sharding.</strong> By hand through
+        <code>refs</code> it is a maintenance burden that grows with adapters; in the
+        controller it is new logic, including deciding which shard an adapter lands in and
+        what happens when it moves.
+      </li>
+    </ul>
+  </div>
+</section>
+
+
 <section id="dropped">
   <h2>Also evaluated, and dropped</h2>
   <p class="sub">
@@ -4817,8 +4952,8 @@ if baseOk &amp;&amp; configOk {
 <section>
   <h2>Recommendation</h2>
   <p class="sub">
-    Nothing here removes the ceiling while adapter names stay flat. The steps buy room and
-    time; the last one is the only one that ends it.
+    Two of these buy room, one removes the ceiling outright, and the last one is the only
+    thing that removes the <em>enumeration</em>. None of them requires renaming a model.
   </p>
 
   <div class="note">
@@ -4912,6 +5047,27 @@ if baseOk &amp;&amp; configOk {
     </li>
     <li>
       <div>
+        <h4>If 22 is not enough, shard the routes rather than reach for a regex</h4>
+        <p>
+          Every cap is per <strong>route</strong> and Gateway API caps nothing per Gateway,
+          so the model-routing rules can live in their own HTTPRoutes:
+          <strong>32 adapters per shard</strong> at today's endpoint count, with shards
+          unbounded. Measured on the real gateway - three shards resolved correctly and
+          <a href="#shard">nothing lost its endpoint-picker config</a>.
+        </p>
+        <p>
+          It is the only structure here that lifts the ceiling arbitrarily
+          <strong>while keeping flat adapter names</strong>, which is what makes it the
+          answer <code>nested</code> could not be. It needs no controller change to try:
+          <code>spec.router.route.http.refs</code> takes user-supplied routes today and each
+          one gets its own AuthPolicy. What it needs is a version floor of Istio
+          <strong>1.28.5 / 1.29.0</strong>, unique rule names per shard, and eventually
+          someone to own shard assignment in the controller rather than by hand.
+        </p>
+      </div>
+    </li>
+    <li>
+      <div>
         <h4>Consider <code>alternation</code> only where you own the data plane</h4>
         <p>
           On Istio and Envoy Gateway it reaches roughly <strong>175 to 240</strong> adapters,
@@ -4928,10 +5084,12 @@ if baseOk &amp;&amp; configOk {
       <div>
         <h4>Then get the index out of the HTTPRoute</h4>
         <p>
-          This is the only step that ends the problem rather than deferring it. If adapters
-          keep flat names - and they should - then the map from model name to InferencePool
-          has no structure to exploit, so inside a route you can only enumerate it or compress
-          the enumeration. Both are linear in something and both hit a cap.
+          Sharding removes the <em>ceiling</em>. It does not remove the <em>enumeration</em>:
+          the route set is still rewritten every time an adapter changes, the model name still
+          has to appear once per adapter somewhere, and none of it authorizes anything. If
+          adapters keep flat names - and they should - the map from model name to
+          InferencePool has no structure to exploit, so every in-route answer is linear in
+          something.
         </p>
         <p>
           The map belongs where the body is already being read: a body-based router plus a

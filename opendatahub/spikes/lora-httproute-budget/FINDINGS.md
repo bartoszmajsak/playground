@@ -2229,6 +2229,77 @@ Fixing it needs the id to encode its pool, or session affinity. Not a
 routing-budget question.
 
 
+## 31. Sharding: the caps are per route, and routes are not capped
+
+Prompted by a question about why the path rules are separate at all - the reading
+being that named rules exist so policies can be pinned per endpoint by
+`sectionName`.
+
+**Checked: nothing pins a policy to a rule section today.** Every `sectionName`
+in kserve and odh-model-controller refers to a Gateway *listener*
+(`router_discovery.go:419 selectListeners`, `ParentReference.SectionName`), which
+is a different field from a policy's `targetRef.sectionName`. odh-model-controller's
+AuthPolicy targets the whole HTTPRoute. So the capability is set up by the naming
+but unused - an argument against flattening the rules, and an argument *for*
+sharding, since a policy targeting a whole object cannot be detached by a rule
+rename (section 7 measured a `sectionName` policy going green while covering a
+quarter of its former traffic).
+
+### Measured
+
+`manifests/shard-probe.yaml`: three HTTPRoutes, one model-routing rule each, all
+backendRef'ing svc-a's InferencePool, on `/shard/v1/chat/completions` so they do
+not collide with the fixture. Rule name deliberately identical in all three.
+
+| shard | header | served |
+|---|---|---|
+| shard-1 | `.../model-a` | model-a |
+| shard-2 | `.../adapter-a1` | adapter-a1 |
+| shard-3 | `.../adapter-a2` | adapter-a2 |
+
+And the test that mattered - several routes merging on one gateway is exactly the
+istio#58392 shape where every InferencePool but the first lost its picker config:
+
+| state | envoy routes | with per-route ext_proc |
+|---|---|---|
+| before | 99 | 80 |
+| after 3 shards | 102 | 83 |
+
+**+3 routes, +3 with ext_proc, nothing lost.** This cluster is 1.30.3, which
+carries the istio#58393 fix. On 1.28.1 to 1.28.4 this is the shape that breaks,
+so sharding hard-depends on a floor of **1.28.5 / 1.29.0** (section 6).
+
+The three shards produced **one** ext_proc config between them, which is correct
+here because all three target the same pool. Shards spanning different pools with
+identical rule names is exactly #282.
+
+### Capacity
+
+`hack/endpoint-budget.py`:
+
+| shard shape | E=4 | E=6 | E=8 | E=11 | binds on |
+|---|---|---|---|---|---|
+| one rule per shard | 16 | 10 | 8 | 5 | 64 / rule |
+| one rule per endpoint per shard | **32** | 21 | 16 | 11 | 128 / route |
+
+Shards themselves are unbounded.
+
+### Why this matters more than the numbers
+
+It is the only structure measured in this spike that lifts the ceiling
+arbitrarily **while keeping flat adapter names**, so it is the answer `nested`
+could not be (section 11). It needs no controller change to try:
+`spec.router.route.http.refs` accepts user-supplied routes, and
+`getHTTPRouteNames` iterates **every** ref, so each shard gets its own AuthPolicy
+automatically - the opposite of controller-generated extra routes, which would
+get none.
+
+What it does not do: remove the enumeration. The route set is still rewritten per
+adapter change, the model name still appears once per adapter, and none of it
+authorizes anything (section 29). It also makes `mergeHTTPRoutes` - the function
+#285 is still open against on `origin/master` - the hottest path in the stack.
+
+
 ## Method notes
 
 **The probe set moved the answer.** The first run had 57 probes and one
