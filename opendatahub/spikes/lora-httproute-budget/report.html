@@ -606,6 +606,51 @@
   .sim-others .o { display: block; }
   .sim-note { font: .73rem/1.5 var(--sans); color: var(--ink-faint); padding: .55rem .9rem; border-top: 1px solid var(--rule-soft); background: var(--sunken); }
   @media (prefers-reduced-motion: reduce) { .rr { transition: none; } }
+  
+  /* ================= contents sidebar ================= */
+  .toc {
+    --toc-w: 17.5rem;
+    position: fixed; inset: 0 auto 0 0; width: var(--toc-w);
+    background: var(--sunken); border-right: 1px solid var(--rule);
+    overflow-y: auto; overscroll-behavior: contain; z-index: 40;
+    padding: 1.1rem 0 2.5rem; display: none;
+  }
+  .toc-hd {
+    font: 600 .62rem/1 var(--sans); letter-spacing: .11em; text-transform: uppercase;
+    color: var(--ink-faint); padding: 0 1.1rem .7rem;
+  }
+  .toc ol { list-style: none; margin: 0; padding: 0; }
+  .toc a {
+    display: grid; grid-template-columns: 1.5rem minmax(0, 1fr); gap: .45rem;
+    padding: .3rem 1.1rem; text-decoration: none; color: var(--ink-soft);
+    font: .77rem/1.35 var(--sans); border-left: 2px solid transparent;
+  }
+  .toc a .n { font: .66rem/1.5 var(--mono); color: var(--ink-faint); text-align: right; }
+  .toc a:hover { background: var(--rule-soft); color: var(--ink); }
+  .toc a.on { color: var(--kind); background: var(--kind-dim); border-left-color: var(--kind); font-weight: 600; }
+  .toc a.on .n { color: var(--kind); }
+  .toc a:focus-visible { outline: 2px solid var(--kind); outline-offset: -2px; }
+
+  .toc-btn {
+    position: fixed; left: 1rem; bottom: 1rem; z-index: 41;
+    font: 600 .74rem/1 var(--sans); color: var(--ink); background: var(--surface);
+    border: 1px solid var(--rule); border-radius: 999px; padding: .6rem .9rem;
+    box-shadow: 0 2px 10px rgb(0 0 0 / .13); cursor: pointer;
+  }
+  .toc-btn:hover { color: var(--kind); border-color: var(--kind-line); }
+  .toc-scrim { position: fixed; inset: 0; background: rgb(0 0 0 / .45); z-index: 39; display: none; }
+
+  @media (min-width: 78rem) {
+    .toc { display: block; }
+    .toc-btn, .toc-scrim { display: none !important; }
+    body { padding-left: 17.5rem; }
+  }
+  @media (max-width: 77.99rem) {
+    body.toc-open .toc { display: block; box-shadow: 0 0 40px rgb(0 0 0 / .3); }
+    body.toc-open .toc-scrim { display: block; }
+  }
+  @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+  section[id] { scroll-margin-top: 1.2rem; }
   </style>
 
 <div class="wrap">
@@ -653,9 +698,50 @@
     <div><dt>issues filed</dt><dd>5</dd></div>
   </dl>
 </header>
+<nav class="toc" id="toc" aria-label="Contents">
+  <p class="toc-hd">Contents</p>
+  <ol>
+      <li><a href="#how-a-request-reaches-a-lora-adapter"><span class="n">01</span><span>How a request reaches a LoRA adapter</span></a></li>
+      <li><a href="#the-object-the-ceiling-lives-in"><span class="n">02</span><span>The object the ceiling lives in</span></a></li>
+      <li><a href="#what-breaks"><span class="n">03</span><span>What breaks</span></a></li>
+      <li><a href="#what-the-model-header-is-actually-for"><span class="n">04</span><span>What the model header is actually for</span></a></li>
+      <li><a href="#could-a-gie-model-level-resource-carry-the-i"><span class="n">05</span><span>Could a GIE model-level resource carry the index?</span></a></li>
+      <li><a href="#the-options"><span class="n">06</span><span>The options</span></a></li>
+      <li><a href="#browse-the-shapes"><span class="n">07</span><span>Browse the shapes</span></a></li>
+      <li><a href="#what-the-shapes-actually-do"><span class="n">08</span><span>What the shapes actually do</span></a></li>
+      <li><a href="#where-each-request-actually-lands"><span class="n">09</span><span>Where each request actually lands</span></a></li>
+      <li><a href="#try"><span class="n">10</span><span>Try a request</span></a></li>
+      <li><a href="#trade-offs-exactly"><span class="n">11</span><span>Trade-offs, exactly</span></a></li>
+      <li><a href="#endpoints"><span class="n">12</span><span>What adding an endpoint costs</span></a></li>
+      <li><a href="#shard"><span class="n">13</span><span>Sharding: the budget is per route, and routes are free</span></a></li>
+      <li><a href="#dropped"><span class="n">14</span><span>Also evaluated, and dropped</span></a></li>
+      <li><a href="#what-nested-would-have-bought"><span class="n">15</span><span>What nested would have bought</span></a></li>
+      <li><a href="#every-place-the-adapter-name-appears"><span class="n">16</span><span>Every place the adapter name appears</span></a></li>
+      <li><a href="#what-openshift-ai-s-authorization-policy-alr"><span class="n">17</span><span>What OpenShift AI's authorization policy already decides</span></a></li>
+      <li><a href="#two-services-one-adapter-name"><span class="n">18</span><span>Two services, one adapter name</span></a></li>
+      <li><a href="#the-gateway-authorizes-a-name-it-never-serve"><span class="n">19</span><span>The gateway authorizes a name it never serves</span></a></li>
+      <li><a href="#the-second-data-plane-which-changes-the-answ"><span class="n">20</span><span>The second data plane, which changes the answer</span></a></li>
+      <li><a href="#what-the-regex-costs-at-request-time"><span class="n">21</span><span>What the regex costs at request time</span></a></li>
+      <li><a href="#living-with-the-route"><span class="n">22</span><span>Living with the route</span></a></li>
+      <li><a href="#why-the-limit-lands-where-it-does"><span class="n">23</span><span>Why the limit lands where it does</span></a></li>
+      <li><a href="#realistic-names-change-the-answer-again"><span class="n">24</span><span>Realistic names change the answer again</span></a></li>
+      <li><a href="#envoy-ai-gateway-and-a-second-working-epp"><span class="n">25</span><span>Envoy AI Gateway, and a second working EPP</span></a></li>
+      <li><a href="#aside-istiod-crashes-under-route-churn"><span class="n">26</span><span>Aside: istiod crashes under route churn</span></a></li>
+      <li><a href="#does-the-path-axis-need-the-same-trick"><span class="n">27</span><span>Does the path axis need the same trick?</span></a></li>
+      <li><a href="#how-each-number-was-produced"><span class="n">28</span><span>How each number was produced</span></a></li>
+      <li><a href="#so-what-are-we-actually-fixing"><span class="n">29</span><span>So what are we actually fixing?</span></a></li>
+      <li><a href="#recommendation"><span class="n">30</span><span>Recommendation</span></a></li>
+      <li><a href="#corrections-to-the-design-docs"><span class="n">31</span><span>Corrections to the design docs</span></a></li>
+      <li><a href="#filed"><span class="n">32</span><span>Filed</span></a></li>
+      <li><a href="#what-this-does-not-prove"><span class="n">33</span><span>What this does not prove</span></a></li>
+  </ol>
+</nav>
+<div class="toc-scrim" id="tocScrim"></div>
+<button class="toc-btn" id="tocBtn" type="button" aria-expanded="false" aria-controls="toc">Contents</button>
 
 
-<section>
+
+<section id="how-a-request-reaches-a-lora-adapter">
   <h2>How a request reaches a LoRA adapter</h2>
   <p class="sub">
     Everything below turns on this. One custom resource generates five objects, a request
@@ -872,7 +958,7 @@
 </section>
 
 
-<section>
+<section id="the-object-the-ceiling-lives-in">
   <h2>The object the ceiling lives in</h2>
   <p class="sub">
     One <code>LLMInferenceService</code> generates one HTTPRoute with twelve rules. Eleven
@@ -982,7 +1068,7 @@
   </figure>
 </section>
 
-<section class="col">
+<section id="what-breaks" class="col">
   <h2>What breaks</h2>
   <p class="sub">And why it does not look broken.</p>
 
@@ -1078,7 +1164,7 @@
 </section>
 
 
-<section>
+<section id="what-the-model-header-is-actually-for">
   <h2>What the model header is actually for</h2>
   <p class="sub">
     The rule that causes the ceiling is an <strong>index from model name to
@@ -1232,7 +1318,7 @@
 </section>
 
 
-<section>
+<section id="could-a-gie-model-level-resource-carry-the-i">
   <h2>Could a GIE model-level resource carry the index?</h2>
   <p class="sub">
     The index is a table of names, and the Inference Extension has a resource whose whole
@@ -1352,7 +1438,7 @@
 </section>
 
 
-<section>
+<section id="the-options">
   <h2>The options</h2>
   <p class="sub">
     Every ceiling below was measured by asking the apiserver to validate a synthesised route
@@ -1460,7 +1546,7 @@
   </div>
 </section>
 
-<section>
+<section id="browse-the-shapes">
   <h2>Browse the shapes</h2>
   <p class="sub">
     Pick a shape to see the routing rules it actually generates. The path family is
@@ -1593,7 +1679,7 @@
 </script>
 
 
-<section>
+<section id="what-the-shapes-actually-do">
   <h2>What the shapes actually do</h2>
   <p class="sub">
     Every routing rule in every shape is the same grid: <strong>paths &times; models</strong>.
@@ -1890,7 +1976,7 @@
 </section>
 
 
-<section>
+<section id="where-each-request-actually-lands">
   <h2>Where each request actually lands</h2>
   <p class="sub">
     The grid explains the budget; this explains the behaviour. Every cell is a real request
@@ -2292,7 +2378,7 @@ window.SIM_ROUTES = {"alternation":[{"r":"lora-budget/svc-a-kserve-route","rules
 
 </script>
 
-<section>
+<section id="trade-offs-exactly">
   <h2>Trade-offs, exactly</h2>
   <p class="sub">
     The four shapes still in contention, and every axis that costs something. A dash means
@@ -3024,7 +3110,7 @@ inference-access:
 </section>
 
 
-<section>
+<section id="what-nested-would-have-bought">
   <h2>What <code>nested</code> would have bought</h2>
   <div class="note crit">
     <span class="lbl">rejected, and this section is the evidence for why that was hard</span>
@@ -3186,7 +3272,7 @@ publishers/&lt;ns&gt;/models/<span class="hi">llama-3-8b/adapters/sql-adapter</s
   </div>
 </section>
 
-<section>
+<section id="every-place-the-adapter-name-appears">
   <h2>Every place the adapter name appears</h2>
   <p class="sub">
     The identifier is not only a routing key. This is the full surface, which is the real
@@ -3270,7 +3356,7 @@ publishers/&lt;ns&gt;/models/<span class="hi">llama-3-8b/adapters/sql-adapter</s
 </section>
 
 
-<section>
+<section id="what-openshift-ai-s-authorization-policy-alr">
   <h2>What OpenShift AI's authorization policy already decides</h2>
   <p class="sub">
     Read from <code>odh-model-controller</code>, not run. It changes which of the shapes
@@ -3385,7 +3471,7 @@ then:
   </p>
 </section>
 
-<section>
+<section id="two-services-one-adapter-name">
   <h2>Two services, one adapter name</h2>
   <p class="sub">
     Not a budget question, but it constrains how many adapters you can usefully run in one
@@ -3448,7 +3534,7 @@ then:
 </section>
 
 
-<section>
+<section id="the-gateway-authorizes-a-name-it-never-serve">
   <h2>The gateway authorizes a name it never serves</h2>
   <p class="sub">
     Every authorization rule in that policy derives its
@@ -3676,7 +3762,7 @@ then:
 </section>
 
 
-<section>
+<section id="the-second-data-plane-which-changes-the-answ">
   <h2>The second data plane, which changes the answer</h2>
   <p class="sub">
     Every regex finding above was measured on Istio. Installing kgateway and Envoy Gateway
@@ -3853,7 +3939,7 @@ set for the error level threshold.</span></pre>
   </div>
 </section>
 
-<section>
+<section id="what-the-regex-costs-at-request-time">
   <h2>What the regex costs at request time</h2>
   <p class="sub">
     Separate question from whether it compiles, and the answer is reassuring: essentially
@@ -3984,7 +4070,7 @@ set for the error level threshold.</span></pre>
   </p>
 </section>
 
-<section>
+<section id="living-with-the-route">
   <h2>Living with the route</h2>
   <p class="sub">
     An HTTPRoute is reviewed in pull requests, <code>kubectl diff</code>ed before apply, and
@@ -4070,7 +4156,7 @@ set for the error level threshold.</span></pre>
 </section>
 
 
-<section>
+<section id="why-the-limit-lands-where-it-does">
   <h2>Why the limit lands where it does</h2>
   <p class="sub">
     Six adapters sounds arbitrary until you know what RE2 is counting. It is arithmetic, and
@@ -4187,7 +4273,7 @@ set for the error level threshold.</span></pre>
 </section>
 
 
-<section>
+<section id="realistic-names-change-the-answer-again">
   <h2>Realistic names change the answer again</h2>
   <p class="sub">
     Every number so far was measured against the fixture's names -
@@ -4333,7 +4419,7 @@ set for the error level threshold.</span></pre>
 </section>
 
 
-<section>
+<section id="envoy-ai-gateway-and-a-second-working-epp">
   <h2>Envoy AI Gateway, and a second working EPP</h2>
   <p class="sub">
     The earlier run used Envoy Gateway <em>without</em> the AI Gateway addon, which was
@@ -4449,7 +4535,7 @@ extensionApis:
   </div>
 </section>
 
-<section>
+<section id="aside-istiod-crashes-under-route-churn">
   <h2>Aside: istiod crashes under route churn</h2>
   <p class="sub">
     Worth recording because it disrupted this spike repeatedly - and worth measuring,
@@ -4607,7 +4693,7 @@ if baseOk &amp;&amp; configOk {
 </section>
 
 
-<section>
+<section id="does-the-path-axis-need-the-same-trick">
   <h2>Does the path axis need the same trick?</h2>
   <p class="sub">
     The header rules need a regex to stay constant. A fair question is whether the path
@@ -4729,7 +4815,7 @@ if baseOk &amp;&amp; configOk {
 </section>
 
 
-<section>
+<section id="how-each-number-was-produced">
   <h2>How each number was produced</h2>
   <p class="sub">
     Some of this is the real kserve controller reconciling real
@@ -4839,7 +4925,7 @@ if baseOk &amp;&amp; configOk {
 </section>
 
 
-<section>
+<section id="so-what-are-we-actually-fixing">
   <h2>So what are we actually fixing?</h2>
   <p class="sub">
     This document has accumulated a lot of findings. They are not all the same kind of
@@ -5017,7 +5103,7 @@ if baseOk &amp;&amp; configOk {
 </section>
 
 
-<section>
+<section id="recommendation">
   <h2>Recommendation</h2>
   <p class="sub">
     Two of these buy room, one removes the ceiling outright, and the last one is the only
@@ -5199,7 +5285,7 @@ if baseOk &amp;&amp; configOk {
   </div>
 </section>
 
-<section class="col">
+<section id="corrections-to-the-design-docs" class="col">
   <h2>Corrections to the design docs</h2>
   <p class="sub">Three numbers do not survive measurement. A fourth claim does, against my earlier reading of it.</p>
   <ul>
@@ -5231,7 +5317,7 @@ if baseOk &amp;&amp; configOk {
   </ul>
 </section>
 
-<section class="col">
+<section id="filed" class="col">
   <h2>Filed</h2>
   <p class="sub">Everything here that is a bug rather than a design choice.</p>
 
@@ -5275,7 +5361,7 @@ if baseOk &amp;&amp; configOk {
   </div>
 </section>
 
-<section class="col">
+<section id="what-this-does-not-prove" class="col">
   <h2>What this does not prove</h2>
   <p class="sub">Stated plainly, because the numbers above are otherwise easy to over-read.</p>
   <ul>
@@ -5329,3 +5415,52 @@ if baseOk &amp;&amp; configOk {
 </footer>
 
 </div>
+
+<script>
+(function () {
+  var links = {}, btn = document.getElementById("tocBtn"),
+      scrim = document.getElementById("tocScrim"), toc = document.getElementById("toc");
+  Array.prototype.forEach.call(document.querySelectorAll(".toc a"), function (a) {
+    links[a.getAttribute("href").slice(1)] = a;
+    a.addEventListener("click", function () { close(); });
+  });
+
+  function close() { document.body.classList.remove("toc-open"); btn.setAttribute("aria-expanded", "false"); }
+  btn.addEventListener("click", function () {
+    var open = document.body.classList.toggle("toc-open");
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+  });
+  scrim.addEventListener("click", close);
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") close(); });
+
+  // Highlight the section whose top is nearest above the reading line. An
+  // observer alone marks whatever is intersecting, which flickers between
+  // neighbours on a page of long sections.
+  var sections = Array.prototype.slice.call(document.querySelectorAll("section[id]"));
+  var current = null, ticking = false;
+  function spy() {
+    ticking = false;
+    var line = window.scrollY + window.innerHeight * 0.28, best = sections[0];
+    for (var i = 0; i < sections.length; i++) {
+      if (sections[i].offsetTop <= line) best = sections[i]; else break;
+    }
+    if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 4) {
+      best = sections[sections.length - 1];
+    }
+    if (!best || best.id === current) return;
+    if (current && links[current]) links[current].classList.remove("on");
+    current = best.id;
+    var a = links[current];
+    if (a) {
+      a.classList.add("on");
+      var t = a.offsetTop, h = toc.clientHeight;
+      if (t < toc.scrollTop || t > toc.scrollTop + h - 40) toc.scrollTop = t - h / 2;
+    }
+  }
+  window.addEventListener("scroll", function () {
+    if (!ticking) { ticking = true; window.requestAnimationFrame(spy); }
+  }, { passive: true });
+  window.addEventListener("resize", spy, { passive: true });
+  spy();
+})();
+</script>
