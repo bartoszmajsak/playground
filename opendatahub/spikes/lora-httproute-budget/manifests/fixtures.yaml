@@ -77,12 +77,17 @@ spec:
             value: "1"
           - name: VLLM_LOGGING_LEVEL
             value: INFO
-          # VLLM_ALLOW_RUNTIME_LORA_UPDATING is deliberately NOT set. vLLM only
-          # registers /v1/load_lora_adapter and /v1/unload_lora_adapter when it
-          # is, so turning it on ADDS two operations to /openapi.json -- which is
-          # the inventory golden/endpoint-budget.tsv is derived from. Leaving it
-          # off keeps that count honest at 23. probe-model-list.sh --runtime
-          # turns it on temporarily with `kubectl set env` and says so.
+          # VLLM_ALLOW_RUNTIME_LORA_UPDATING is deliberately NOT set. Measured:
+          # turning it on takes /openapi.json from 22 paths to 26, adding
+          # /v1/load_lora_adapter, /v1/unload_lora_adapter, /adapters and
+          # /adapters/{adapter_name} -- and that is the inventory
+          # golden/endpoint-budget.tsv is derived from. Leaving it off keeps
+          # that count honest.
+          #
+          # To enable it, patch the CR, NOT the Deployment: the llmisvc
+          # controller owns the workload and reconciles `kubectl set env` away
+          # within seconds, silently, leaving a pod that looks patched and is
+          # not. See DEV.md.
         resources:
           requests: { cpu: "2", memory: 4Gi }
           limits: { cpu: "8", memory: 12Gi }

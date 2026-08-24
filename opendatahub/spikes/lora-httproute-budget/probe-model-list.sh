@@ -35,9 +35,10 @@
 #   {Name: a.name,                                        Path: a.mountPath}
 #   {Name: fullyQualifiedModelName(ns, a.name),           Path: a.mountPath}
 #
-# so the expected /v1/models cardinality is 1 base + 2 per adapter. If that
-# holds, an operator reading /v1/models sees each adapter twice, which is worth
-# knowing before anyone builds a UI on it.
+# Measured: the BASE is dual-registered too, via --served-model-name, so the
+# cardinality is 2 x (1 + N) -- six entries for one base and two adapters. An
+# operator reading /v1/models sees every model twice, which is worth knowing
+# before anyone builds a UI on it.
 #
 # Requires the REAL backends (not the echo swap) -- this asks the runtime a
 # question, so the runtime has to be in the path.
@@ -63,6 +64,18 @@ SVC="${SVC:-svc-a}"
 BASE="${BASE:-model-a}"
 OUT="${SCRIPT_DIR}/golden/model-list.tsv"
 
+# One scratch file for response bodies. $$-based names broke a --all run under
+# `set -e`: the file was gone by the time it was read and the script died
+# mid-probe with "No such file or directory".
+TMPBODY="$(mktemp)"
+trap 'rm -f "$TMPBODY"' EXIT
+
+# Truncate before every request. Sharing one scratch file across probes meant a
+# curl that never connected left the PREVIOUS probe's body in place, and the
+# served-by classifier happily reported it -- a request that timed out was
+# recorded as "ECHO-NEIGHBOUR", which is a completely different finding.
+fresh_body() { : > "$TMPBODY"; }
+
 GREEN='\033[0;32m'; RED='\033[0;31m'; YEL='\033[0;33m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
 
 DO_CHURN=false; DO_RUNTIME=false
@@ -79,8 +92,16 @@ GATEWAY_URL="${GATEWAY_URL:-http://$(kubectl get gateway kserve-ingress-gateway 
     -o jsonpath='{.status.addresses[0].value}')}"
 QUAL="publishers/${NS}/models"
 
-pod() { kubectl get pod -n "$NS" -l "app.kubernetes.io/name=${SVC}" \
-        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null; }
+# Only a RUNNING, READY pod. Taking .items[0] blindly picks up Terminating and
+# Succeeded pods during a rollout, and exec against those fails with "cannot
+# exec into a container in a completed pod" -- or worse, succeeds against the
+# pod that is about to die and reports the pre-change state as the new one.
+pod() {
+    kubectl get pod -n "$NS" -l "app.kubernetes.io/name=${SVC}" \
+        --field-selector=status.phase=Running \
+        -o jsonpath='{range .items[*]}{.metadata.name} {.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' \
+        2>/dev/null | awk '$2=="True"{print $1; exit}'
+}
 
 # ---------------------------------------------------------------------------
 # what the RUNTIME says it has loaded, straight from the pod. This is ground
@@ -101,11 +122,12 @@ runtime_models() {
 # and go direct. Worth recording all three rather than assuming.
 # ---------------------------------------------------------------------------
 gateway_models() {  # path, header
-    local path="$1" header="${2:-}" args=(-sS --max-time 15 -o /tmp/.ml.$$ -w '%{http_code}')
+    fresh_body
+    local path="$1" header="${2:-}" args=(-sS --max-time 15 -o "$TMPBODY" -w '%{http_code}')
     [[ -n "$header" ]] && args+=(-H "X-Gateway-Model-Name: ${header}")
     local code; code=$(curl "${args[@]}" "${GATEWAY_URL}${path}" 2>/dev/null || echo 000)
     echo "$code"
-    cat /tmp/.ml.$$ 2>/dev/null; rm -f /tmp/.ml.$$
+    cat "$TMPBODY" 2>/dev/null
 }
 
 # Parse a /v1/models payload into "id<TAB>parent<TAB>root" lines. vLLM sets
@@ -124,11 +146,17 @@ for m in d.get("data", []):
 # What the ROUTE matches on, as a set of model names. Pulled from the live
 # HTTPRoute rather than from the spec, because the two can disagree -- that
 # disagreement is the whole point of #279.
+#
+# Scoped to THIS service's route. The namespace holds one route per service and
+# a neighbour, so scanning all of them reports svc-b's model-b as "indexed but
+# not served" -- true of svc-a's runtime, meaningless as a finding.
+ROUTE="${ROUTE:-${SVC}-kserve-route}"
 route_names() {
-    kubectl get httproute -n "$NS" -o json 2>/dev/null | python3 -c '
+    kubectl get httproute "$ROUTE" -n "$NS" -o json 2>/dev/null | python3 -c '
 import json,sys
-d=json.load(sys.stdin); names=set()
-for r in d.get("items", []):
+d=json.load(sys.stdin)
+names=set()
+for r in (d.get("items") or [d]):
     for rule in r.get("spec", {}).get("rules", []):
         for m in rule.get("matches", []):
             for h in m.get("headers", []):
@@ -150,8 +178,8 @@ hr() { printf "${CYAN}%s${NC}\n" "----------------------------------------------
   echo "# same adapter set, and nothing reconciles them. This records both."
   echo "#"
   echo "# kserve registers each adapter under TWO names (workload_lora.go:166-167):"
-  echo "# the bare name and the fully qualified one. So the expected cardinality is"
-  echo "# 1 base + 2 per adapter."
+  echo "# the bare name and the fully qualified one. The base is dual-registered too,"
+  echo "# via --served-model-name, so the cardinality is 2 x (1 + N)."
   echo "#"
   echo "# gateway ${GATEWAY_URL}   namespace ${NS}   service ${SVC}"
 } > "$OUT"
@@ -171,7 +199,7 @@ printf 'source\tid\tparent\troot\n' >> "$OUT"
 echo "$RAW" | parse_models | while IFS=$'\t' read -r id parent root; do
     printf 'pod\t%s\t%s\t%s\n' "$id" "$parent" "$root" >> "$OUT"
     if [[ "$parent" == "-" ]]; then
-        printf '  %-52s ${CYAN}base${NC}\n' "$id"
+        printf '  %-52s %bbase%b\n' "$id" "$CYAN" "$NC"
     else
         printf '  %-52s adapter of %s\n' "$id" "$parent"
     fi
@@ -247,7 +275,7 @@ ROUTE_NAMES="$(route_names || true)"
 VLLM_NAMES="$(echo "$RAW" | parse_models | awk -F'\t' '{print $1}')"
 
 compare_registries() {
-    python3 - "$1" "$2" <<'PY' | tee -a "$OUT"
+    python3 - "$1" "$2" <<'PY'
 import sys
 route = set(x for x in sys.argv[1].splitlines() if x.strip())
 vllm  = set(x for x in sys.argv[2].splitlines() if x.strip())
@@ -259,9 +287,11 @@ for n in sorted(route | vllm):
     print("\t".join([n, "yes" if r else "no", "yes" if v else "no", verdict]))
 PY
 }
-compare_registries "$ROUTE_NAMES" "$VLLM_NAMES" >/dev/null
-compare_registries "$ROUTE_NAMES" "$VLLM_NAMES" 2>/dev/null | \
-    awk -F'\t' '{printf "  %-52s route=%-4s vllm=%-4s %s\n", $1, $2, $3, $4}'
+# compute once: the function appends to $OUT via the caller, and running it
+# twice would duplicate every row in the golden file.
+CMP="$(compare_registries "$ROUTE_NAMES" "$VLLM_NAMES")"
+echo "$CMP" >> "$OUT"
+echo "$CMP" | awk -F'\t' '{printf "  %-52s route=%-4s vllm=%-4s %s\n", $1, $2, $3, $4}'
 
 # ===========================================================================
 # Part B -- kserve-level load/unload: patch spec.model.lora.adapters
@@ -274,31 +304,63 @@ hr
   echo ""
   echo "# --- kserve-level churn: patch spec.model.lora.adapters ---"
   echo "# Does the route follow? Does the runtime follow? Do they agree?"
-  printf 'step\tspec-adapters\troute-names\tvllm-entries\tagree\n'
+  printf 'step\tspec-adapters\troute-names\tvllm-entries\tvllm-vs-spec\troute-vs-spec\n'
 } >> "$OUT"
 
+# Two separate agreements, because they diverge and that divergence is the
+# finding. vLLM carries 2 entries per adapter (dual registration); the route
+# indexes the base plus one name per adapter, so 1 + N. A single combined
+# "agree" column hid #279 completely -- on the cleared row the runtime agreed
+# with the spec at zero while the route was still advertising two adapters
+# that no longer exist anywhere.
 snapshot() {  # label
-    local sa rn ve agree
+    local sa rn ve av ar
     sa=$(kubectl get llminferenceservice "$SVC" -n "$NS" \
         -o jsonpath='{.spec.model.lora.adapters[*].name}' 2>/dev/null | wc -w)
     rn=$(route_names | grep -c . || echo 0)
     ve=$(runtime_models 2>/dev/null | parse_models | awk -F'\t' '$2!="-"' | wc -l || echo 0)
-    # the route indexes bare+qualified per adapter plus the base, same as vLLM
-    agree=$([[ "$ve" -eq $((sa * 2)) ]] && echo yes || echo no)
-    printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$sa" "$rn" "$ve" "$agree" >> "$OUT"
-    printf '  %-22s spec=%-3s route-names=%-4s vllm-adapters=%-4s agree=%s\n' \
-        "$1" "$sa" "$rn" "$ve" "$agree"
+    av=$([[ "$ve" -eq $((sa * 2)) ]] && echo yes || echo no)
+    ar=$([[ "$rn" -eq $((sa + 1)) ]] && echo yes || echo no)
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$sa" "$rn" "$ve" "$av" "$ar" >> "$OUT"
+    printf '  %-22s spec=%-3s route-names=%-4s vllm-adapters=%-4s vllm-ok=%-4s route-ok=%s\n' \
+        "$1" "$sa" "$rn" "$ve" "$av" "$ar"
 }
 
-wait_rollout() {
-    kubectl rollout status deploy -n "$NS" -l "app.kubernetes.io/name=${SVC}" \
-        --timeout=300s >/dev/null 2>&1 || true
-    # wait on a request, not a sleep -- see DEV.md
-    for _ in $(seq 60); do
-        runtime_models >/dev/null 2>&1 && return 0
+# Waiting on `kubectl rollout status` alone is a trap here, and it silently
+# produced a run where every row was identical: the controller had not yet
+# reconciled, so the deployment was UNCHANGED, rollout status returned instantly,
+# and runtime_models answered from the pod that was still running. The whole
+# add/remove/clear sequence completed without a single restart.
+#
+# So wait on the two things that actually have to move, in order:
+#   1. the ROUTE's header-value set changes  -> the controller has reconciled
+#   2. the POD name changes and goes ready   -> the runtime has picked it up
+# Both are compared against a snapshot taken before the patch.
+route_fingerprint() { route_names | sort | tr '\n' ','; }
+pod_fingerprint()   { pod; }
+
+wait_reconciled() {  # old-route-fingerprint, old-pod, expect-route-change(yes|no)
+    local old_route="$1" old_pod="$2" expect="$3" i
+
+    if [[ "$expect" == "yes" ]]; then
+        for i in $(seq 60); do
+            [[ "$(route_fingerprint)" != "$old_route" ]] && break
+            sleep 5
+        done
+        [[ "$(route_fingerprint)" != "$old_route" ]] || \
+            echo -e "    ${YEL}route never changed after 300s${NC}" >&2
+    fi
+
+    # the workload only restarts when --lora-modules actually changes
+    for i in $(seq 90); do
+        local p; p="$(pod_fingerprint)"
+        if [[ -n "$p" && "$p" != "$old_pod" ]]; then
+            kubectl wait --for=condition=Ready "pod/$p" -n "$NS" --timeout=600s >/dev/null 2>&1 && return 0
+        fi
         sleep 5
     done
-    return 1
+    # no restart is a legitimate outcome; make sure the runtime still answers
+    runtime_models >/dev/null 2>&1
 }
 
 ORIG="$(kubectl get llminferenceservice "$SVC" -n "$NS" -o json | \
@@ -307,6 +369,7 @@ ORIG="$(kubectl get llminferenceservice "$SVC" -n "$NS" -o json | \
 snapshot "before"
 
 echo -e "  ${CYAN}adding adapter-a3${NC}"
+R0="$(route_fingerprint)"; P0="$(pod_fingerprint)"
 kubectl patch llminferenceservice "$SVC" -n "$NS" --type=merge -p "$(python3 -c '
 import json,sys
 lora=json.loads(sys.argv[1]); a=lora.setdefault("adapters",[])
@@ -314,22 +377,26 @@ if not any(x.get("name")=="adapter-a3" for x in a):
     a.append({"name":"adapter-a3","uri":"pvc://lora-budget-models/adapter-a3"})
 print(json.dumps({"spec":{"model":{"lora":lora}}}))
 ' "$ORIG")" >/dev/null
-wait_rollout && snapshot "after add"
+wait_reconciled "$R0" "$P0" yes; snapshot "after add"
 
 echo -e "  ${CYAN}removing adapter-a3${NC}"
+R0="$(route_fingerprint)"; P0="$(pod_fingerprint)"
 kubectl patch llminferenceservice "$SVC" -n "$NS" --type=merge \
     -p "{\"spec\":{\"model\":{\"lora\":${ORIG}}}}" >/dev/null
-wait_rollout && snapshot "after remove"
+wait_reconciled "$R0" "$P0" yes; snapshot "after remove"
 
 echo -e "  ${CYAN}clearing spec.model.lora entirely (#279)${NC}"
+R0="$(route_fingerprint)"; P0="$(pod_fingerprint)"
 kubectl patch llminferenceservice "$SVC" -n "$NS" --type=json \
     -p '[{"op":"remove","path":"/spec/model/lora"}]' >/dev/null 2>&1 || true
-wait_rollout && snapshot "after clear"
+# #279 says the route does NOT shrink here, so do not require it to change
+wait_reconciled "$R0" "$P0" no; snapshot "after clear"
 
 echo -e "  ${CYAN}restoring${NC}"
+R0="$(route_fingerprint)"; P0="$(pod_fingerprint)"
 kubectl patch llminferenceservice "$SVC" -n "$NS" --type=merge \
     -p "{\"spec\":{\"model\":{\"lora\":${ORIG}}}}" >/dev/null
-wait_rollout && snapshot "restored"
+wait_reconciled "$R0" "$P0" no; snapshot "restored"
 fi
 
 # ===========================================================================
@@ -388,16 +455,41 @@ else
 
     # Can it be reached? Service-scoped path should work (URL names the service,
     # body names the adapter). Shared endpoint should NOT (no index entry).
+    #
+    # A status code alone is NOT enough here, and reading one cost a wrong
+    # result once: the shared endpoint returned 200 and looked like a success,
+    # but the 200 came from echo-neighbour's PathPrefix / catching the request
+    # after no kserve rule matched. So report WHO served it, the way
+    # probe-authz-split.sh does -- the echo answers with its own {path,headers}
+    # shape and never carries a "model" field.
+    served_by() {  # body -> a short description of who answered
+        python3 -c '
+import json,sys
+raw=sys.stdin.read()
+try: d=json.loads(raw)
+except Exception: print(raw[:60].replace(chr(10)," ") or "-"); raise SystemExit
+if "headers" in d and "path" in d and "model" not in d:
+    print("ECHO-NEIGHBOUR (no kserve rule matched)")
+elif "model" in d:
+    print("vllm served " + str(d["model"]))
+elif "error" in d or "detail" in d:
+    print(str(d.get("error") or d.get("detail"))[:60])
+else:
+    print(raw[:60])
+'
+    }
     for form in "service:/${NS}/${SVC}/v1/chat/completions:" \
                 "shared:/v1/chat/completions:${QUAL}/ghost-adapter"; do
         IFS=: read -r label path hdr <<<"$form"
-        args=(-sS --max-time 30 -o /dev/null -w '%{http_code}' -X POST
+        fresh_body
+        args=(-sS --max-time 30 -o "$TMPBODY" -w '%{http_code}' -X POST
               -H 'Content-Type: application/json'
               -d '{"model":"ghost-adapter","messages":[{"role":"user","content":"hi"}],"max_tokens":1}')
         [[ -n "$hdr" ]] && args+=(-H "X-Gateway-Model-Name: ${hdr}")
         code=$(curl "${args[@]}" "${GATEWAY_URL}${path}" 2>/dev/null || echo 000)
-        printf 'reach via %s\t%s\t-\t-\t%s\n' "$label" "$code" "ghost-adapter" >> "$OUT"
-        printf '  %-26s http=%s\n' "reach via ${label}" "$code"
+        who=$(served_by < "$TMPBODY" 2>/dev/null || echo "-")
+        printf 'reach via %s\t%s\t-\t-\t%s\n' "$label" "$code" "$who" >> "$OUT"
+        printf '  %-26s http=%-4s %s\n' "reach via ${label}" "$code" "$who"
     done
 
     rt "unload ghost-adapter" POST /v1/unload_lora_adapter \
@@ -409,13 +501,15 @@ else
        '{"lora_name":"adapter-a1"}' \
        "route still matches it"
 
-    code=$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' -X POST \
+    fresh_body
+    code=$(curl -sS --max-time 30 -o "$TMPBODY" -w '%{http_code}' -X POST \
         -H 'Content-Type: application/json' \
         -H "X-Gateway-Model-Name: ${QUAL}/adapter-a1" \
         -d '{"model":"adapter-a1","messages":[{"role":"user","content":"hi"}],"max_tokens":1}' \
         "${GATEWAY_URL}/v1/chat/completions" 2>/dev/null || echo 000)
-    printf 'reach unloaded adapter-a1\t%s\t-\t-\t%s\n' "$code" "indexed but not loaded" >> "$OUT"
-    printf '  %-26s http=%s   %s\n' "reach unloaded a1" "$code" "indexed but not loaded"
+    who=$(served_by < "$TMPBODY" 2>/dev/null || echo "-")
+    printf 'reach unloaded adapter-a1\t%s\t-\t-\t%s\n' "$code" "$who" >> "$OUT"
+    printf '  %-26s http=%-4s %s\n' "reach unloaded a1" "$code" "$who"
 
     rt "reload adapter-a1" POST /v1/load_lora_adapter \
        '{"lora_name":"adapter-a1","lora_path":"/mnt/lora/adapter-a1"}' \

@@ -1,0 +1,59 @@
+# Does /v1/models report the adapters that are actually loaded?
+#
+# The HTTPRoute and the vLLM runtime are two independent registries of the
+# same adapter set, and nothing reconciles them. This records both.
+#
+# kserve registers each adapter under TWO names (workload_lora.go:166-167):
+# the bare name and the fully qualified one. The base is dual-registered too,
+# via --served-model-name, so the cardinality is 2 x (1 + N).
+#
+# gateway http://172.18.255.2   namespace lora-budget   service svc-a
+
+# --- direct on the pod, no gateway in the path (ground truth) ---
+source	id	parent	root
+pod	model-a	-	/mnt/models
+pod	publishers/lora-budget/models/model-a	-	/mnt/models
+pod	publishers/lora-budget/models/adapter-a1	model-a	/mnt/lora/adapter-a1
+pod	adapter-a2	model-a	/mnt/lora/adapter-a2
+pod	publishers/lora-budget/models/adapter-a2	model-a	/mnt/lora/adapter-a2
+pod	adapter-a1	model-a	/mnt/lora/adapter-a1
+
+# entries=6 base=2 adapter-entries=4 spec-adapters=2
+
+# --- /v1/models through the gateway, per addressing form ---
+form	path	header	status	entries	note
+service-path	/lora-budget/svc-a/v1/models	-	200	6	URL names the service
+publisher-path	/publishers/lora-budget/models/model-a/v1/models	-	200	6	URL names the base model
+shared+header	/v1/models	publishers/lora-budget/models/model-a	200	6	header names the model
+shared+adapter	/v1/models	publishers/lora-budget/models/adapter-a1	200	6	header names an adapter
+shared+nohdr	/v1/models	-	200	0	no key at all
+
+# --- the two registries, compared ---
+# in-route: the name appears in an X-Gateway-Model-Name Exact match
+# in-vllm:  the name appears in /v1/models
+name	in-route	in-vllm	verdict
+adapter-a1	no	yes	served but not indexed (service-path only)
+adapter-a2	no	yes	served but not indexed (service-path only)
+model-a	no	yes	served but not indexed (service-path only)
+publishers/lora-budget/models/adapter-a1	yes	yes	reachable
+publishers/lora-budget/models/adapter-a2	yes	yes	reachable
+publishers/lora-budget/models/model-a	yes	yes	reachable
+
+# --- kserve-level churn: patch spec.model.lora.adapters ---
+# Does the route follow? Does the runtime follow? Do they agree?
+step	spec-adapters	route-names	vllm-entries	vllm-vs-spec	route-vs-spec
+before	2	3	4	yes	yes
+after add	3	4	6	yes	yes
+after remove	2	3	4	yes	yes
+after clear	0	3	0	yes	no
+restored	2	3	4	yes	yes
+
+# --- vLLM runtime load/unload ---
+step	http	vllm-entries	route-names	note
+load ghost-adapter	200	5	3	runtime knows it; route does not
+reach via service	200	-	-	vllm served ghost-adapter
+reach via shared	200	-	-	ECHO-NEIGHBOUR (no kserve rule matched)
+unload ghost-adapter	200	4	3	back to the spec's set
+unload adapter-a1	200	3	3	route still matches it
+reach unloaded adapter-a1	404	-	-	{'message': 'The model `adapter-a1` does not exist.', 'type'
+reload adapter-a1	200	4	3	restore

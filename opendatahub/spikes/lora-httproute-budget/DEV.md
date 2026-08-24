@@ -281,11 +281,14 @@ Two things to know before reading the output:
   `body.model` and each is echoed back verbatim. The base model is not
   symmetric: the qualified form is an alias that reports back as `model-a`.
 - **Part C needs `VLLM_ALLOW_RUNTIME_LORA_UPDATING=1`,** which the fixture
-  deliberately does not set. vLLM only registers `/v1/load_lora_adapter` and
-  `/v1/unload_lora_adapter` when it is, so turning it on adds two operations to
-  `/openapi.json` - the inventory `golden/endpoint-budget.tsv` is derived from.
-  The script detects their absence and prints the `kubectl set env` line rather
-  than reporting a 404 as a finding.
+  deliberately does not set. Measured: it takes `/openapi.json` from 22 paths to
+  26, adding `/v1/load_lora_adapter`, `/v1/unload_lora_adapter`, **`/adapters`
+  and `/adapters/{adapter_name}`** - and that is the inventory
+  `golden/endpoint-budget.tsv` is derived from.
+- **Patch the CR, not the Deployment.** `kubectl set env deploy/svc-a-kserve ...`
+  appears to work and is reconciled away by the llmisvc controller within
+  seconds, leaving a pod that looks patched and is not. Add it to
+  `spec.template.containers[0].env` on the LLMInferenceService instead.
 
 ### The authorization split
 
@@ -455,6 +458,14 @@ Every one of these silently produced wrong numbers before it was understood.
   reference an InferencePool makes Istio rebuild the listener filter chain;
   until that lands, POSTs hit a stale ext_proc cluster and 500. Two full runs
   were silently corrupted before `rebaseline.sh` grew a canary wait.
+- **Ordinary adapter churn crash-loops istiod 1.30.3.** Running part B twice
+  (add one adapter, remove it, clear `spec.model.lora`, restore) put istiod into
+  `CrashLoopBackOff` with the #285 signature - `fatal error: concurrent map
+  writes` at `route_collections.go:868` - on a namespace holding four
+  InferencePools and one plain HTTPRoute. It recovers on `kubectl rollout
+  restart deploy/istiod -n istio-system`, and the pool path 500s or times out
+  until it does. **Check istiod before believing any pool-bound result**, and
+  re-run anything measured while it was down.
 - **One LLMISVC at a time for EPP work.** Istio keys its inference-pool ext_proc
   map by bare rule name and kserve names every service's rules identically, so
   with 2+ services on a gateway the EPP overrides cross-wire and requests are
@@ -466,6 +477,16 @@ Every one of these silently produced wrong numbers before it was understood.
   spamming watch errors, not writing route status, LB `<pending>`; a restart
   produced a 0/1 pod. The right move was to roll back and re-measure, not to
   record what the broken cluster said.
+- **Apply the fixtures with `capture-routes.sh`, not `kubectl apply`.** The
+  script also creates the per-EPP `DestinationRule`s, and without them every
+  pool-bound request returns 500 while the route, the pool and the EPP all
+  report healthy (FINDINGS 13). Applying `manifests/fixtures.yaml` by hand
+  skips that and the 500s look like a finding about whatever you were probing.
+- **A pod selector of `.items[0]` is not safe during a rollout.** It picks up
+  Terminating and Succeeded pods, so `kubectl exec` either fails outright or -
+  worse - succeeds against the pod about to die and reports the pre-change
+  state as the post-change result. Filter on `status.phase=Running` plus the
+  `Ready` condition.
 
 ---
 
