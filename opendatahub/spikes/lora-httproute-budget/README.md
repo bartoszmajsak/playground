@@ -6,6 +6,12 @@ with a raw CEL rejection from the apiserver, late in reconcile, phrased in
 terms of `spec.rules[4].matches`. It works in dev with three adapters and
 breaks in production with eight.
 
+> **Three documents, three jobs.** [REPORT.md](REPORT.md) is the decision - the
+> options, what each measured, and what to do. [DEV.md](DEV.md) is the runbook -
+> how to stand the cluster up and re-run every number. [FINDINGS.md](FINDINGS.md)
+> is the evidence, section by section. This README is the design of the harness
+> and why it is shaped the way it is.
+
 The arithmetic, straight off `config-llm-router-route.yaml` and
 `expandLoRAAdapterMatches`:
 
