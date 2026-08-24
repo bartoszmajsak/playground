@@ -93,29 +93,44 @@ summary can be checked against the wire:
 load adapter-1         adapter-1
 ```
 
-**It follows every call.** Each step declares the set it expects and compares:
+Each case declares what it expects and fails against it, so the run is usable
+from CI rather than read by eye.
 
 ```
-  start (reset)          -                                ok
-  load adapter-1         adapter-1                        ok
-  load adapter-2         adapter-1,adapter-2              ok
-  load adapter-3         adapter-1,adapter-2,adapter-3    ok
-  unload adapter-2       adapter-1,adapter-3              ok
-  re-load adapter-2      adapter-1,adapter-2,adapter-3    ok
+1  the listing follows every load and removal
+   ------------------------------------------------------------------
+   PASS  reset                  -
+   PASS  load adapter-1         adapter-1
+   PASS  load adapter-2         adapter-1, adapter-2
+   PASS  load adapter-3         adapter-1, adapter-2, adapter-3
+   PASS  unload adapter-2       adapter-1, adapter-3
+   PASS  reload adapter-2       adapter-1, adapter-2, adapter-3
+   ------------------------------------------------------------------
+   6 passed
+
+2  the listing agrees with what the server serves
+   ------------------------------------------------------------------
+   PASS  adapter-1              listed, serves 200
+   PASS  adapter-2              listed, serves 200
+   PASS  adapter-3              listed, serves 200
+   PASS  adapter-4              not listed, serves 404
+   ------------------------------------------------------------------
+   4 passed
+
+10 passed -- the listing matches the runtime in every state tested
 ```
 
-**It agrees with what serves.** A listing can be internally consistent and still
-not match an inference request, so every state is cross-checked:
+A failure names the case and prints what was expected:
 
-| adapter | listed | serves direct | via gateway | |
-|---|---|---|---|---|
-| adapter-1 | yes | 200 | 200 | agrees |
-| adapter-2 | yes | 200 | 200 | agrees |
-| adapter-3 | yes | 200 | 200 | agrees |
-| adapter-4 | no | 404 | 404 | agrees |
+```
+   FAIL  unload adapter-2       adapter-1, adapter-3
+                                expected: adapter-1, adapter-2, adapter-3
+```
 
-adapter-4 is indexed by the route but never loaded: the route matches and
-forwards, the runtime 404s. The gateway has no view of what is loaded.
+The second check exists because a listing can be internally consistent and
+still not match an inference request, so every state is confirmed by sending
+one. adapter-4 is indexed by the route but never loaded: the route matches and
+forwards, the runtime 404s.
 
 ## The exception: unload removes one name, not one adapter
 
