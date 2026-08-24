@@ -46,10 +46,17 @@ path	body model	header	status	served
 # NAME IN THE HEADER. Drop that requirement and the ceiling disappears with it,
 # with flat adapter names intact and no controller change.
 #
-# CAVEAT, measured earlier in golden/authz-split.tsv: ODH's AuthPolicy rule
-# deny-misrouted-model-header denies exactly this shape - header naming one
-# model while the body names another. On ODH this pattern is refused by policy,
-# not by the gateway. That rule would have to change for any of this to ship.
+# CAVEAT: on ODH this is denied by policy, not by the gateway - but NOT for the
+# reason an earlier version of this file gave. deny-misrouted-model-header does
+# not compare the header to the body. Read from the template, its `when` block
+# fires on: a qualified model-routing header present, AND a path that is not
+# /publishers/{ns}/models/..., AND not /v1/files or /v1/batches. Then it denies
+# unconditionally (patternMatching predicate "false", priority 0).
+#
+# So it is not a header-vs-body agreement check. It denies the ENTIRE
+# header-addressed shared-endpoint family, whatever the body says - which is
+# FINDINGS 10 restated. Making header and body agree does not get around it;
+# the rule itself would have to change.
 
 # ===========================================================================
 # Does /v1/models show the real state of dynamically loaded adapters?
