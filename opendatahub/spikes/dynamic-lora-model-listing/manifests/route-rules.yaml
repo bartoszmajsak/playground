@@ -1,0 +1,538 @@
+rules:
+- backendRefs:
+  - group: inference.networking.x-k8s.io
+    kind: InferencePool
+    name: svc-dyn-inference-pool
+    port: 8000
+    weight: 1
+  filters:
+  - type: URLRewrite
+    urlRewrite:
+      path:
+        replacePrefixMatch: /v1/completions
+        type: ReplacePrefixMatch
+  matches:
+  - path:
+      type: PathPrefix
+      value: /dynamic-lora/svc-dyn/v1/completions
+  name: v1-completions-path
+  timeouts:
+    backendRequest: 0s
+    request: 0s
+- backendRefs:
+  - group: inference.networking.x-k8s.io
+    kind: InferencePool
+    name: svc-dyn-inference-pool
+    port: 8000
+    weight: 1
+  filters:
+  - type: URLRewrite
+    urlRewrite:
+      path:
+        replacePrefixMatch: /v1/chat/completions
+        type: ReplacePrefixMatch
+  matches:
+  - path:
+      type: PathPrefix
+      value: /dynamic-lora/svc-dyn/v1/chat/completions
+  name: v1-chat-completions-path
+  timeouts:
+    backendRequest: 0s
+    request: 0s
+- backendRefs:
+  - group: inference.networking.x-k8s.io
+    kind: InferencePool
+    name: svc-dyn-inference-pool
+    port: 8000
+    weight: 1
+  filters:
+  - type: URLRewrite
+    urlRewrite:
+      path:
+        replacePrefixMatch: /v1/responses
+        type: ReplacePrefixMatch
+  matches:
+  - path:
+      type: PathPrefix
+      value: /dynamic-lora/svc-dyn/v1/responses
+  name: v1-responses-path
+  timeouts:
+    backendRequest: 0s
+    request: 0s
+- backendRefs:
+  - group: inference.networking.x-k8s.io
+    kind: InferencePool
+    name: svc-dyn-inference-pool
+    port: 8000
+    weight: 1
+  filters:
+  - type: URLRewrite
+    urlRewrite:
+      path:
+        replacePrefixMatch: /v1/messages
+        type: ReplacePrefixMatch
+  matches:
+  - path:
+      type: PathPrefix
+      value: /dynamic-lora/svc-dyn/v1/messages
+  name: v1-messages-path
+  timeouts:
+    backendRequest: 0s
+    request: 0s
+- backendRefs:
+  - group: inference.networking.x-k8s.io
+    kind: InferencePool
+    name: svc-dyn-inference-pool
+    port: 8000
+    weight: 1
+  matches:
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/model-dyn
+    path:
+      type: Exact
+      value: /v1/completions
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/model-dyn
+    path:
+      type: Exact
+      value: /v1/completions/
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/model-dyn
+    path:
+      type: Exact
+      value: /v1/chat/completions
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/model-dyn
+    path:
+      type: Exact
+      value: /v1/chat/completions/
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/model-dyn
+    path:
+      type: Exact
+      value: /v1/responses
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/model-dyn
+    path:
+      type: Exact
+      value: /v1/responses/
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/model-dyn
+    path:
+      type: Exact
+      value: /v1/messages
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/model-dyn
+    path:
+      type: Exact
+      value: /v1/messages/
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/adapter-1
+    path:
+      type: Exact
+      value: /v1/completions
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/adapter-2
+    path:
+      type: Exact
+      value: /v1/completions
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/adapter-3
+    path:
+      type: Exact
+      value: /v1/completions
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/adapter-4
+    path:
+      type: Exact
+      value: /v1/completions
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/adapter-1
+    path:
+      type: Exact
+      value: /v1/completions/
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/adapter-2
+    path:
+      type: Exact
+      value: /v1/completions/
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/adapter-3
+    path:
+      type: Exact
+      value: /v1/completions/
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/adapter-4
+    path:
+      type: Exact
+      value: /v1/completions/
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/adapter-1
+    path:
+      type: Exact
+      value: /v1/chat/completions
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/adapter-2
+    path:
+      type: Exact
+      value: /v1/chat/completions
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/adapter-3
+    path:
+      type: Exact
+      value: /v1/chat/completions
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/adapter-4
+    path:
+      type: Exact
+      value: /v1/chat/completions
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/adapter-1
+    path:
+      type: Exact
+      value: /v1/chat/completions/
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/adapter-2
+    path:
+      type: Exact
+      value: /v1/chat/completions/
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/adapter-3
+    path:
+      type: Exact
+      value: /v1/chat/completions/
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/adapter-4
+    path:
+      type: Exact
+      value: /v1/chat/completions/
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/adapter-1
+    path:
+      type: Exact
+      value: /v1/responses
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/adapter-2
+    path:
+      type: Exact
+      value: /v1/responses
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/adapter-3
+    path:
+      type: Exact
+      value: /v1/responses
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/adapter-4
+    path:
+      type: Exact
+      value: /v1/responses
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/adapter-1
+    path:
+      type: Exact
+      value: /v1/responses/
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/adapter-2
+    path:
+      type: Exact
+      value: /v1/responses/
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/adapter-3
+    path:
+      type: Exact
+      value: /v1/responses/
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/adapter-4
+    path:
+      type: Exact
+      value: /v1/responses/
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/adapter-1
+    path:
+      type: Exact
+      value: /v1/messages
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/adapter-2
+    path:
+      type: Exact
+      value: /v1/messages
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/adapter-3
+    path:
+      type: Exact
+      value: /v1/messages
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/adapter-4
+    path:
+      type: Exact
+      value: /v1/messages
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/adapter-1
+    path:
+      type: Exact
+      value: /v1/messages/
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/adapter-2
+    path:
+      type: Exact
+      value: /v1/messages/
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/adapter-3
+    path:
+      type: Exact
+      value: /v1/messages/
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/adapter-4
+    path:
+      type: Exact
+      value: /v1/messages/
+  name: v1-model-routing
+  timeouts:
+    backendRequest: 0s
+    request: 0s
+- backendRefs:
+  - group: inference.networking.x-k8s.io
+    kind: InferencePool
+    name: svc-dyn-inference-pool
+    port: 8000
+    weight: 1
+  filters:
+  - type: URLRewrite
+    urlRewrite:
+      path:
+        replacePrefixMatch: /v1/completions
+        type: ReplacePrefixMatch
+  matches:
+  - path:
+      type: PathPrefix
+      value: /publishers/dynamic-lora/models/model-dyn/v1/completions
+  name: v1-completions-publisher-path
+  timeouts:
+    backendRequest: 0s
+    request: 0s
+- backendRefs:
+  - group: inference.networking.x-k8s.io
+    kind: InferencePool
+    name: svc-dyn-inference-pool
+    port: 8000
+    weight: 1
+  filters:
+  - type: URLRewrite
+    urlRewrite:
+      path:
+        replacePrefixMatch: /v1/chat/completions
+        type: ReplacePrefixMatch
+  matches:
+  - path:
+      type: PathPrefix
+      value: /publishers/dynamic-lora/models/model-dyn/v1/chat/completions
+  name: v1-chat-completions-publisher-path
+  timeouts:
+    backendRequest: 0s
+    request: 0s
+- backendRefs:
+  - group: inference.networking.x-k8s.io
+    kind: InferencePool
+    name: svc-dyn-inference-pool
+    port: 8000
+    weight: 1
+  filters:
+  - type: URLRewrite
+    urlRewrite:
+      path:
+        replacePrefixMatch: /v1/responses
+        type: ReplacePrefixMatch
+  matches:
+  - path:
+      type: PathPrefix
+      value: /publishers/dynamic-lora/models/model-dyn/v1/responses
+  name: v1-responses-publisher-path
+  timeouts:
+    backendRequest: 0s
+    request: 0s
+- backendRefs:
+  - group: inference.networking.x-k8s.io
+    kind: InferencePool
+    name: svc-dyn-inference-pool
+    port: 8000
+    weight: 1
+  filters:
+  - type: URLRewrite
+    urlRewrite:
+      path:
+        replacePrefixMatch: /v1/messages
+        type: ReplacePrefixMatch
+  matches:
+  - path:
+      type: PathPrefix
+      value: /publishers/dynamic-lora/models/model-dyn/v1/messages
+  name: v1-messages-publisher-path
+  timeouts:
+    backendRequest: 0s
+    request: 0s
+- backendRefs:
+  - group: ''
+    kind: Service
+    name: svc-dyn-kserve-workload-svc
+    port: 8000
+    weight: 1
+  filters:
+  - type: URLRewrite
+    urlRewrite:
+      path:
+        replacePrefixMatch: /
+        type: ReplacePrefixMatch
+  matches:
+  - path:
+      type: PathPrefix
+      value: /publishers/dynamic-lora/models/model-dyn
+  name: v1-publisher-path-catch-all
+  timeouts:
+    backendRequest: 0s
+    request: 0s
+- backendRefs:
+  - group: ''
+    kind: Service
+    name: svc-dyn-kserve-workload-svc
+    port: 8000
+    weight: 1
+  filters:
+  - type: URLRewrite
+    urlRewrite:
+      path:
+        replacePrefixMatch: /
+        type: ReplacePrefixMatch
+  matches:
+  - path:
+      type: PathPrefix
+      value: /dynamic-lora/svc-dyn
+  name: v1-catch-all-path
+  timeouts:
+    backendRequest: 0s
+    request: 0s
+- backendRefs:
+  - group: ''
+    kind: Service
+    name: svc-dyn-kserve-workload-svc
+    port: 8000
+    weight: 1
+  matches:
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/model-dyn
+    path:
+      type: PathPrefix
+      value: /
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/adapter-1
+    path:
+      type: PathPrefix
+      value: /
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/adapter-2
+    path:
+      type: PathPrefix
+      value: /
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/adapter-3
+    path:
+      type: PathPrefix
+      value: /
+  - headers:
+    - name: X-Gateway-Model-Name
+      type: Exact
+      value: publishers/dynamic-lora/models/adapter-4
+    path:
+      type: PathPrefix
+      value: /
+  name: v1-catch-all-model-routing
+  timeouts:
+    backendRequest: 0s
+    request: 0s

@@ -1,0 +1,93 @@
+# On-demand LoRA: adapters in a PVC, none declared in spec.
+#
+# TEMPLATE. setup.sh splices manifests/route-rules.yaml into
+# spec.router.route.http.spec. Applying this directly leaves an empty rule set.
+#
+# spec.model.lora is absent, so attachLoRAAdapters returns early at
+# len(adapters)==0 (workload_lora.go:148) and the controller injects neither
+# --enable-lora nor a PVC mount. Both are supplied below:
+#
+#   --enable-lora   VLLM_ADDITIONAL_ARGS, interpolated by the preset into
+#                   `eval exec vllm serve ... ${VLLM_ADDITIONAL_ARGS}`
+#   PVC             spec.template volumes/volumeMounts at /mnt/lora
+#
+# VLLM_ALLOW_RUNTIME_LORA_UPDATING=1 registers /v1/load_lora_adapter,
+# /v1/unload_lora_adapter, POST /adapters and DELETE /adapters/{name}. Without
+# it those paths do not exist; with it /openapi.json goes from 22 to 26.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: dynlora-models
+  namespace: dynamic-lora
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 128Mi
+---
+apiVersion: serving.kserve.io/v1alpha2
+kind: LLMInferenceService
+metadata:
+  name: svc-dyn
+  namespace: dynamic-lora
+spec:
+  model:
+    uri: hf://hmellor/tiny-random-LlamaForCausalLM
+    name: model-dyn
+    # No lora block: every adapter arrives via an admin call at runtime.
+  replicas: 1
+  router:
+    scheduler: {}
+    gateway: {}
+    route:
+      http:
+        # setup.sh splices manifests/route-rules.yaml here: rules captured from
+        # a kserve-managed route for four adapters. Inline keeps the managed
+        # gateway and kserve's ownership of the HTTPRoute; it only stops the
+        # rules being derived from spec.model.lora.
+        #
+        # Route indexes model-dyn + adapter-1..4 permanently; runtime starts
+        # empty.
+        spec:
+          rules: []
+  template:
+    volumes:
+      - name: lora-store
+        persistentVolumeClaim:
+          claimName: dynlora-models
+    containers:
+      - name: main
+        image: vllm/vllm-openai-cpu:v0.19.0
+        # Preset sets runAsNonRoot: true for its CUDA image; the CPU image runs
+        # as root and kubelet refuses the container without this.
+        securityContext:
+          runAsNonRoot: false
+          runAsUser: 0
+        volumeMounts:
+          - name: lora-store
+            mountPath: /mnt/lora
+        env:
+          - name: VLLM_CPU_KVCACHE_SPACE
+            value: "1"
+          - name: VLLM_LOGGING_LEVEL
+            value: INFO
+          # kserve emits --max-loras only when LoRASpec.MaxAdapters is set;
+          # vLLM defaults to 1, keeping one adapter resident and swapping.
+          - name: VLLM_ADDITIONAL_ARGS
+            value: "--enable-lora --max-loras=4"
+          - name: VLLM_ALLOW_RUNTIME_LORA_UPDATING
+            value: "1"
+        resources:
+          requests: { cpu: "2", memory: 4Gi }
+          limits: { cpu: "8", memory: 12Gi }
+        readinessProbe:
+          httpGet: { path: /health, port: 8000 }
+          initialDelaySeconds: 20
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 60
+        startupProbe:
+          httpGet: { path: /health, port: 8000 }
+          periodSeconds: 10
+          failureThreshold: 60
