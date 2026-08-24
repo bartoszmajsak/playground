@@ -178,39 +178,48 @@ probe-listing.sh              the three checks above, printed
 
 ## Running it
 
-Needs a cluster with kserve, Gateway API, Istio and a `kserve-ingress-gateway` -
-`../lora-httproute-budget/setup.sh --with-kserve` builds one, and that spike's
-`DEV.md` covers the gotchas.
+Self-contained. Needs `kind`, `kubectl`, `helm`, `docker`, `curl`, `python3`.
 
 ```bash
-./setup.sh              # 4 adapters
-./setup.sh 7            # more
-./setup.sh --teardown
+./setup.sh                  # kind cluster + everything + fixture, 4 adapters
+./setup.sh 7                # more adapters
+./setup.sh --skip-cluster   # fixture only, against a cluster you already have
+./setup.sh --teardown       # drop the namespace
+./setup.sh --destroy        # drop the whole kind cluster
 ```
 
-It generates the adapters (pure stdlib, no torch), seeds the PVC through a
-throwaway pod, does the declare/capture/strip dance for the route, adds the
-`DestinationRule`, and waits on a real request rather than a sleep.
+It builds a kind cluster with MetalLB, Gateway API, cert-manager, the inference
+extension, LWS, Istio and kserve, then generates the adapters (pure stdlib, no
+torch), seeds the PVC through a throwaway pod, does the declare/capture/strip
+dance for the route, adds the `DestinationRule`, and waits on a real request
+rather than a sleep. Versions track kserve's own `kserve-deps.env`.
+
+It writes a scoped `.kubeconfig` next to the script and leaves your
+`~/.kube/config` current context alone.
 
 Then:
 
 ```bash
+export KUBECONFIG=$PWD/.kubeconfig
 ./probe-listing.sh
 ```
 
-`setup.sh` handles three things that otherwise waste an hour, but they are
-worth knowing about because they bite anywhere:
+`setup.sh` handles four things that otherwise waste an hour, but they are worth
+knowing about because they bite anywhere:
 
+- **Istio must be >= 1.29.** Below that it installs the ext_proc filter as a
+  placeholder and never attaches the per-route override, so the endpoint picker
+  is deployed, healthy, resolved and silently never invoked.
 - **The EPP needs a `DestinationRule`** disabling mTLS origination, or every
   pool-bound request returns 500 while the route, the pool and the EPP all
   report healthy. One per EPP Service.
 - **`--max-loras` defaults to 1.** kserve only emits it when
   `LoRASpec.MaxAdapters` is set, so without it vLLM keeps one adapter resident
   and swaps. The fixture sets `--max-loras=4` explicitly.
-- **The route churn can knock istiod over.** Writing the route twice in quick
-  succession trips istio's `mergeHTTPRoutes` data race; istiod crash-loops, its
-  validating webhook stops answering, and the next apply fails with "connection
-  refused". `setup.sh` detects it and restarts.
+- **The route churn can knock istiod over.** Writing the route several times in
+  quick succession trips istio's `mergeHTTPRoutes` data race; istiod
+  crash-loops, its validating webhook stops answering, and the next apply fails
+  with "connection refused". `setup.sh` detects it and restarts.
 
 ## What this does not cover
 
