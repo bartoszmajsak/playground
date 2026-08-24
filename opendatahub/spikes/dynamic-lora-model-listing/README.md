@@ -4,6 +4,19 @@ Does `/v1/models` report the true state of dynamically loaded LoRA adapters?
 
 Yes, with one exception, covered below.
 
+## Before relying on this
+
+vLLM logs a warning when the runtime endpoints are enabled:
+
+```
+LoRA dynamic loading & unloading is enabled in the API server.
+This should ONLY be used for local development!
+```
+
+The endpoints are unauthenticated and mutate a running server, so upstream does
+not treat them as a production interface. Everything below describes behaviour
+that works; it does not argue the mechanism is supportable as-is.
+
 ## Setup
 
 - a PVC with four adapters, none declared in any spec
@@ -266,7 +279,14 @@ export KUBECONFIG=$PWD/.kubeconfig
   Service, or every pool-bound request 500s while the route, pool and EPP all
   report healthy.
 - **`--max-loras` defaults to 1.** kserve emits it only when
-  `LoRASpec.MaxAdapters` is set. The fixture sets `--max-loras=4`.
+  `LoRASpec.MaxAdapters` is set, so without the fixture's `--max-loras=4` the
+  server keeps one adapter resident and swaps. Confirmed applied: vLLM reports
+  `enable_lora: True, max_loras: 4` as non-default args at startup.
+- **`--enable-lora` ends up duplicated when adapters are declared.** The preset
+  interpolates the fixture's arguments and the controller's onto one command
+  line, and the controller adds the flag unconditionally. Its guard against
+  double injection only looks for a module list, which the fixture does not
+  set. Harmless, since a repeated store-true flag takes the last occurrence.
 - **Route churn can crash istiod.** Several routes merging on one gateway trips
   the `mergeHTTPRoutes` data race; the validating webhook stops answering and
   the next apply fails with connection refused. `setup.sh` restarts it.

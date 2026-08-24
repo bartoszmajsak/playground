@@ -72,8 +72,14 @@ spec:
             value: "1"
           - name: VLLM_LOGGING_LEVEL
             value: INFO
-          # kserve emits --max-loras only when LoRASpec.MaxAdapters is set;
-          # vLLM defaults to 1, keeping one adapter resident and swapping.
+          # Both flags are load-bearing here. With no lora block the controller
+          # injects nothing, so --enable-lora is the only thing enabling LoRA;
+          # and kserve emits --max-loras only when LoRASpec.MaxAdapters is set,
+          # so without it vLLM defaults to 1 resident adapter and swaps.
+          #
+          # When adapters ARE declared (check-mixed.sh) the controller adds its
+          # own --enable-lora and the flag appears twice. Harmless: a repeated
+          # store-true flag takes the last occurrence.
           - name: VLLM_ADDITIONAL_ARGS
             value: "--enable-lora --max-loras=4"
           - name: VLLM_ALLOW_RUNTIME_LORA_UPDATING
