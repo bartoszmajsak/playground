@@ -137,6 +137,41 @@ still not match an inference request, so every state is confirmed by sending
 one. adapter-4 is indexed by the route but never loaded: the route matches and
 forwards, the runtime 404s.
 
+## Can declared and runtime adapters coexist?
+
+Yes. `./check-mixed.sh` declares one adapter in the spec, loads another at
+runtime, and checks both. It is slow - declaring adapters rewrites the workload,
+so it waits out two vLLM starts - which is why it is separate from `check.sh`.
+
+```
+1  declared adapters appear once the workload rolls
+   PASS  declared adapter listed    2
+
+2  runtime loading still works alongside them
+   PASS  runtime adapter listed     1
+   PASS  declared still listed      2
+
+3  both kinds serve
+   PASS  declared, bare name        200
+   PASS  declared, qualified name   200
+   PASS  runtime-loaded             200
+
+4  a restart keeps the declared set and drops the rest
+   PASS  declared survives          2
+   PASS  runtime one does not       0
+```
+
+The listing distinguishes them by count: a declared adapter appears twice, bare
+and qualified; a runtime-loaded one appears once.
+
+**The restart is the dividing line.** Declared adapters are rebuilt from the
+spec, runtime ones are not, and nothing records that a runtime adapter existed.
+The route is derived from the spec too, so it never indexes a runtime adapter -
+those are reachable on the service-scoped path only.
+
+So the two coexist, but they are not equivalent: one is state the controller
+owns and restores, the other is state that lives only in the process.
+
 ## The exception: unload removes one name, not one adapter
 
 Affects spec-declared adapters only, not the on-demand ones above.
@@ -189,6 +224,7 @@ one breaks the form used on publisher paths. Both have callers.
 setup.sh                      builds everything, --destroy removes it
 lora.sh                       list / load / unload  (unload clears both names)
 check.sh                      does /v1/models match reality?  -v for the wire
+check-mixed.sh                can declared and runtime adapters coexist?
 manifests/fixture.yaml        PVC + LLMISVC, no lora block
 manifests/route-rules.yaml    route captured once from a kserve-managed one
 hack/gen-adapter.py           tiny no-op LoRA adapters, stdlib only
