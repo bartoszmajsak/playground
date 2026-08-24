@@ -19,21 +19,14 @@
 #      WaitForFirstConsumer PVC does not bind until something mounts it, and the
 #      workload must not be that something: vLLM has to start with the adapters
 #      already on disk
-#   3. BOOTSTRAP: apply the service WITH spec.model.lora, so the controller
-#      generates its own route
-#   4. capture those rules, then strip spec.model.lora
-#   5. re-apply with the captured rules inline via spec.router.route.http.spec
-#   6. DestinationRule for the endpoint picker
-#   7. wait on a real request, not a sleep
+#   3. apply the fixture with the committed route rules spliced in
+#   4. DestinationRule for the endpoint picker
+#   5. wait on a real request, not a sleep
 #
-# Steps 3-5 exist so the route is byte-identical to a kserve-managed one for N
-# adapters while the runtime starts empty. Hand-writing the route would introduce
-# a difference that then has to be reasoned about in every result.
 #
 # Usage:
-#   ./setup.sh                  # cluster + fixture, 4 adapters
-#   ./setup.sh 7                # more adapters
-#   ./setup.sh --skip-cluster   # fixture only, against the existing cluster
+#   ./setup.sh                  # cluster + fixture
+#   ./setup.sh --skip-cluster   # fixture only, against an existing cluster
 #   ./setup.sh --teardown       # delete the namespace
 #   ./setup.sh --destroy        # delete the whole kind cluster
 #
@@ -97,8 +90,9 @@ case "${1:-}" in
     --skip-cluster) SKIP_CLUSTER=true; shift ;;
 esac
 
-A="${1:-4}"
-ADAPTERS=(); for i in $(seq 1 "$A"); do ADAPTERS+=("adapter-${i}"); done
+# Four, matching the committed route. Not parameterised: changing it means
+# recapturing the route, which is a once-in-a-while job, not a flag.
+ADAPTERS=(adapter-1 adapter-2 adapter-3 adapter-4)
 
 # ===========================================================================
 # Cluster
@@ -329,39 +323,20 @@ kubectl exec -n "$NS" lora-seeder -- ls /models | sed 's/^/  /'
 kubectl delete pod lora-seeder -n "$NS" --wait=false >/dev/null 2>&1
 ok "seeded"
 
-info "bootstrap: declaring ${A} adapters so the controller emits a route"
-python3 - "$A" "${SCRIPT_DIR}/manifests/fixture.yaml" >"${STAGE}/bootstrap.yaml" <<'PY'
-import sys, yaml
-n, path = int(sys.argv[1]), sys.argv[2]
-docs = [d for d in yaml.safe_load_all(open(path)) if d]
-for d in docs:
-    if d.get("kind") == "LLMInferenceService":
-        d["spec"]["model"]["lora"] = {"adapters": [
-            {"name": f"adapter-{i}", "uri": f"pvc://dynlora-models/adapter-{i}"}
-            for i in range(1, n + 1)]}
-        # managed route for the bootstrap: the template's inline block is an
-        # empty rule set, which is not applyable
-        d["spec"]["router"]["route"] = {}
-yaml.safe_dump_all(docs, sys.stdout, sort_keys=False)
-PY
-kubectl apply -f "${STAGE}/bootstrap.yaml" >/dev/null
-ok "applied"
-
-info "capturing the generated route"
-"${SCRIPT_DIR}/hack/capture-route.sh" "$A" 2>&1 | sed 's/^/  /'
-
-info "re-applying with the captured rules inline, no spec.model.lora"
-python3 - "${SCRIPT_DIR}" >"${STAGE}/final.yaml" <<'PY'
+info "applying the fixture"
+# manifests/route-rules.yaml was captured once from a kserve-managed route for
+# four adapters and committed. Splicing it in keeps the route identical to a
+# managed one while spec.model.lora stays absent, so the runtime starts empty.
+python3 - "${SCRIPT_DIR}" >"${STAGE}/final.yaml" <<'PYEOF'
 import sys, yaml
 root = sys.argv[1]
 rules = yaml.safe_load(open(root + "/manifests/route-rules.yaml"))["rules"]
 docs = [d for d in yaml.safe_load_all(open(root + "/manifests/fixture.yaml")) if d]
 for d in docs:
     if d.get("kind") == "LLMInferenceService":
-        d["spec"]["model"].pop("lora", None)
         d["spec"]["router"]["route"] = {"http": {"spec": {"rules": rules}}}
 yaml.safe_dump_all(docs, sys.stdout, sort_keys=False)
-PY
+PYEOF
 kubectl apply -f "${STAGE}/final.yaml" >/dev/null
 ok "applied"
 
@@ -431,10 +406,7 @@ cat <<EOF
   export KUBECONFIG=${KUBECONFIG}
   export B=${BASE_URL}
 
-  curl -s \$B/v1/models | jq -r '.data[] | select(.parent) | .id'
-  curl -s -X POST \$B/v1/load_lora_adapter -H 'Content-Type: application/json' \\
-    -d '{"lora_name":"adapter-1","lora_path":"/mnt/lora/adapter-1"}'
-
 EOF
-printf '  %b./probe-listing.sh%b   the three checks\n' "$BOLD" "$NC"
-printf '  %b./adapterctl.sh list%b load/unload treating both names as one adapter\n\n' "$BOLD" "$NC"
+printf '  %b./lora.sh list%b            what is loaded right now\n' "$BOLD" "$NC"
+printf '  %b./lora.sh load adapter-1%b  from the PVC, no restart\n' "$BOLD" "$NC"
+printf '  %b./check.sh%b                does /v1/models match reality?\n\n' "$BOLD" "$NC"

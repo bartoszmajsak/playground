@@ -20,10 +20,12 @@ So the route indexes `model-dyn` plus `adapter-1..4` permanently, while the
 runtime starts with zero adapters. Every combination of *indexed* and *loaded*
 is reachable without touching the gateway.
 
-The route is captured rather than hand-written on purpose. A hand-rolled shape
-differs from the managed one and then every result has to be read through that
-difference. `hack/capture-route.sh` declares the adapters, waits for the
-controller, captures what it emitted, and strips the declaration again.
+The route was captured rather than hand-written on purpose: a hand-rolled shape
+differs from the managed one, and then every result has to be read through that
+difference. It was taken once from a real kserve-managed route for four
+adapters and committed as `manifests/route-rules.yaml`. To refresh it, declare
+the adapters in `spec.model.lora`, let the controller reconcile, copy
+`.spec.rules` out of the generated HTTPRoute, and remove the declaration.
 
 ## Try it
 
@@ -88,7 +90,7 @@ the only view of loaded adapters that exists**.
 
 ## Does the listing tell the truth?
 
-Yes. `./probe-listing.sh` checks it three ways and prints the results.
+Yes. `./check.sh` asks it two ways and prints the results.
 
 **It follows every call.** Load four, unload two, re-load one - the list matches
 at every step, with no lag and no leaked entries.
@@ -106,10 +108,6 @@ what serves, so every state is cross-checked with real inference:
 Note adapter-4 is **indexed in the route but not loaded**: the route matches and
 forwards, and the runtime 404s. The gateway has no idea.
 
-**Failed operations do not corrupt it.** Loading an already-loaded name (400),
-unloading one that was never loaded (404), a malformed payload (400) - the list
-is untouched in every case.
-
 ## The exception: unload does not unload
 
 This is the one place the listing becomes a trap, and it only affects adapters
@@ -124,7 +122,7 @@ adapter table is a plain dict keyed by name, and unload takes a single
                             bare listed  qual listed  bare serves  QUALIFIED via gateway
 both names registered       yes          yes          200          200
 after naive unload          no           yes          404          200   <-- still serving
-after adapterctl unload     no           no           404          404
+after ./lora.sh unload      no           no           404          404
 restored                    yes          yes          200          200
 ```
 
@@ -139,17 +137,15 @@ The lie is in the mental model that one adapter equals one name.
 
 ### The fix, with what we have today
 
-`adapterctl.sh` treats the pair as the unit and verifies afterwards:
+`lora.sh` treats the pair as the unit and verifies afterwards:
 
 ```bash
-./adapterctl.sh load   adapter-1     # registers both names
-./adapterctl.sh unload adapter-1     # removes both, then checks
-./adapterctl.sh verify adapter-1     # is it REALLY gone?
-./adapterctl.sh list
+./lora.sh unload adapter-1     # removes BOTH names, then confirms
 ```
 
-`unload` always ends with `verify`, which fails loudly if any name survived -
-which is exactly what the raw API does not do.
+It fails loudly if any name survived, which is exactly what the raw API does
+not do. Adapters loaded through `./lora.sh load` register under one name, so
+the trap does not arise for them -- it is spec-declared adapters that get two.
 
 ### The fix that belongs upstream
 
@@ -167,13 +163,12 @@ callers.
 ## Layout
 
 ```
-setup.sh                      builds the whole thing, --teardown removes it
-manifests/fixture.yaml        PVC + LLMISVC, no lora block, route inline
-manifests/route-rules.yaml    rules captured from the managed route (do not hand-edit)
-hack/capture-route.sh         declare -> capture -> strip, regenerates the above
+setup.sh                      builds everything, --destroy removes it
+lora.sh                       list / load / unload  (unload clears both names)
+check.sh                      does /v1/models match reality?
+manifests/fixture.yaml        PVC + LLMISVC, no lora block
+manifests/route-rules.yaml    route captured once from a kserve-managed one
 hack/gen-adapter.py           tiny no-op LoRA adapters, stdlib only
-adapterctl.sh                 load/unload as one adapter, two names
-probe-listing.sh              the three checks above, printed
 ```
 
 ## Running it
@@ -181,8 +176,7 @@ probe-listing.sh              the three checks above, printed
 Self-contained. Needs `kind`, `kubectl`, `helm`, `docker`, `curl`, `python3`.
 
 ```bash
-./setup.sh                  # kind cluster + everything + fixture, 4 adapters
-./setup.sh 7                # more adapters
+./setup.sh                  # kind cluster + everything + fixture
 ./setup.sh --skip-cluster   # fixture only, against a cluster you already have
 ./setup.sh --teardown       # drop the namespace
 ./setup.sh --destroy        # drop the whole kind cluster
@@ -201,7 +195,7 @@ Then:
 
 ```bash
 export KUBECONFIG=$PWD/.kubeconfig
-./probe-listing.sh
+./check.sh
 ```
 
 `setup.sh` handles four things that otherwise waste an hour, but they are worth
