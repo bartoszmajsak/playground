@@ -23,12 +23,32 @@ alternating base and adapter	12	12	0	0
 # in-window = requests that STARTED while adapter-a1 was unloaded.
 # Without that column the phase reports a clean run while measuring nothing.
 cycle	unload-http	reload-http	total	ok	notfound	other	in-window	window-404	window-200
-1	200	200	1390	36	1354	0	1333	1333	0
-2	200	200	1336	37	1299	0	1275	1275	0
-3	200	200	1324	36	1288	0	1267	1267	0
+1	200	200	1335	39	1296	0	1273	1270	3
+2	200	200	1299	42	1257	0	1233	1233	0
+3	200	200	1350	42	1308	0	1284	1284	0
 
 # --- phase 3: runtime-only adapter, no route entry, no restart ---
 step	service-path	shared-endpoint	note
 before load	404|{'message': 'The model `ghost-dyn` does 	200|echo	not registered anywhere
 after load	200|ghost-dyn	200|echo	runtime yes, route no
 after unload	404|{'message': 'The model `ghost-dyn` does 	200|echo	back to neither
+
+# --- phase 4: does /v1/models track the runtime through churn? ---
+# Snapshot after every operation. Watching for drift: entries that leak,
+# linger, or come back with different metadata than they went in with.
+cycle	step	entries	base	adapters	ghost-present	ids
+0	baseline	6	2	4	no	adapter-a1,adapter-a2,model-a,publishers/lora-budget/models/adapter-a1,publishers/lora-budget/models/adapter-a2,publishers/lora-budget/models/model-a
+1	after load	7	2	5	yes	adapter-a1,adapter-a2,ghost-cycle,model-a,publishers/lora-budget/models/adapter-a1,publishers/lora-budget/models/adapter-a2,publishers/lora-budget/models/model-a
+1	after unload	6	2	4	no	adapter-a1,adapter-a2,model-a,publishers/lora-budget/models/adapter-a1,publishers/lora-budget/models/adapter-a2,publishers/lora-budget/models/model-a
+2	after load	7	2	5	yes	adapter-a1,adapter-a2,ghost-cycle,model-a,publishers/lora-budget/models/adapter-a1,publishers/lora-budget/models/adapter-a2,publishers/lora-budget/models/model-a
+2	after unload	6	2	4	no	adapter-a1,adapter-a2,model-a,publishers/lora-budget/models/adapter-a1,publishers/lora-budget/models/adapter-a2,publishers/lora-budget/models/model-a
+3	after load	7	2	5	yes	adapter-a1,adapter-a2,ghost-cycle,model-a,publishers/lora-budget/models/adapter-a1,publishers/lora-budget/models/adapter-a2,publishers/lora-budget/models/model-a
+3	after unload	6	2	4	no	adapter-a1,adapter-a2,model-a,publishers/lora-budget/models/adapter-a1,publishers/lora-budget/models/adapter-a2,publishers/lora-budget/models/model-a
+
+# --- unloading one name of a dual-registered adapter ---
+# kserve registers adapter-a1 twice (workload_lora.go:166-167). Unload
+# takes a single lora_name, so it removes ONE of the two.
+step	bare-via-gateway	qualified-via-gateway	in-model-list
+both registered	200|adapter-a1	200|publishers/lora-budget/models/adapter-a1	2
+bare name unloaded	404|{'message': 'The model `adapter-a1` does	200|publishers/lora-budget/models/adapter-a1	1
+restored	200|adapter-a1	200|publishers/lora-budget/models/adapter-a1	2

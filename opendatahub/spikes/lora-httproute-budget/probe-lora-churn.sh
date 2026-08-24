@@ -25,7 +25,7 @@
 #
 # Usage:
 #   ./probe-lora-churn.sh                 # all phases
-#   ./probe-lora-churn.sh --phase 2       # just one
+#   ./probe-lora-churn.sh --phase 2       # just one (1-4)
 #
 # Environment:
 #   REQS      requests per traffic burst (default 30)
@@ -282,6 +282,75 @@ record "after load" "runtime yes, route no"
 echo -e "  ${CYAN}unloading${NC}"
 lora unload ghost-dyn >/dev/null
 record "after unload" "back to neither"
+fi
+
+# ===========================================================================
+# Phase 4 -- what /v1/models says across repeated load/unload cycles
+# ===========================================================================
+if [[ "$PHASE" == "all" || "$PHASE" == 4 ]]; then
+echo ""
+echo -e "${BOLD}Phase 4: /v1/models across repeated cycles${NC}"
+hr
+{ echo ""; echo "# --- phase 4: does /v1/models track the runtime through churn? ---"
+  echo "# Snapshot after every operation. Watching for drift: entries that leak,"
+  echo "# linger, or come back with different metadata than they went in with."
+  printf 'cycle\tstep\tentries\tbase\tadapters\tghost-present\tids\n'; } >> "$OUT"
+
+model_ids() {
+    kubectl exec -n "$NS" "$P" -c main -- \
+        curl -sf --max-time 10 localhost:8000/v1/models 2>/dev/null | python3 -c '
+import json,sys
+try: d=json.load(sys.stdin)
+except Exception: print("UNREADABLE"); raise SystemExit
+print(",".join(sorted(m["id"] for m in d.get("data", []))))
+'
+}
+snap() {  # cycle, step
+    local ids n base ad ghost
+    ids="$(model_ids)"
+    n=$(awk -F, '{print NF}' <<<"$ids")
+    base=$(kubectl exec -n "$NS" "$P" -c main -- curl -sf --max-time 10 \
+        localhost:8000/v1/models 2>/dev/null | python3 -c '
+import json,sys
+d=json.load(sys.stdin); print(sum(1 for m in d["data"] if not m.get("parent")))' 2>/dev/null || echo "?")
+    ad=$((n - base))
+    ghost=$(grep -q 'ghost-cycle' <<<"$ids" && echo yes || echo no)
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$n" "$base" "$ad" "$ghost" "$ids" >> "$OUT"
+    printf '  %-3s %-22s entries=%-3s base=%-3s adapters=%-3s ghost=%s\n' "$1" "$2" "$n" "$base" "$ad" "$ghost"
+}
+
+snap 0 "baseline"
+for c in $(seq "$CYCLES"); do
+    lora load ghost-cycle /mnt/lora/adapter-a2 >/dev/null
+    snap "$c" "after load"
+    lora unload ghost-cycle >/dev/null
+    snap "$c" "after unload"
+done
+
+# The asymmetry that matters: kserve registers each adapter under TWO names,
+# and unload takes ONE name. So unloading by the bare name leaves the qualified
+# one serving -- and the qualified one is what the HTTPRoute matches on.
+echo ""
+echo -e "  ${BOLD}dual registration vs unload${NC}"
+{ echo ""; echo "# --- unloading one name of a dual-registered adapter ---"
+  echo "# kserve registers adapter-a1 twice (workload_lora.go:166-167). Unload"
+  echo "# takes a single lora_name, so it removes ONE of the two."
+  printf 'step\tbare-via-gateway\tqualified-via-gateway\tin-model-list\n'; } >> "$OUT"
+
+pair_probe() {  # label
+    local bare qual listed
+    bare=$(ask "adapter-a1" "/${NS}/${SVC}/v1/chat/completions")
+    qual=$(ask "${QUAL}/adapter-a1" "/v1/chat/completions" "${QUAL}/adapter-a1")
+    listed="$(model_ids | tr ',' '\n' | grep -c 'adapter-a1' || echo 0)"
+    printf '%s\t%s\t%s\t%s\n' "$1" "$bare" "$qual" "$listed" >> "$OUT"
+    printf '  %-24s bare=%-28s qualified=%-42s listed=%s\n' "$1" "$bare" "$qual" "$listed"
+}
+
+pair_probe "both registered"
+lora unload adapter-a1 >/dev/null
+pair_probe "bare name unloaded"
+lora load adapter-a1 /mnt/lora/adapter-a1 >/dev/null
+pair_probe "restored"
 fi
 
 echo ""

@@ -307,6 +307,11 @@ path not returning 200 - because #285 turns every pool-bound request into a 500
 or a timeout, and those read exactly like a finding about the adapter being
 swapped.
 
+Phase 4 snapshots `/v1/models` after every operation, and closes with the
+asymmetry that matters: kserve registers each adapter under two names but
+`unload_lora_adapter` takes one `lora_name`, so unloading by the bare name
+leaves the qualified one - the one the HTTPRoute actually indexes - serving.
+
 **Force the overlap window open.** The first version fired a fixed burst, slept
 1s, then unloaded, and reported a clean 0/404 across five cycles. It was
 measuring nothing: the burst finished in under a second, so no request was ever
