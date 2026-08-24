@@ -49,15 +49,33 @@ else: print(str(d.get("error") or d.get("detail") or raw)[:80])' < "$tmp")"
     printf '%s' "$code"
 }
 
-echo -e "${BD}1. does the list follow every call?${N}"
+echo -e "${BD}1. does the listing follow every call?${N}"
+
+# Each step declares the set it expects, sorted, and compares. Printing the
+# listing without an expectation shows a trace, not a check.
+step() {  # label, expected (comma-separated, sorted)
+    local got
+    got=$(./lora.sh list 2>/dev/null | sort | paste -sd, -)
+    [[ "$got" == "(none)" || -z "$got" ]] && got="-"
+    if [[ "$got" == "$2" ]]; then
+        printf '  %-22s %-34s %bok%b\n' "$1" "$got" "$G" "$N"
+    else
+        printf '  %-22s %-34s %bexpected %s%b\n' "$1" "$got" "$R" "$2" "$N"
+        fail=1
+    fi
+}
+
+fail=0
 for a in adapter-1 adapter-2 adapter-3 adapter-4; do ./lora.sh unload "$a" >/dev/null 2>&1 || true; done
 [[ "$V" == 1 ]] && echo -e "${DIM}  (reset: removed any adapters left by a previous run)${N}"
-printf '  %-22s %s\n' "start (reset)" "$(listed)"
-for a in adapter-1 adapter-2 adapter-3; do
-    ./lora.sh load "$a" >/dev/null; printf '  %-22s %s\n' "load ${a}" "$(listed)"
-done
-./lora.sh unload adapter-2 >/dev/null; printf '  %-22s %s\n' "unload adapter-2" "$(listed)"
-./lora.sh load adapter-2 >/dev/null;   printf '  %-22s %s\n' "re-load adapter-2" "$(listed)"
+step "start (reset)"     "-"
+
+./lora.sh load adapter-1 >/dev/null; step "load adapter-1"    "adapter-1"
+./lora.sh load adapter-2 >/dev/null; step "load adapter-2"    "adapter-1,adapter-2"
+./lora.sh load adapter-3 >/dev/null; step "load adapter-3"    "adapter-1,adapter-2,adapter-3"
+./lora.sh unload adapter-2 >/dev/null; step "unload adapter-2"  "adapter-1,adapter-3"
+./lora.sh load adapter-2 >/dev/null; step "re-load adapter-2" "adapter-1,adapter-2,adapter-3"
+
 # Verbose shows the second unload returning 404 for runtime-loaded adapters.
 # That is correct: they register under one name. The second call exists for
 # spec-declared adapters, which register under two.
@@ -67,7 +85,6 @@ done
 echo
 echo -e "${BD}2. does the list agree with what serves?${N}"
 now="$(listed)"
-fail=0
 for a in adapter-1 adapter-2 adapter-3 adapter-4; do
     in_list=$(grep -q "\b${a}\b" <<<"$now" && echo yes || echo no)
     code=$(serves "$a")

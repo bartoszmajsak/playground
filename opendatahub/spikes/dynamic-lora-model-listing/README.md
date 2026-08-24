@@ -93,8 +93,16 @@ summary can be checked against the wire:
 load adapter-1         adapter-1
 ```
 
-**It follows every call.** Load four, unload two, re-load one: the listing
-matches at every step, no lag, no leaked entries.
+**It follows every call.** Each step declares the set it expects and compares:
+
+```
+  start (reset)          -                                ok
+  load adapter-1         adapter-1                        ok
+  load adapter-2         adapter-1,adapter-2              ok
+  load adapter-3         adapter-1,adapter-2,adapter-3    ok
+  unload adapter-2       adapter-1,adapter-3              ok
+  re-load adapter-2      adapter-1,adapter-2,adapter-3    ok
+```
 
 **It agrees with what serves.** A listing can be internally consistent and still
 not match an inference request, so every state is cross-checked:
