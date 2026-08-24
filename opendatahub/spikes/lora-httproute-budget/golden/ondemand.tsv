@@ -1,0 +1,52 @@
+# On-demand LoRA: adapters in the PVC, nothing declared in spec.model.lora.
+#
+# svc-d has NO spec.model.lora. attachLoRAAdapters returns early at
+# len(adapters)==0 (workload_lora.go:148), so the controller injects neither
+# --enable-lora nor a PVC mount. Both are supplied by hand in the fixture:
+#   --enable-lora  via VLLM_ADDITIONAL_ARGS, which the preset interpolates into
+#                  its `eval exec vllm serve ...` line
+#   the PVC        via spec.template volumes/volumeMounts at /mnt/lora
+# plus VLLM_ALLOW_RUNTIME_LORA_UPDATING=1 to register the mutation endpoints.
+#
+# manifests/fixture-ondemand.yaml
+
+# --- what the workload starts with ---
+property	svc-a (declared)	svc-d (on-demand)
+controller-injected args	--enable-lora + 4 --lora-modules	NONE
+/v1/models at startup	6 entries	2 entries (base only)
+openapi paths	22	26 (+/adapters, +/adapters/{name}, +load/unload)
+adapters preloaded	2	0
+
+# --- the route, which is the whole point ---
+route	rules	matches	header-names
+svc-a-kserve-route	12	37	3
+svc-d-kserve-route	12	19	1
+# 19 is exactly the 9A+19 floor at A=0. Loading three adapters at runtime left
+# it at 19: on-demand loading spends ZERO match budget, permanently.
+
+# --- reachability of adapters that are in NO route ---
+# adapter-a3 loaded into svc-d at runtime; confirmed absent from svc-a and
+# absent from every HTTPRoute in the namespace.
+path	body model	header	status	served
+/lora-budget/svc-d/v1/chat/completions	adapter-a1	-	200	adapter-a1
+/lora-budget/svc-d/v1/chat/completions	adapter-a3	-	200	adapter-a3
+/lora-budget/svc-d/v1/chat/completions	model-d	-	200	model-d
+/v1/chat/completions	adapter-a3	publishers/lora-budget/models/model-d	200	adapter-a3
+/v1/chat/completions	adapter-a3	publishers/lora-budget/models/adapter-a3	200	ECHO (no rule matched)
+/v1/chat/completions	adapter-a3	-	200	ECHO (no rule matched)
+/v1/chat/completions	adapter-a3	publishers/lora-budget/models/model-a	404	svc-a: model does not exist
+
+# THE RESULT: the header only has to identify the POOL, not the adapter. One
+# header entry - the base model, always present at A=0 - reaches every adapter
+# that pool serves, because the BODY selects the adapter once the request
+# arrives. The last row is the control: routing really did follow the header to
+# a different pool, and that pool legitimately does not have adapter-a3.
+#
+# So the per-adapter matches are only needed when clients address an adapter BY
+# NAME IN THE HEADER. Drop that requirement and the ceiling disappears with it,
+# with flat adapter names intact and no controller change.
+#
+# CAVEAT, measured earlier in golden/authz-split.tsv: ODH's AuthPolicy rule
+# deny-misrouted-model-header denies exactly this shape - header naming one
+# model while the body names another. On ODH this pattern is refused by policy,
+# not by the gateway. That rule would have to change for any of this to ship.

@@ -1,0 +1,58 @@
+# On-demand LoRA: adapters live in the PVC, NOTHING is declared in spec.
+#
+# spec.model.lora is absent, so attachLoRAAdapters returns early at
+# len(adapters)==0 and the controller injects neither --enable-lora nor a PVC
+# mount. Both have to be supplied by hand:
+#   --enable-lora   via VLLM_ADDITIONAL_ARGS, which the preset interpolates
+#                   into its `eval exec vllm serve ...` line
+#   the PVC         via spec.template volumes/volumeMounts at /mnt/lora
+apiVersion: serving.kserve.io/v1alpha2
+kind: LLMInferenceService
+metadata:
+  name: svc-d
+  namespace: lora-budget
+spec:
+  model:
+    uri: hf://hmellor/tiny-random-LlamaForCausalLM
+    name: model-d
+  replicas: 1
+  router:
+    scheduler: {}
+    route: {}
+    gateway: {}
+  template:
+    volumes:
+      - name: lora-store
+        persistentVolumeClaim:
+          claimName: lora-budget-models
+    containers:
+      - name: main
+        image: vllm/vllm-openai-cpu:v0.19.0
+        securityContext:
+          runAsNonRoot: false
+          runAsUser: 0
+        volumeMounts:
+          - name: lora-store
+            mountPath: /mnt/lora
+        env:
+          - name: VLLM_CPU_KVCACHE_SPACE
+            value: "1"
+          - name: VLLM_LOGGING_LEVEL
+            value: INFO
+          - name: VLLM_ADDITIONAL_ARGS
+            value: "--enable-lora"
+          - name: VLLM_ALLOW_RUNTIME_LORA_UPDATING
+            value: "1"
+        resources:
+          requests: { cpu: "2", memory: 4Gi }
+          limits: { cpu: "8", memory: 12Gi }
+        readinessProbe:
+          httpGet: { path: /health, port: 8000 }
+          initialDelaySeconds: 20
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 60
+        startupProbe:
+          httpGet: { path: /health, port: 8000 }
+          periodSeconds: 10
+          failureThreshold: 60
