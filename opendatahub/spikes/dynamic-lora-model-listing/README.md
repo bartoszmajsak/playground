@@ -50,6 +50,54 @@ port. It limits reachability; the gateway policy limits paths.
 Neither addresses the adapter path in a load request, which is an arbitrary
 filesystem path read with the server's permissions.
 
+### On a Kuadrant cluster, put it in the AuthPolicy instead
+
+The gateway policy above is Istio-specific and duplicates a decision point that
+already exists. On ODH the authorization decision is made by the AuthPolicy
+odh-model-controller renders per service
+(`internal/controller/resources/template/authpolicy_llm_isvc_userdefined.yaml`),
+so the rule belongs there: one object, one place to audit, and it follows the
+service rather than the gateway implementation.
+
+**Not verified here** - this spike runs no Kuadrant. What follows is read from
+the template.
+
+Its `inference-access` rule authorizes service-scoped paths with `get` on the
+LLMInferenceService, gated on the path not *starting* with `/v1/`:
+
+```yaml
+- predicate: "!request.path.startsWith('/v1/')"
+```
+
+A request to `/{ns}/{name}/v1/load_lora_adapter` does not start with `/v1/`, so
+it satisfies that predicate and is authorized like any other read. On a cluster
+with the runtime endpoints enabled, read access to the service is enough to load
+or unload adapters.
+
+The template already has the shape for a fix. `deny-misrouted-model-header` is an
+unconditional local deny - no API server call - selected by `when` predicates and
+ordered ahead of the access rules:
+
+```yaml
+deny-lora-admin:
+  when:
+    - predicate: >-
+        request.path.matches('(v1/(un)?load_lora_adapter|/adapters(/|$))')
+  patternMatching:
+    patterns:
+      - predicate: "false"
+  priority: 0
+```
+
+CEL matches with a real regex, so unlike Istio path globs there is no
+wildcard-position limitation to work around, and the pattern can be anchored
+however the path space requires. `priority: 0` places it ahead of the
+`SubjectAccessReview` rules at priority 1, so it denies before any API server
+call.
+
+Worth deciding alongside it: whether administrative access should be a distinct
+verb on the LLMInferenceService rather than covered by `get`.
+
 ## Setup
 
 - a PVC with four adapters, none declared in any spec

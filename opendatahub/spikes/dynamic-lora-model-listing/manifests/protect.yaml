@@ -4,6 +4,11 @@
 # The endpoints are unauthenticated, mutate a running server, and sit on the
 # same port as inference. That last part rules out anything working at L4 alone.
 #
+# This is Istio-specific. On a Kuadrant cluster the same decision belongs in the
+# AuthPolicy odh-model-controller already renders per service - one object
+# rather than two, and it follows the service rather than the gateway
+# implementation. See the README for the rule and what it has to account for.
+#
 # Layer 1, gateway: an ALLOW list of inference paths. Everything else, including
 # the admin endpoints, is refused - load, both adapter registration forms and
 # delete return 403, while inference and the model listing are unaffected.
