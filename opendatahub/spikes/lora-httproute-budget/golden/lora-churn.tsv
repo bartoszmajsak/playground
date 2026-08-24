@@ -1,0 +1,34 @@
+# Adapters coming and going WHILE traffic flows.
+#
+# Three limits, easy to conflate:
+#   registered  --lora-modules entries vLLM holds
+#   indexed     names the HTTPRoute matches on   <- the 7 ceiling
+#   concurrent  adapters resident at once        <- --max-loras, DEFAULT 1
+#
+# kserve emits --max-loras only when MaxAdapters is set (#280), so the
+# fixture runs on vLLM's default of 1: measured LoRAConfig.max_loras=1 and
+# no --max-loras in the pod argv.
+#
+# gateway http://172.18.255.2  pod svc-a-kserve-bbb4c4d6c-27b2p  reqs/burst 12  cycles 3
+
+# --- phase 1: concurrency vs one resident slot ---
+scenario	requests	ok	non-200	wall-seconds
+same adapter throughout	12	12	0	0
+alternating two adapters	12	12	0	0
+alternating base and adapter	12	12	0	0
+
+# --- phase 2: churn the adapter that traffic is using ---
+# Traffic runs continuously against adapter-a1 on the service-scoped path
+# while the adapter is unloaded and reloaded underneath it.
+# in-window = requests that STARTED while adapter-a1 was unloaded.
+# Without that column the phase reports a clean run while measuring nothing.
+cycle	unload-http	reload-http	total	ok	notfound	other	in-window	window-404	window-200
+1	200	200	1390	36	1354	0	1333	1333	0
+2	200	200	1336	37	1299	0	1275	1275	0
+3	200	200	1324	36	1288	0	1267	1267	0
+
+# --- phase 3: runtime-only adapter, no route entry, no restart ---
+step	service-path	shared-endpoint	note
+before load	404|{'message': 'The model `ghost-dyn` does 	200|echo	not registered anywhere
+after load	200|ghost-dyn	200|echo	runtime yes, route no
+after unload	404|{'message': 'The model `ghost-dyn` does 	200|echo	back to neither

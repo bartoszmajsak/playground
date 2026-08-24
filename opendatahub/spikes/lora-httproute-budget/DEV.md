@@ -290,6 +290,31 @@ Two things to know before reading the output:
   seconds, leaving a pod that looks patched and is not. Add it to
   `spec.template.containers[0].env` on the LLMInferenceService instead.
 
+### Adapters coming and going under traffic
+
+```bash
+./probe-lora-churn.sh                 # all three phases
+./probe-lora-churn.sh --phase 2       # just one
+REQS=12 CYCLES=3 ./probe-lora-churn.sh
+```
+
+`probe-model-list.sh --runtime` loads and unloads with nothing in flight, which
+answers "is it possible". This asks whether it is *safe*, and whether runtime
+loading lets the route index stand still.
+
+It refuses to run on a degraded control plane - istiod not ready, or the pool
+path not returning 200 - because #285 turns every pool-bound request into a 500
+or a timeout, and those read exactly like a finding about the adapter being
+swapped.
+
+**Force the overlap window open.** The first version fired a fixed burst, slept
+1s, then unloaded, and reported a clean 0/404 across five cycles. It was
+measuring nothing: the burst finished in under a second, so no request was ever
+in flight while the adapter was gone. Phase 2 now runs traffic continuously,
+asks for 64 tokens per request so a call spans real time, and stamps every
+result with when it started relative to the unload. The `in-window` column is
+the only one worth reading.
+
 ### The authorization split
 
 ```bash
