@@ -1,0 +1,21 @@
+apiVersion: serving.kserve.io/v1alpha2
+kind: LLMInferenceService
+metadata:
+  name: kvsvc
+  namespace: kvtest
+spec:
+  model:
+    uri: hf://org/tiny
+    name: tiny
+  replicas: 1
+  kvCacheOffloading:
+    cpu: "10Gi"
+    evictionPolicy: lru
+  template:
+    containers:
+      - name: main
+        resources:
+          requests:
+            memory: 32Gi
+          limits:
+            memory: 64Gi

@@ -25,6 +25,36 @@ to the scripts and every other script picks it up:
 export KUBECONFIG="$PWD/.kubeconfig"
 ```
 
+### Running kind on rootless podman
+
+If there is no Docker daemon, kind works with podman, but rootless podman needs
+`cpu` delegated to the cgroup kind runs in - and a terminal's transient scope
+usually only gets `memory pids`, even when `user@$UID.service` itself has
+`Delegate=yes`:
+
+```bash
+cat "/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup)/cgroup.controllers"
+# memory pids          <- kind refuses: "requires setting systemd property Delegate=yes"
+```
+
+The message points at `user@.service`, which is a red herring when that is
+already set. Run inside a scope with full delegation instead - no root, nothing
+persistent:
+
+```bash
+KIND_EXPERIMENTAL_PROVIDER=podman \
+  systemd-run --user --scope -p Delegate=yes ./setup.sh --with-kserve
+```
+
+Rootless podman then also needs a working `/dev/net/tun` for pasta. The device
+node existing is not enough - if `open()` returns `ENODEV` ("No such device")
+the driver is not actually loaded:
+
+```bash
+modinfo tun          # "Module tun not found" while zgrep CONFIG_TUN /proc/config.gz says =m
+                     # -> the running kernel's modules are not installed; reboot or modprobe tun
+```
+
 ---
 
 ## Cluster setup
@@ -228,6 +258,34 @@ destinations. 13 probes: the set the collapse moves, plus controls.
 The collapse moves 20 destinations and changes **2 outcomes**, both of which
 were already 404. That is the number that makes "moved" a signal to look rather
 than a cost.
+
+### What the runtime says it is serving
+
+```bash
+./probe-model-list.sh              # part A: what /v1/models actually lists
+./probe-model-list.sh --churn      # + add/remove via spec.model.lora
+./probe-model-list.sh --runtime    # + vLLM /v1/load_lora_adapter
+./probe-model-list.sh --all
+```
+
+The route and the vLLM runtime are two independent registries of the same
+adapter set, and nothing reconciles them. Part A records both and compares them;
+parts B and C move each one independently to see what the other does.
+
+Two things to know before reading the output:
+
+- **kserve registers every adapter twice** (`workload_lora.go:166-167`) - the
+  bare name and the fully qualified one - so `/v1/models` reports `2N + 1`
+  entries for N adapters. Corroborated by `golden/authz-split.tsv`, where both
+  `adapter-a2` and `publishers/lora-budget/models/adapter-a2` are accepted as
+  `body.model` and each is echoed back verbatim. The base model is not
+  symmetric: the qualified form is an alias that reports back as `model-a`.
+- **Part C needs `VLLM_ALLOW_RUNTIME_LORA_UPDATING=1`,** which the fixture
+  deliberately does not set. vLLM only registers `/v1/load_lora_adapter` and
+  `/v1/unload_lora_adapter` when it is, so turning it on adds two operations to
+  `/openapi.json` - the inventory `golden/endpoint-budget.tsv` is derived from.
+  The script detects their absence and prints the `kubectl set env` line rather
+  than reporting a 404 as a finding.
 
 ### The authorization split
 

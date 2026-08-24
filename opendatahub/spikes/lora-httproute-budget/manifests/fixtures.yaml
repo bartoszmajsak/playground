@@ -77,6 +77,12 @@ spec:
             value: "1"
           - name: VLLM_LOGGING_LEVEL
             value: INFO
+          # VLLM_ALLOW_RUNTIME_LORA_UPDATING is deliberately NOT set. vLLM only
+          # registers /v1/load_lora_adapter and /v1/unload_lora_adapter when it
+          # is, so turning it on ADDS two operations to /openapi.json -- which is
+          # the inventory golden/endpoint-budget.tsv is derived from. Leaving it
+          # off keeps that count honest at 23. probe-model-list.sh --runtime
+          # turns it on temporarily with `kubectl set env` and says so.
         resources:
           requests: { cpu: "2", memory: 4Gi }
           limits: { cpu: "8", memory: 12Gi }
