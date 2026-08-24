@@ -17,6 +17,43 @@ The endpoints are unauthenticated and mutate a running server, so upstream does
 not treat them as a production interface. Everything below describes behaviour
 that works; it does not argue the mechanism is supportable as-is.
 
+If they are enabled anyway, `manifests/protect.yaml` has two controls, both
+measured. Neither is sufficient alone.
+
+**Do not enable them in production.** Declared adapters go through the spec and
+are reconciled; that path needs none of what follows.
+
+**At the gateway, allow-list the inference paths.** The admin endpoints share
+port 8000 with inference, so only an L7 control can separate them. Measured with
+the policy applied:
+
+| request | result |
+|---|---|
+| `POST /v1/load_lora_adapter` | 403 |
+| `POST /adapters` | 403 |
+| `DELETE /adapters/{name}` | 403 |
+| `GET /v1/models` | 200 |
+| `POST /v1/chat/completions` | 200 |
+
+**Allow-list, not deny-list.** A deny-list was tried first and failed open.
+Istio path matching supports a wildcard at one end only, so `*/adapters/*` never
+matched: the policy applied cleanly, reported no error, and a delete through the
+gateway still unloaded a live adapter. An allow-list refuses paths nobody
+thought of instead of permitting them.
+
+**At the network, restrict who can connect.** The gateway policy only covers
+traffic through the gateway. Measured: with it in place, a pod in the cluster
+reaching the workload Service directly loaded an adapter. A NetworkPolicy
+limiting ingress to the gateway and the endpoint picker closes that - the same
+request then times out, and inference is unaffected.
+
+It cannot distinguish inference from administration, since both are the same
+port. It limits reachability; the gateway policy limits paths.
+
+What none of this fixes: the adapter path in a load request is an arbitrary
+filesystem path, read with the server's permissions. Anyone who can reach the
+endpoint chooses what gets read.
+
 ## Setup
 
 - a PVC with four adapters, none declared in any spec
@@ -240,6 +277,7 @@ check.sh                      does /v1/models match reality?  -v for the wire
 check-mixed.sh                can declared and runtime adapters coexist?
 manifests/fixture.yaml        PVC + LLMISVC, no lora block
 manifests/route-rules.yaml    route captured once from a kserve-managed one
+manifests/protect.yaml        gateway allow-list + NetworkPolicy, both measured
 hack/gen-adapter.py           tiny no-op LoRA adapters, stdlib only
 ```
 

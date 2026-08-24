@@ -1,0 +1,70 @@
+# Controls for the runtime LoRA endpoints. Both were measured; neither is
+# sufficient alone.
+#
+# The endpoints are unauthenticated, mutate a running server, and sit on the
+# same port as inference. That last part rules out anything working at L4 alone.
+#
+# Layer 1, gateway: an ALLOW list of inference paths. Everything else, including
+# the admin endpoints, is refused. Measured: load, both adapter forms and
+# delete all return 403; inference and the model listing are unaffected.
+#
+# ALLOW rather than DENY deliberately. A DENY list was tried first and failed
+# open: Istio path matching supports a wildcard at one end only, so a pattern
+# like "*/adapters/*" never matches. The policy applied cleanly and a delete
+# through the gateway still removed an adapter. An allow list fails closed - a
+# path nobody thought of is refused rather than permitted.
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-inference-only
+  namespace: kserve
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: kserve-ingress-gateway
+  action: ALLOW
+  rules:
+    - to:
+        - operation:
+            paths:
+              - "*/v1/chat/completions"
+              - "*/v1/completions"
+              - "*/v1/responses"
+              - "*/v1/messages"
+              - "*/v1/models"
+              - "*/health"
+              - "*/metrics"
+---
+# Layer 2, network: the gateway policy only covers traffic through the gateway.
+# Measured: a pod in the cluster reaching the workload Service directly loaded
+# an adapter with the gateway policy in place. This restricts who can open a
+# connection at all. Measured after applying: the same request times out, and
+# inference through the gateway is unaffected.
+#
+# It cannot distinguish inference from administration, since both are port 8000.
+# It limits reachability; the gateway policy limits paths. Neither substitutes
+# for the other.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: workload-ingress
+  namespace: dynamic-lora
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: svc-dyn
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        # the gateway
+        - namespaceSelector:
+            matchLabels:
+              name: kserve
+        # the endpoint picker, which scrapes metrics and scores endpoints
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: svc-dyn
+      ports:
+        - port: 8000

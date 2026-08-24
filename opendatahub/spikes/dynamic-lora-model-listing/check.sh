@@ -93,7 +93,13 @@ step() {  # action, expected
     else                          case_result 1 "$1" "$got" "$2"; f1=$((f1+1)); fi
 }
 
-for a in adapter-1 adapter-2 adapter-3 adapter-4; do ./lora.sh unload "$a" >/dev/null 2>&1 || true; done
+# Clear everything currently loaded, not a fixed list. A stray adapter from
+# another script or a manual test otherwise fails every case below, and the
+# reported reason is the leftover rather than anything this check exercises.
+while read -r a; do
+    [[ -z "$a" || "$a" == "(none)" ]] && continue
+    ./lora.sh unload "${a##*/}" >/dev/null 2>&1 || true
+done < <(./lora.sh list 2>/dev/null)
 [[ "$V" == 1 ]] && printf "%b   (reset: removed adapters left by a previous run)%b\n" "$DIM" "$N"
 step "reset"              "-"
 ./lora.sh load   adapter-1 >/dev/null; step "load adapter-1"   "adapter-1"
