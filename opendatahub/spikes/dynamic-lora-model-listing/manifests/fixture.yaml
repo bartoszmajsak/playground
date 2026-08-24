@@ -1,30 +1,11 @@
-# On-demand LoRA fixture: adapters live in a PVC, nothing is declared in spec.
-#
-# The point of this shape is that spec.model.lora is ABSENT. kserve's
-# attachLoRAAdapters returns early at len(adapters)==0 (workload_lora.go:148),
-# so the controller injects neither --enable-lora nor a PVC mount. Both are
-# supplied here by hand:
-#
-#   --enable-lora   via VLLM_ADDITIONAL_ARGS, which the llm preset interpolates
-#                   into its `eval exec vllm serve ... ${VLLM_ADDITIONAL_ARGS}`
-#   the PVC         via spec.template volumes/volumeMounts at /mnt/lora
-#
-# plus VLLM_ALLOW_RUNTIME_LORA_UPDATING=1, which is what makes vLLM register
-# /v1/load_lora_adapter, /v1/unload_lora_adapter, POST /adapters and
-# DELETE /adapters/{name}. Without it those four paths do not exist at all.
-#
-# The route is supplied too -- see route.yaml and spec.router.route.http.refs
-# below. A user-supplied ref means kserve does not generate its own route, and
-# odh-model-controller still attaches an AuthPolicy per ref
-# (kserve_authpolicy_reconciler.go getHTTPRouteNames iterates every ref).
----
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: dynlora-models
   namespace: dynamic-lora
 spec:
-  accessModes: [ReadWriteOnce]
+  accessModes:
+  - ReadWriteOnce
   resources:
     requests:
       storage: 128Mi
@@ -38,24 +19,16 @@ spec:
   model:
     uri: hf://hmellor/tiny-random-LlamaForCausalLM
     name: model-dyn
-    # NO lora block. Every adapter arrives through an admin call at runtime.
   replicas: 1
   router:
     scheduler: {}
     gateway: {}
     route:
       http:
-        # Rules captured VERBATIM from the kserve-managed route for 4 adapters,
-        # by hack/capture-route.sh. Supplying them inline via http.spec keeps the
-        # managed gateway and leaves kserve owning the HTTPRoute; it just stops
-        # deriving the rules from spec.model.lora, because there is none.
-        #
-        # The route therefore indexes model-dyn + adapter-1..4 permanently while
-        # the runtime starts empty. Do not hand-edit -- re-run capture-route.sh.
         spec:
           rules:
           - backendRefs:
-            - group: inference.networking.x-k8s.io
+            - group: inference.networking.k8s.io
               kind: InferencePool
               name: svc-dyn-inference-pool
               port: 8000
@@ -75,7 +48,7 @@ spec:
               backendRequest: 0s
               request: 0s
           - backendRefs:
-            - group: inference.networking.x-k8s.io
+            - group: inference.networking.k8s.io
               kind: InferencePool
               name: svc-dyn-inference-pool
               port: 8000
@@ -95,7 +68,7 @@ spec:
               backendRequest: 0s
               request: 0s
           - backendRefs:
-            - group: inference.networking.x-k8s.io
+            - group: inference.networking.k8s.io
               kind: InferencePool
               name: svc-dyn-inference-pool
               port: 8000
@@ -115,7 +88,7 @@ spec:
               backendRequest: 0s
               request: 0s
           - backendRefs:
-            - group: inference.networking.x-k8s.io
+            - group: inference.networking.k8s.io
               kind: InferencePool
               name: svc-dyn-inference-pool
               port: 8000
@@ -135,7 +108,7 @@ spec:
               backendRequest: 0s
               request: 0s
           - backendRefs:
-            - group: inference.networking.x-k8s.io
+            - group: inference.networking.k8s.io
               kind: InferencePool
               name: svc-dyn-inference-pool
               port: 8000
@@ -426,7 +399,7 @@ spec:
               backendRequest: 0s
               request: 0s
           - backendRefs:
-            - group: inference.networking.x-k8s.io
+            - group: inference.networking.k8s.io
               kind: InferencePool
               name: svc-dyn-inference-pool
               port: 8000
@@ -446,7 +419,7 @@ spec:
               backendRequest: 0s
               request: 0s
           - backendRefs:
-            - group: inference.networking.x-k8s.io
+            - group: inference.networking.k8s.io
               kind: InferencePool
               name: svc-dyn-inference-pool
               port: 8000
@@ -466,7 +439,7 @@ spec:
               backendRequest: 0s
               request: 0s
           - backendRefs:
-            - group: inference.networking.x-k8s.io
+            - group: inference.networking.k8s.io
               kind: InferencePool
               name: svc-dyn-inference-pool
               port: 8000
@@ -486,7 +459,7 @@ spec:
               backendRequest: 0s
               request: 0s
           - backendRefs:
-            - group: inference.networking.x-k8s.io
+            - group: inference.networking.k8s.io
               kind: InferencePool
               name: svc-dyn-inference-pool
               port: 8000
@@ -593,39 +566,45 @@ spec:
               request: 0s
   template:
     volumes:
-      - name: lora-store
-        persistentVolumeClaim:
-          claimName: dynlora-models
+    - name: lora-store
+      persistentVolumeClaim:
+        claimName: dynlora-models
     containers:
-      - name: main
-        image: vllm/vllm-openai-cpu:v0.19.0
-        # The preset sets runAsNonRoot: true for its CUDA image; the CPU image
-        # runs as root, so kubelet refuses the container without this.
-        securityContext:
-          runAsNonRoot: false
-          runAsUser: 0
-        volumeMounts:
-          - name: lora-store
-            mountPath: /mnt/lora
-        env:
-          - name: VLLM_CPU_KVCACHE_SPACE
-            value: "1"
-          - name: VLLM_LOGGING_LEVEL
-            value: INFO
-          - name: VLLM_ADDITIONAL_ARGS
-            value: "--enable-lora --max-loras=4"
-          - name: VLLM_ALLOW_RUNTIME_LORA_UPDATING
-            value: "1"
-        resources:
-          requests: { cpu: "2", memory: 4Gi }
-          limits: { cpu: "8", memory: 12Gi }
-        readinessProbe:
-          httpGet: { path: /health, port: 8000 }
-          initialDelaySeconds: 20
-          periodSeconds: 5
-          timeoutSeconds: 5
-          failureThreshold: 60
-        startupProbe:
-          httpGet: { path: /health, port: 8000 }
-          periodSeconds: 10
-          failureThreshold: 60
+    - name: main
+      image: vllm/vllm-openai-cpu:v0.19.0
+      securityContext:
+        runAsNonRoot: false
+        runAsUser: 0
+      volumeMounts:
+      - name: lora-store
+        mountPath: /mnt/lora
+      env:
+      - name: VLLM_CPU_KVCACHE_SPACE
+        value: '1'
+      - name: VLLM_LOGGING_LEVEL
+        value: INFO
+      - name: VLLM_ADDITIONAL_ARGS
+        value: --enable-lora --max-loras=4
+      - name: VLLM_ALLOW_RUNTIME_LORA_UPDATING
+        value: '1'
+      resources:
+        requests:
+          cpu: '2'
+          memory: 4Gi
+        limits:
+          cpu: '8'
+          memory: 12Gi
+      readinessProbe:
+        httpGet:
+          path: /health
+          port: 8000
+        initialDelaySeconds: 20
+        periodSeconds: 5
+        timeoutSeconds: 5
+        failureThreshold: 60
+      startupProbe:
+        httpGet:
+          path: /health
+          port: 8000
+        periodSeconds: 10
+        failureThreshold: 60

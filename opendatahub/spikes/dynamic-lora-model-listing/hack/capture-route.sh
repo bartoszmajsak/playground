@@ -39,9 +39,19 @@ print(json.dumps([{"name": f"adapter-{i}", "uri": f"pvc://dynlora-models/adapter
                   for i in range(1, n+1)]))' "$A"
 }
 
-echo -e "${CYAN}declaring ${A} adapters so the controller generates the route${NC}"
+# Force MANAGED mode as well as declaring the adapters. Without this, re-running
+# against an already-configured service reads back the route we supplied inline
+# last time rather than one the controller derived. The rule and match counts are
+# identical either way, so the wait below cannot tell them apart, and the file
+# quietly stops being "what kserve generates" and becomes "what we fed back in".
+echo -e "${CYAN}declaring ${A} adapters and forcing a managed route${NC}"
 kubectl patch llminferenceservice "$SVC" -n "$NS" --type=merge \
-    -p "{\"spec\":{\"model\":{\"lora\":{\"adapters\":$(adapters_json)}}}}" >/dev/null
+    -p "{\"spec\":{\"model\":{\"lora\":{\"adapters\":$(adapters_json)}},\"router\":{\"route\":{}}}}" >/dev/null
+
+# Belt and braces: drop any inline spec left from a previous run, so the
+# controller has nothing to copy and must regenerate.
+kubectl patch llminferenceservice "$SVC" -n "$NS" --type=json \
+    -p '[{"op":"remove","path":"/spec/router/route/http"}]' >/dev/null 2>&1 || true
 
 # Wait for the route to actually carry every adapter. Waiting on a fixed sleep
 # reads the pre-reconcile route and captures the wrong thing -- and it looks
@@ -63,6 +73,15 @@ print(len(s))' 2>/dev/null || echo 0)
     sleep 5
 done
 [[ "$got" == "$want" ]] || { echo -e "${YEL}route indexes ${got} names, expected ${want}${NC}" >&2; exit 1; }
+
+# The route must be controller-owned. An inline-supplied one is not, and that is
+# the failure this whole preamble exists to prevent.
+owner=$(kubectl get httproute "${SVC}-kserve-route" -n "$NS" \
+    -o jsonpath='{.metadata.ownerReferences[0].kind}' 2>/dev/null || true)
+[[ "$owner" == "LLMInferenceService" ]] || {
+    echo -e "${YEL}route is not owned by the LLMInferenceService (owner=${owner:-none}); refusing to capture${NC}" >&2
+    exit 1
+}
 
 kubectl get httproute "${SVC}-kserve-route" -n "$NS" -o json |
 python3 -c '

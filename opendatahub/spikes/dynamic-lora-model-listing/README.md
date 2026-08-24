@@ -190,8 +190,7 @@ Needs a cluster with kserve, Gateway API, Istio and a `kserve-ingress-gateway` -
 
 It generates the adapters (pure stdlib, no torch), seeds the PVC through a
 throwaway pod, does the declare/capture/strip dance for the route, adds the
-`DestinationRule`, and waits on a real request rather than a sleep. It picks up
-the sibling spike's `.kubeconfig` if this one has none.
+`DestinationRule`, and waits on a real request rather than a sleep.
 
 Then:
 

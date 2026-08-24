@@ -1,6 +1,6 @@
 rules:
 - backendRefs:
-  - group: inference.networking.x-k8s.io
+  - group: inference.networking.k8s.io
     kind: InferencePool
     name: svc-dyn-inference-pool
     port: 8000
@@ -20,7 +20,7 @@ rules:
     backendRequest: 0s
     request: 0s
 - backendRefs:
-  - group: inference.networking.x-k8s.io
+  - group: inference.networking.k8s.io
     kind: InferencePool
     name: svc-dyn-inference-pool
     port: 8000
@@ -40,7 +40,7 @@ rules:
     backendRequest: 0s
     request: 0s
 - backendRefs:
-  - group: inference.networking.x-k8s.io
+  - group: inference.networking.k8s.io
     kind: InferencePool
     name: svc-dyn-inference-pool
     port: 8000
@@ -60,7 +60,7 @@ rules:
     backendRequest: 0s
     request: 0s
 - backendRefs:
-  - group: inference.networking.x-k8s.io
+  - group: inference.networking.k8s.io
     kind: InferencePool
     name: svc-dyn-inference-pool
     port: 8000
@@ -80,7 +80,7 @@ rules:
     backendRequest: 0s
     request: 0s
 - backendRefs:
-  - group: inference.networking.x-k8s.io
+  - group: inference.networking.k8s.io
     kind: InferencePool
     name: svc-dyn-inference-pool
     port: 8000
@@ -371,7 +371,7 @@ rules:
     backendRequest: 0s
     request: 0s
 - backendRefs:
-  - group: inference.networking.x-k8s.io
+  - group: inference.networking.k8s.io
     kind: InferencePool
     name: svc-dyn-inference-pool
     port: 8000
@@ -391,7 +391,7 @@ rules:
     backendRequest: 0s
     request: 0s
 - backendRefs:
-  - group: inference.networking.x-k8s.io
+  - group: inference.networking.k8s.io
     kind: InferencePool
     name: svc-dyn-inference-pool
     port: 8000
@@ -411,7 +411,7 @@ rules:
     backendRequest: 0s
     request: 0s
 - backendRefs:
-  - group: inference.networking.x-k8s.io
+  - group: inference.networking.k8s.io
     kind: InferencePool
     name: svc-dyn-inference-pool
     port: 8000
@@ -431,7 +431,7 @@ rules:
     backendRequest: 0s
     request: 0s
 - backendRefs:
-  - group: inference.networking.x-k8s.io
+  - group: inference.networking.k8s.io
     kind: InferencePool
     name: svc-dyn-inference-pool
     port: 8000

@@ -6,7 +6,7 @@
 #
 #   ../lora-httproute-budget/setup.sh --with-kserve
 #
-# and its .kubeconfig is picked up automatically if this spike has none.
+# Point KUBECONFIG at that cluster, or drop its .kubeconfig next to this script.
 #
 # What this does, in order, because the order matters:
 #
@@ -45,17 +45,7 @@ info() { echo -e "${CYAN}==>${NC} $*"; }
 ok()   { echo -e "${GREEN}  ok${NC} $*"; }
 warn() { echo -e "${YEL}  !${NC} $*"; }
 
-# Borrow the sibling spike's kubeconfig if we have none of our own.
-if [[ -z "${KUBECONFIG:-}" ]]; then
-    if [[ -f "${SCRIPT_DIR}/.kubeconfig" ]]; then
-        export KUBECONFIG="${SCRIPT_DIR}/.kubeconfig"
-    elif [[ -f "${SCRIPT_DIR}/../lora-httproute-budget/.kubeconfig" ]]; then
-        export KUBECONFIG="$(cd "${SCRIPT_DIR}/../lora-httproute-budget" && pwd)/.kubeconfig"
-        cp "$KUBECONFIG" "${SCRIPT_DIR}/.kubeconfig"
-        export KUBECONFIG="${SCRIPT_DIR}/.kubeconfig"
-        warn "using ../lora-httproute-budget/.kubeconfig"
-    fi
-fi
+export KUBECONFIG="${KUBECONFIG:-${SCRIPT_DIR}/.kubeconfig}"
 
 if [[ "${1:-}" == "--teardown" ]]; then
     info "deleting namespace ${NS}"
