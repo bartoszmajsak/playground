@@ -50,3 +50,59 @@ path	body model	header	status	served
 # deny-misrouted-model-header denies exactly this shape - header naming one
 # model while the body names another. On ODH this pattern is refused by policy,
 # not by the gateway. That rule would have to change for any of this to ship.
+
+# ===========================================================================
+# Does /v1/models show the real state of dynamically loaded adapters?
+# Measured on svc-d, which preloads nothing -- every adapter below arrived
+# through an admin call at runtime.
+# ===========================================================================
+
+# --- the list tracks every operation ---
+operation	http	adapters in /v1/models
+(fresh start)	-	(none)
+load adapter-a1	200	adapter-a1
+load adapter-a2	200	adapter-a1, adapter-a2
+load adapter-a3	200	adapter-a1, adapter-a2, adapter-a3
+unload adapter-a2	200	adapter-a1, adapter-a3
+unload adapter-a1	200	adapter-a3
+re-load adapter-a2	200	adapter-a2, adapter-a3
+unload adapter-a3	200	adapter-a2
+unload adapter-a2	200	(none)
+
+# --- and the list agrees with what actually serves ---
+# The real test: a list can be self-consistent and still lie. Each state below
+# was cross-checked by sending inference for both a listed and an unlisted name.
+state	/v1/models	serve adapter-a1	serve adapter-a2
+nothing loaded	(none)	404	404
+adapter-a1 loaded	adapter-a1	200	404
+adapter-a1 unloaded	(none)	404	404
+
+# --- failed operations do not corrupt the list ---
+operation	http	effect on /v1/models
+load a name already loaded	400	unchanged
+unload a name never loaded	404	unchanged
+POST /adapters with wrong payload shape	400	unchanged
+
+# --- there is no second listing endpoint ---
+# /adapters is POST-only (405 on GET) and /adapters/{name} is DELETE-only: they
+# are a SageMaker-flavoured alias for load/unload, NOT a way to list. So
+# /v1/models is the only view of loaded adapters that exists.
+endpoint	methods	payload
+/v1/load_lora_adapter	POST	{"lora_name","lora_path"}
+/v1/unload_lora_adapter	POST	{"lora_name"}
+/adapters	POST	{"name","src"}
+/adapters/{adapter_name}	DELETE	-
+
+# Both APIs mutate ONE shared table: an adapter registered via POST /adapters
+# is removed by /v1/unload_lora_adapter, and /v1/models reflects both.
+operation	http	/v1/models	serves
+POST /adapters {name:sm-adapter, src:/mnt/lora/adapter-a2}	200	sm-adapter	200
+POST /v1/unload_lora_adapter {lora_name:sm-adapter}	200	(none)	-
+
+# VERDICT: for adapters loaded dynamically, /v1/models is accurate. It updates
+# synchronously with each admin call, never lags, never leaks a stale entry, is
+# not corrupted by failed operations, and agrees with servability in every state
+# tested. The one caveat is NOT about dynamic loading: when kserve declares
+# adapters in spec.model.lora it registers each under TWO names, and unload
+# takes one name - so a spec-declared adapter can be half-unloaded and the list
+# correctly shows the surviving name. See golden/lora-churn.tsv.
