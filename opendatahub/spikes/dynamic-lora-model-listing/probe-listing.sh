@@ -28,7 +28,6 @@ NS="${NS:-dynamic-lora}"
 SVC="${SVC:-svc-dyn}"
 BASE="${BASE:-model-dyn}"
 CYCLES="${CYCLES:-4}"
-OUT="${SCRIPT_DIR}/golden/listing.tsv"
 CTL="${SCRIPT_DIR}/adapterctl.sh"
 QUAL="publishers/${NS}/models"
 
@@ -126,15 +125,6 @@ hr() { printf "${CYAN}%s${NC}\n" "----------------------------------------------
 
 istiod_ready || echo -e "${YEL}warning: istiod not ready; gateway columns will be unreliable${NC}"
 
-: > "$OUT"
-{
-  echo "# Does /v1/models report the real state of dynamically loaded adapters?"
-  echo "#"
-  echo "# Route: dynlora-route, static, indexes ${BASE} + adapter-1..4 and never changes."
-  echo "# Runtime: nothing preloaded; every adapter arrives via an admin call."
-  echo "#"
-  echo "# gateway ${GATEWAY_URL}  ns ${NS}  pod ${P}"
-} >> "$OUT"
 
 # ===========================================================================
 # Phase 1 -- the list tracks every admin call
@@ -142,16 +132,18 @@ istiod_ready || echo -e "${YEL}warning: istiod not ready; gateway columns will b
 if [[ "$PHASE" == all || "$PHASE" == 1 ]]; then
 echo -e "${BOLD}Phase 1: does the list follow every load and unload?${NC}"
 hr
-{ echo ""; echo "# --- phase 1: list vs admin calls (adapterctl loads BOTH names) ---"
-  printf 'operation\tentries\tadapters listed\n'; } >> "$OUT"
 
 step() {  # label
     local n l; n="$(count)"; l="$(listed)"
-    printf '%s\t%s\t%s\n' "$1" "$n" "$l" >> "$OUT"
     printf '  %-26s %2s  %s\n' "$1" "$n" "$l"
 }
 
-step "start"
+# Start from empty. Without this the first row reports whatever the previous
+# run left loaded, which makes every subsequent count read as a surprise.
+for a in adapter-1 adapter-2 adapter-3 adapter-4; do
+    "$CTL" unload "$a" >/dev/null 2>&1 || true
+done
+step "start (reset)"
 for a in adapter-1 adapter-2 adapter-3 adapter-4; do
     "$CTL" load "$a" >/dev/null 2>&1 || true
     step "load ${a}"
@@ -170,9 +162,6 @@ if [[ "$PHASE" == all || "$PHASE" == 2 ]]; then
 echo ""
 echo -e "${BOLD}Phase 2: does the list agree with reality?${NC}"
 hr
-{ echo ""; echo "# --- phase 2: listed? vs serves? for every indexed adapter ---"
-  echo "# direct = on the pod, no gateway. gateway = shared endpoint via the header index."
-  printf 'adapter\tlisted\tdirect\tgateway\tverdict\n'; } >> "$OUT"
 
 for a in adapter-1 adapter-2 adapter-3 adapter-4; do
     l=$(listed | tr ',' '\n' | grep -Fxq "$a" && echo yes || echo no)
@@ -182,7 +171,6 @@ for a in adapter-1 adapter-2 adapter-3 adapter-4; do
     if   [[ "$l" == yes && "$d" == 200 ]]; then v="agrees"
     elif [[ "$l" == no  && "$d" == 404 ]]; then v="agrees"
     else v="DISAGREES"; fi
-    printf '%s\t%s\t%s\t%s\t%s\n' "$a" "$l" "$d" "$g" "$v" >> "$OUT"
     printf '  %-12s listed=%-4s direct=%-5s gateway=%-24s %s\n' "$a" "$l" "$d" "$g" "$v"
 done
 fi
@@ -194,10 +182,6 @@ if [[ "$PHASE" == all || "$PHASE" == 3 ]]; then
 echo ""
 echo -e "${BOLD}Phase 3: half-unload, and the fix${NC}"
 hr
-{ echo ""; echo "# --- phase 3: unloading ONE name of a dual-registered adapter ---"
-  echo "# vLLM keys its adapter table by name, so two names for one set of weights"
-  echo "# are two independent entries. Unload takes a single lora_name."
-  printf 'step\tbare listed\tqualified listed\tbare serves direct\tQUALIFIED via gateway\n'; } >> "$OUT"
 
 pair_state() {  # label
     local ids b q sb sg
@@ -214,7 +198,6 @@ print("\n".join(m["id"] for m in d.get("data",[])))
     # one that survives AND the only one the route indexes, so sending the bare
     # name here would report a 404 and hide the trap entirely.
     sg=$(serves_gateway_qualified adapter-1)
-    printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$b" "$q" "$sb" "$sg" >> "$OUT"
     printf '  %-28s bare-listed=%-4s qual-listed=%-4s bare-serves=%-5s gateway=%s\n' \
         "$1" "$b" "$q" "$sb" "$sg"
 }
@@ -237,4 +220,4 @@ fi
 
 echo ""
 istiod_ready || echo -e "${YEL}warning: istiod went unready during the run${NC}"
-echo -e "${GREEN}recorded${NC} ${OUT}"
+echo -e "${GREEN}done${NC}"

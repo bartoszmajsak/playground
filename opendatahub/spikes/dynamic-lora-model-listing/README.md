@@ -88,7 +88,7 @@ the only view of loaded adapters that exists**.
 
 ## Does the listing tell the truth?
 
-Yes. `./probe-listing.sh` checks it three ways and records `golden/listing.tsv`.
+Yes. `./probe-listing.sh` checks it three ways and prints the results.
 
 **It follows every call.** Load four, unload two, re-load one - the list matches
 at every step, with no lag and no leaked entries.
@@ -171,8 +171,7 @@ manifests/fixture.yaml        PVC + LLMISVC, no lora block, route inline
 manifests/route-rules.yaml    rules captured from the managed route (do not hand-edit)
 hack/capture-route.sh         declare -> capture -> strip, regenerates the above
 adapterctl.sh                 load/unload as one adapter, two names
-probe-listing.sh              the three checks above -> golden/listing.tsv
-golden/listing.tsv            recorded results
+probe-listing.sh              the three checks above, printed
 ```
 
 ## Running it
