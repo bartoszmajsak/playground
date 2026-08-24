@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib.sh"
 
 RUN_ARG=""
-[[ "${1:-}" == "--run" ]] && RUN_ARG="${2:-}"
+if [[ "${1:-}" == "--run" ]]; then RUN_ARG="${2:-}"; fi
 load_run "$RUN_ARG"
 guard_cluster
 

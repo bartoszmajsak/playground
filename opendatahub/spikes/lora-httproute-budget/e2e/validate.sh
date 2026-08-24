@@ -76,11 +76,11 @@ run_phase() { # run_phase <marker> <report-suffix>
         -o cache_dir="${E2E_DIR}/.pytest_cache"
         -q -rA --color=yes
     )
-    [[ -n "$CASE_EXPR" ]] && args+=(-k "$CASE_EXPR")
+    if [[ -n "$CASE_EXPR" ]]; then args+=(-k "$CASE_EXPR"); fi
     info "pytest phase: ${suffix} (-m '${marker}')"
     ( cd "$E2E_DIR" && "${VENV}/bin/pytest" tests "${args[@]}" ) || rc=$?
     # pytest exit 5 = no tests collected for this phase; that is fine.
-    [[ $rc -eq 5 ]] && rc=0
+    if [[ $rc -eq 5 ]]; then rc=0; fi
     return $rc
 }
 
@@ -91,8 +91,8 @@ if [[ $overall -gt 1 ]]; then
 fi
 
 run_phase "$(select_args routing_strategy_readonly)" readonly || rc2=$?
-[[ "${rc2:-0}" -gt 1 ]] && die "readonly phase aborted with pytest exit ${rc2}"
-[[ "${rc2:-0}" -ne 0 ]] && overall=1
+if [[ "${rc2:-0}" -gt 1 ]]; then die "readonly phase aborted with pytest exit ${rc2}"; fi
+if [[ "${rc2:-0}" -ne 0 ]]; then overall=1; fi
 
 # Aggregate an enforceable results.json from both phase reports. Success is
 # never inferred from console text.

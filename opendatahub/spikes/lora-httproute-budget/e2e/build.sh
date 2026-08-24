@@ -26,7 +26,7 @@ mkdir -p "$ARTIFACTS_ROOT"
 
 commit="$(git -C "$KSERVE_SRC" rev-parse HEAD)"
 dirty=false
-[[ -n "$(git -C "$KSERVE_SRC" status --porcelain)" ]] && dirty=true
+if [[ -n "$(git -C "$KSERVE_SRC" status --porcelain)" ]]; then dirty=true; fi
 
 if [[ -n "${LLMISVC_IMAGE:-}" ]]; then
     image="$LLMISVC_IMAGE"
@@ -35,7 +35,9 @@ if [[ -n "${LLMISVC_IMAGE:-}" ]]; then
     docker image inspect "$image" >/dev/null 2>&1 || docker pull "$image" >/dev/null \
         || die "image ${image} not found locally and not pullable"
 else
-    tag="lora-e2e-${commit:0:12}$($dirty && echo '-dirty')"
+    dirty_suffix=""
+    if $dirty; then dirty_suffix="-dirty"; fi
+    tag="lora-e2e-${commit:0:12}${dirty_suffix}"
     image="kind.local/llmisvc-controller:${tag}"
     target="docker-build-llmisvc"
     info "building ${image} from ${KSERVE_SRC}"

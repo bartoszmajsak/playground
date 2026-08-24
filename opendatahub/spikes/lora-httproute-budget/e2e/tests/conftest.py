@@ -116,6 +116,20 @@ def model_header_matches(route):
     return out
 
 
+def wait_for_stable_route(api, namespace, svc_name, settle=6, timeout=180):
+    """Return the route once its resourceVersion has held still for `settle`
+    seconds - controller-side follow-up writes (e.g. the InferencePool v1
+    migration) settle shortly after creation."""
+    def stable():
+        first = get_route(api, namespace, svc_name)
+        time.sleep(settle)
+        second = get_route(api, namespace, svc_name)
+        if first["metadata"]["resourceVersion"] == second["metadata"]["resourceVersion"]:
+            return second
+        return None
+    return wait_until(stable, timeout=timeout, interval=1, desc=f"stable route {namespace}/{svc_name}")
+
+
 def rule_names(route):
     return [r.get("name", "") for r in route["spec"].get("rules", [])]
 
@@ -245,7 +259,7 @@ def pytest_runtest_makereport(item, call):
 
 
 def llmisvc_manifest(name, namespace, base_model, adapters=(), runtime=False,
-                     max_adapters=None, route=None, extra_spec=None):
+                     max_adapters=None, route=None, gateway=None, extra_spec=None):
     """Build an LLMInferenceService dict.
 
     runtime=True adds the CPU vLLM template (tiny base model, PVC-backed
@@ -257,7 +271,11 @@ def llmisvc_manifest(name, namespace, base_model, adapters=(), runtime=False,
     spec = {
         "model": {"uri": BASE_MODEL_URI, "name": base_model},
         "replicas": 1,
-        "router": {"scheduler": {}, "gateway": {}, "route": route if route is not None else {}},
+        "router": {
+            "scheduler": {},
+            "gateway": gateway if gateway is not None else {},
+            "route": route if route is not None else {},
+        },
     }
     if adapters:
         spec["model"]["lora"] = {

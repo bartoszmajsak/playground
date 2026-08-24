@@ -23,7 +23,7 @@ ENV_NAME="${1:-}"
 [[ "$ENV_NAME" == "kind-istio" ]] || die "usage: setup.sh kind-istio [--reuse] (got '${ENV_NAME:-<none>}')"
 shift
 REUSE=false
-[[ "${1:-}" == "--reuse" ]] && REUSE=true
+if [[ "${1:-}" == "--reuse" ]]; then REUSE=true; fi
 
 require_bins kind kubectl helm docker curl python3 git
 ADAPTER_COUNT="${ADAPTER_COUNT:-100}"
@@ -71,7 +71,7 @@ meta_set "$RUN_DIR" adapterCount "$ADAPTER_COUNT"
 
 # Pinned dependency versions, tracked from the checkout under test.
 deps="$(cat "${KSERVE_SRC}/kserve-deps.env" 2>/dev/null || true)"
-[[ -n "$deps" ]] && eval "$(echo "$deps" | grep -E '^[A-Z_]+=' | grep -v '^OVERRIDE_' | sed 's/^/export /')"
+if [[ -n "$deps" ]]; then eval "$(echo "$deps" | grep -E '^[A-Z_]+=' | grep -v '^OVERRIDE_' | sed 's/^/export /')"; fi
 GWAPI_VERSION="${GWAPI_VERSION:-${GATEWAY_API_VERSION:-v1.5.1}}"
 CERTMGR_VERSION="${CERTMGR_VERSION:-${CERT_MANAGER_VERSION:-v1.17.0}}"
 LWS_VERSION="${LWS_VERSION:-v0.8.0}"
@@ -86,7 +86,7 @@ meta_set "$RUN_DIR" versions "{\"gatewayAPI\":\"${GWAPI_VERSION}\",\"certManager
 # ---------------------------------------------------------------------------
 if ! $REUSE; then
     info "kind cluster ${CLUSTER_NAME}"
-    kind get clusters 2>/dev/null | grep -qx "$CLUSTER_NAME" && die "cluster ${CLUSTER_NAME} already exists"
+    if kind get clusters 2>/dev/null | grep -qx "$CLUSTER_NAME"; then die "cluster ${CLUSTER_NAME} already exists"; fi
     kind create cluster --name "$CLUSTER_NAME" --kubeconfig "$KUBECONFIG_PATH" --wait 120s >/dev/null
     chmod 600 "$KUBECONFIG_PATH"
     ok "created (kubeconfig ${KUBECONFIG_PATH})"
@@ -177,8 +177,8 @@ info "kserve llmisvc CRDs + config (local checkout)"
 kc apply --server-side=true --force-conflicts -k "${KSERVE_SRC}/config/crd/full/llmisvc" >/dev/null
 for crd in llminferenceserviceconfigs.serving.kserve.io llminferenceservices.serving.kserve.io; do
     for _ in $(seq 30); do
-        kc get "crd/${crd}" -o jsonpath='{.status.conditions[?(@.type=="Established")].status}' \
-            2>/dev/null | grep -q True && break
+        if kc get "crd/${crd}" -o jsonpath='{.status.conditions[?(@.type=="Established")].status}' \
+            2>/dev/null | grep -q True; then break; fi
         sleep 2
     done
     kc get "crd/${crd}" -o jsonpath='{.status.conditions[?(@.type=="Established")].status}' \
@@ -204,9 +204,11 @@ kc patch configmap inferenceservice-config -n kserve --type merge \
 info "controller (${IMAGE})"
 kind load docker-image "$IMAGE" --name "$CLUSTER_NAME" >/dev/null
 apply_out=$(kc apply --server-side=true --force-conflicts -k "${KSERVE_SRC}/config/llmisvc" 2>&1) || true
-echo "$apply_out" | grep -q 'no matches for kind' && die "kserve llmisvc kustomize needs a missing CRD"
+if echo "$apply_out" | grep -q 'no matches for kind'; then die "kserve llmisvc kustomize needs a missing CRD"; fi
 kc -n kserve set image deployment/llmisvc-controller-manager "manager=${IMAGE}" >/dev/null
-kc -n kserve patch deployment llmisvc-controller-manager --type merge \
+# Strategic merge: a plain JSON merge patch would replace the containers list
+# wholesale and drop the image field.
+kc -n kserve patch deployment llmisvc-controller-manager --type strategic \
     -p '{"spec":{"template":{"spec":{"containers":[{"name":"manager","imagePullPolicy":"IfNotPresent"}]}}}}' >/dev/null
 
 kc -n kserve wait --timeout=180s --for=condition=Ready certificate/llmisvc-serving-cert >/dev/null \
@@ -222,16 +224,22 @@ deployed_image="$(kc -n kserve get deployment llmisvc-controller-manager \
     -o jsonpath='{.spec.template.spec.containers[?(@.name=="manager")].image}')"
 [[ "$deployed_image" == "$IMAGE" ]] || die "deployed image ${deployed_image} != manifest image ${IMAGE}"
 
-# Webhook endpoint must accept connections before presets apply.
-for _ in $(seq 60); do
-    ready=$(kc get endpointslice -n kserve -l kubernetes.io/service-name=llmisvc-webhook-server-service \
-        -o jsonpath='{.items[*].endpoints[*].conditions.ready}' 2>/dev/null || echo "")
-    [[ "$ready" == *true* ]] && break
-    sleep 2
+# Deployment Available is not the webhook accepting connections, and endpoint
+# readiness can reflect a pod that is being replaced. Retry the presets apply
+# itself until the validating webhook answers.
+presets_ok=false
+presets_out=""
+for _ in $(seq 30); do
+    if presets_out=$(kc apply --server-side=true --force-conflicts -k "${KSERVE_SRC}/config/llmisvcconfig" 2>&1); then
+        presets_ok=true
+        break
+    fi
+    sleep 4
 done
-[[ "${ready:-}" == *true* ]] || die "webhook endpoint never became ready"
-kc apply --server-side=true --force-conflicts -k "${KSERVE_SRC}/config/llmisvcconfig" >/dev/null \
-    || die "failed to install llmisvcconfig presets"
+if ! $presets_ok; then
+    echo "$presets_out" | tail -3
+    die "failed to install llmisvcconfig presets (webhook never became reachable)"
+fi
 ok "controller ready"
 
 # ---------------------------------------------------------------------------
