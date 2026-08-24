@@ -5,14 +5,13 @@
 # same port as inference. That last part rules out anything working at L4 alone.
 #
 # Layer 1, gateway: an ALLOW list of inference paths. Everything else, including
-# the admin endpoints, is refused. Measured: load, both adapter forms and
-# delete all return 403; inference and the model listing are unaffected.
+# the admin endpoints, is refused - load, both adapter registration forms and
+# delete return 403, while inference and the model listing are unaffected.
 #
-# ALLOW rather than DENY deliberately. A DENY list was tried first and failed
-# open: Istio path matching supports a wildcard at one end only, so a pattern
-# like "*/adapters/*" never matches. The policy applied cleanly and a delete
-# through the gateway still removed an adapter. An allow list fails closed - a
-# path nobody thought of is refused rather than permitted.
+# ALLOW rather than DENY. Istio path matching supports a wildcard at one end
+# only, so a DENY pattern like "*/adapters/*" never matches: it applies cleanly,
+# reports no error, and the request it was meant to block still succeeds. An
+# allow list fails closed - a path nobody anticipated is refused, not permitted.
 ---
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
@@ -37,11 +36,9 @@ spec:
               - "*/health"
               - "*/metrics"
 ---
-# Layer 2, network: the gateway policy only covers traffic through the gateway.
-# Measured: a pod in the cluster reaching the workload Service directly loaded
-# an adapter with the gateway policy in place. This restricts who can open a
-# connection at all. Measured after applying: the same request times out, and
-# inference through the gateway is unaffected.
+# Layer 2, network: the gateway policy covers only traffic through the gateway.
+# A pod reaching the workload Service directly bypasses it entirely. This
+# restricts who can open a connection at all; inference is unaffected.
 #
 # It cannot distinguish inference from administration, since both are port 8000.
 # It limits reachability; the gateway policy limits paths. Neither substitutes

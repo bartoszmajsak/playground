@@ -49,8 +49,8 @@ subtotal() {
     printf '\n'
 }
 
-# The read that every assertion in check 1 is made against, so verbose must
-# show it: discarding stderr here hid the request that produces the value.
+# The read every assertion in check 1 is made against, so verbose must show it.
+# Keep stderr when verbose: that is where the request line is printed.
 #
 # paste -d takes a delimiter LIST and cycles through its characters, so
 # -d', ' alternates comma and space between fields. Join explicitly.
