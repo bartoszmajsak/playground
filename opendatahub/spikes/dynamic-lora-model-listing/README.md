@@ -167,9 +167,11 @@ callers.
 ## Layout
 
 ```
+setup.sh                      builds the whole thing, --teardown removes it
 manifests/fixture.yaml        PVC + LLMISVC, no lora block, route inline
 manifests/route-rules.yaml    rules captured from the managed route (do not hand-edit)
 hack/capture-route.sh         declare -> capture -> strip, regenerates the above
+hack/gen-adapter.py           tiny no-op LoRA adapters, stdlib only
 adapterctl.sh                 load/unload as one adapter, two names
 probe-listing.sh              the three checks above, printed
 ```
@@ -181,13 +183,24 @@ Needs a cluster with kserve, Gateway API, Istio and a `kserve-ingress-gateway` -
 `DEV.md` covers the gotchas.
 
 ```bash
-kubectl create namespace dynamic-lora
-kubectl apply -f manifests/fixture.yaml
-# seed the PVC with adapter-1..4, then:
+./setup.sh              # 4 adapters
+./setup.sh 7            # more
+./setup.sh --teardown
+```
+
+It generates the adapters (pure stdlib, no torch), seeds the PVC through a
+throwaway pod, does the declare/capture/strip dance for the route, adds the
+`DestinationRule`, and waits on a real request rather than a sleep. It picks up
+the sibling spike's `.kubeconfig` if this one has none.
+
+Then:
+
+```bash
 ./probe-listing.sh
 ```
 
-Two things that will otherwise waste an hour:
+`setup.sh` handles three things that otherwise waste an hour, but they are
+worth knowing about because they bite anywhere:
 
 - **The EPP needs a `DestinationRule`** disabling mTLS origination, or every
   pool-bound request returns 500 while the route, the pool and the EPP all
@@ -195,6 +208,10 @@ Two things that will otherwise waste an hour:
 - **`--max-loras` defaults to 1.** kserve only emits it when
   `LoRASpec.MaxAdapters` is set, so without it vLLM keeps one adapter resident
   and swaps. The fixture sets `--max-loras=4` explicitly.
+- **The route churn can knock istiod over.** Writing the route twice in quick
+  succession trips istio's `mergeHTTPRoutes` data race; istiod crash-loops, its
+  validating webhook stops answering, and the next apply fails with "connection
+  refused". `setup.sh` detects it and restarts.
 
 ## What this does not cover
 
