@@ -1,0 +1,5 @@
+kubernetes==31.0.0
+pytest==8.3.4
+pytest-json-report==1.5.0
+requests==2.32.3
+PyYAML==6.0.2
