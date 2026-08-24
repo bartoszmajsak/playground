@@ -83,15 +83,20 @@ DELETE-only - neither lists, so `/v1/models` is the only view of loaded adapters
 
 ## Does the listing hold up?
 
-`./check.sh` runs two checks. `-v` echoes every request and response, so the
-summary can be checked against the wire:
+`./check.sh` runs two checks. `-v` echoes every request and response, including
+the read each assertion is made against:
 
 ```
-> POST /v1/load_lora_adapter
-  {"lora_name":"adapter-1","lora_path":"/mnt/lora/adapter-1"}
-  < Success: LoRA adapter 'adapter-1' added successfully.
-load adapter-1         adapter-1
+   > POST /v1/load_lora_adapter
+     {"lora_name":"adapter-1","lora_path":"/mnt/lora/adapter-1"}
+     < Success: LoRA adapter 'adapter-1' added successfully.
+   > GET http://.../v1/models
+     < adapter-1
+   PASS  load adapter-1         adapter-1
 ```
+
+Each step is two requests: the mutation, then the listing that is compared
+against the expected set.
 
 Each case declares what it expects and fails against it, so the run is usable
 from CI rather than read by eye.

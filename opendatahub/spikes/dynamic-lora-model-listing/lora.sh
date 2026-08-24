@@ -30,21 +30,23 @@ DIM='\033[2m'; CY='\033[0;36m'; NC='\033[0m'
 
 # In verbose mode print the request as a runnable curl, then the response.
 post() {
-    [[ "$V" == 1 ]] && printf "${CY}  > POST %s${NC}\n${DIM}    %s${NC}\n" "$1" "$2" >&2
+    [[ "$V" == 1 ]] && printf "${CY}   > POST %s${NC}\n${DIM}     %s${NC}\n" "$1" "$2" >&2
     local out; out=$(curl -sS --max-time 60 -X POST "$B$1" \
         -H 'Content-Type: application/json' -d "$2")
-    [[ "$V" == 1 ]] && printf "${DIM}    < %s${NC}\n" "${out:-(empty)}" >&2
+    [[ "$V" == 1 ]] && printf "${DIM}     < %s${NC}\n" "${out:-(empty)}" >&2
     printf '%s' "$out"
 }
 
 case "${1:-}" in
   list)
-    [[ "$V" == 1 ]] && printf "${CY}  > GET %s/v1/models${NC}\n" "$B" >&2
-    curl -sS --max-time 20 "$B/v1/models" |
+    [[ "$V" == 1 ]] && printf "${CY}   > GET %s/v1/models${NC}\n" "$B" >&2
+    out=$(curl -sS --max-time 20 "$B/v1/models" |
       python3 -c 'import json,sys
 d=json.load(sys.stdin)
 a=[m["id"] for m in d["data"] if m.get("parent")]
-print("\n".join(a) if a else "(none)")' ;;
+print("\n".join(a) if a else "(none)")')
+    [[ "$V" == 1 ]] && printf "${DIM}     < %s${NC}\n" "$(paste -sd, - <<<"$out")" >&2
+    printf '%s\n' "$out" ;;
   load)
     [[ -n "${2:-}" ]] || { echo "usage: $0 load NAME" >&2; exit 2; }
     post /v1/load_lora_adapter "{\"lora_name\":\"$2\",\"lora_path\":\"/mnt/lora/$2\"}"; echo ;;

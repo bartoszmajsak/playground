@@ -49,9 +49,17 @@ subtotal() {
     printf '\n'
 }
 
+# The read that every assertion in check 1 is made against, so verbose must
+# show it: discarding stderr here hid the request that produces the value.
+#
 # paste -d takes a delimiter LIST and cycles through its characters, so
 # -d', ' alternates comma and space between fields. Join explicitly.
-listed() { ./lora.sh list 2>/dev/null | sort | paste -sd, - | sed 's/,/, /g'; }
+listed() {
+    local raw
+    if [[ "$V" == 1 ]]; then raw=$(./lora.sh list)
+    else                     raw=$(./lora.sh list 2>/dev/null); fi
+    sort <<<"$raw" | paste -sd, - | sed 's/,/, /g'
+}
 
 # Sends a real inference request. In verbose mode prints the payload and body:
 # a status code alone does not say which adapter answered.
