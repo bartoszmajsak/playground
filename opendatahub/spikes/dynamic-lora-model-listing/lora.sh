@@ -13,7 +13,9 @@
 # Adapters loaded here register once, so they do not hit this. unload still
 # clears both, since the pod may also carry spec-declared adapters.
 #
-# Usage:  ./lora.sh list | load NAME | unload NAME
+# Usage:  ./lora.sh [-v] list | load NAME | unload NAME
+#
+# -v (or V=1) echoes each request and response.
 
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
@@ -22,11 +24,22 @@ NS="${NS:-dynamic-lora}"; SVC="${SVC:-svc-dyn}"
 B="${B:-http://$(kubectl get gateway kserve-ingress-gateway -n kserve \
     -o jsonpath='{.status.addresses[0].value}')/${NS}/${SVC}}"
 Q="publishers/${NS}/models"
+[[ "${1:-}" == "-v" ]] && { V=1; shift; }
+V="${V:-0}"
+DIM='\033[2m'; CY='\033[0;36m'; NC='\033[0m'
 
-post() { curl -sS --max-time 60 -X POST "$B$1" -H 'Content-Type: application/json' -d "$2"; }
+# In verbose mode print the request as a runnable curl, then the response.
+post() {
+    [[ "$V" == 1 ]] && printf "${CY}  > POST %s${NC}\n${DIM}    %s${NC}\n" "$1" "$2" >&2
+    local out; out=$(curl -sS --max-time 60 -X POST "$B$1" \
+        -H 'Content-Type: application/json' -d "$2")
+    [[ "$V" == 1 ]] && printf "${DIM}    < %s${NC}\n" "${out:-(empty)}" >&2
+    printf '%s' "$out"
+}
 
 case "${1:-}" in
   list)
+    [[ "$V" == 1 ]] && printf "${CY}  > GET %s/v1/models${NC}\n" "$B" >&2
     curl -sS --max-time 20 "$B/v1/models" |
       python3 -c 'import json,sys
 d=json.load(sys.stdin)
@@ -42,5 +55,5 @@ print("\n".join(a) if a else "(none)")' ;;
     post /v1/unload_lora_adapter "{\"lora_name\":\"${Q}/$2\"}" >/dev/null || true
     left=$("$0" list | grep -Fx -e "$2" -e "${Q}/$2" || true)
     [[ -z "$left" ]] && echo "removed $2 (both names)" || { echo "STILL LOADED: $left"; exit 1; } ;;
-  *) sed -n '2,18p' "$0" | sed 's/^# \?//'; exit 2 ;;
+  *) sed -n '2,20p' "$0" | sed 's/^# \?//'; exit 2 ;;
 esac

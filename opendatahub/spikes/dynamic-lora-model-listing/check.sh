@@ -8,6 +8,9 @@
 # an inference request will do.
 #
 # Exits non-zero if the two disagree.
+#
+# -v echoes every request and response, so the summary can be checked against
+# the wire rather than taken on trust.
 
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
@@ -16,23 +19,50 @@ NS="${NS:-dynamic-lora}"; SVC="${SVC:-svc-dyn}"
 B="${B:-http://$(kubectl get gateway kserve-ingress-gateway -n kserve \
     -o jsonpath='{.status.addresses[0].value}')/${NS}/${SVC}}"
 export B
-G='\033[0;32m'; R='\033[0;31m'; C='\033[0;36m'; BD='\033[1m'; N='\033[0m'
+[[ "${1:-}" == "-v" ]] && { V=1; shift; }
+V="${V:-0}"; export V
+G='\033[0;32m'; R='\033[0;31m'; C='\033[0;36m'; BD='\033[1m'; N='\033[0m'; DIM='\033[2m'
 
-listed() { ./lora.sh list | paste -sd, - ; }
+listed() { ./lora.sh list 2>/dev/null | paste -sd, - ; }
+
+# Sends a real inference request. In verbose mode prints the payload and the
+# body, since the status code alone does not say which adapter answered.
 serves() {
-    curl -sS -o /dev/null -w '%{http_code}' --max-time 60 -X POST \
-        "$B/v1/chat/completions" -H 'Content-Type: application/json' \
-        -d "{\"model\":\"$1\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":1}"
+    local body tmp code
+    body="{\"model\":\"$1\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":1}"
+    # stderr, not stdout: this runs inside $( ) and would otherwise be captured
+    [[ "$V" == 1 ]] && printf "${C}  > POST %s/v1/chat/completions${N}\n${DIM}    %s${N}\n" "$B" "$body" >&2
+    tmp=$(mktemp)
+    code=$(curl -sS -o "$tmp" -w '%{http_code}' --max-time 60 -X POST \
+        "$B/v1/chat/completions" -H 'Content-Type: application/json' -d "$body")
+    if [[ "$V" == 1 ]]; then
+        printf "${DIM}    < %s  %s${N}\n" "$code" >&2 \
+            "$(python3 -c '
+import json,sys
+raw=sys.stdin.read()
+try: d=json.loads(raw)
+except Exception: print(raw[:80]); raise SystemExit
+if "model" in d: print("served " + d["model"])
+else: print(str(d.get("error") or d.get("detail") or raw)[:80])' < "$tmp")"
+    fi
+    rm -f "$tmp"
+    printf '%s' "$code"
 }
 
 echo -e "${BD}1. does the list follow every call?${N}"
 for a in adapter-1 adapter-2 adapter-3 adapter-4; do ./lora.sh unload "$a" >/dev/null 2>&1 || true; done
+[[ "$V" == 1 ]] && echo -e "${DIM}  (reset: removed any adapters left by a previous run)${N}"
 printf '  %-22s %s\n' "start (reset)" "$(listed)"
 for a in adapter-1 adapter-2 adapter-3; do
     ./lora.sh load "$a" >/dev/null; printf '  %-22s %s\n' "load ${a}" "$(listed)"
 done
 ./lora.sh unload adapter-2 >/dev/null; printf '  %-22s %s\n' "unload adapter-2" "$(listed)"
 ./lora.sh load adapter-2 >/dev/null;   printf '  %-22s %s\n' "re-load adapter-2" "$(listed)"
+# Verbose shows the second unload returning 404 for runtime-loaded adapters.
+# That is correct: they register under one name. The second call exists for
+# spec-declared adapters, which register under two.
+[[ "$V" == 1 ]] && echo -e "${DIM}  (unload sends two requests: bare and fully qualified;${N}"
+[[ "$V" == 1 ]] && echo -e "${DIM}   a 404 on the second is expected for runtime-loaded adapters)${N}"
 
 echo
 echo -e "${BD}2. does the list agree with what serves?${N}"

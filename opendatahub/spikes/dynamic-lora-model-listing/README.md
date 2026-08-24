@@ -83,7 +83,15 @@ DELETE-only - neither lists, so `/v1/models` is the only view of loaded adapters
 
 ## Does the listing hold up?
 
-`./check.sh` runs two checks.
+`./check.sh` runs two checks. `-v` echoes every request and response, so the
+summary can be checked against the wire:
+
+```
+> POST /v1/load_lora_adapter
+  {"lora_name":"adapter-1","lora_path":"/mnt/lora/adapter-1"}
+  < Success: LoRA adapter 'adapter-1' added successfully.
+load adapter-1         adapter-1
+```
 
 **It follows every call.** Load four, unload two, re-load one: the listing
 matches at every step, no lag, no leaked entries.
@@ -152,7 +160,7 @@ one breaks the form used on publisher paths. Both have callers.
 ```
 setup.sh                      builds everything, --destroy removes it
 lora.sh                       list / load / unload  (unload clears both names)
-check.sh                      does /v1/models match reality?
+check.sh                      does /v1/models match reality?  -v for the wire
 manifests/fixture.yaml        PVC + LLMISVC, no lora block
 manifests/route-rules.yaml    route captured once from a kserve-managed one
 hack/gen-adapter.py           tiny no-op LoRA adapters, stdlib only
@@ -181,7 +189,8 @@ Then:
 
 ```bash
 export KUBECONFIG=$PWD/.kubeconfig
-./check.sh
+./check.sh          # summary
+./check.sh -v       # every request and response
 ```
 
 `setup.sh` handles four constraints that apply outside this spike too:
