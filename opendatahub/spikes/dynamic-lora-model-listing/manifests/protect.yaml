@@ -1,22 +1,34 @@
-# Controls for the runtime LoRA endpoints. Both were measured; neither is
-# sufficient alone.
+# Keep the runtime LoRA endpoints off the gateway and reachable only by an
+# in-cluster component that manages adapters.
 #
-# The endpoints are unauthenticated, mutate a running server, and sit on the
-# same port as inference. That last part rules out anything working at L4 alone.
+# The endpoints are unauthenticated, mutate a running server, and share port
+# 8000 with inference, so no L4 control separates them. They are also not routed
+# deliberately: the route enumerates the inference paths and sends them to the
+# InferencePool, and the admin paths arrive only through the catch-all rules
+# that exist to forward health, metrics and the model listing to the workload.
+# Exposure is incidental.
 #
-# This is Istio-specific. On a Kuadrant cluster the same decision belongs in the
-# AuthPolicy odh-model-controller already renders per service - one object
-# rather than two, and it follows the service rather than the gateway
-# implementation. See the README for the rule and what it has to account for.
+# Two layers, and they answer different questions.
 #
-# Layer 1, gateway: an ALLOW list of inference paths. Everything else, including
-# the admin endpoints, is refused - load, both adapter registration forms and
-# delete return 403, while inference and the model listing are unaffected.
+# Gateway - an ALLOW list of inference paths, so nothing administrative is
+# reachable from outside the cluster at all. Verified: load and delete return
+# 403 through the gateway while inference and the model listing are unaffected.
 #
 # ALLOW rather than DENY. Istio path matching supports a wildcard at one end
 # only, so a DENY pattern like "*/adapters/*" never matches: it applies cleanly,
 # reports no error, and the request it was meant to block still succeeds. An
 # allow list fails closed - a path nobody anticipated is refused, not permitted.
+#
+# Network - the gateway policy covers only traffic through the gateway, so this
+# decides who inside the cluster may open a connection. The label below is the
+# grant. Verified: a pod carrying it loads an adapter; a pod without it times
+# out; and an adapter loaded that way is immediately servable through the
+# gateway, since inference and administration are separate paths, not separate
+# servers.
+#
+# Where the component managing adapters should live is undecided. This says only
+# what it needs: a label, and network reach to port 8000.
+
 ---
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
@@ -60,7 +72,7 @@ spec:
   policyTypes: [Ingress]
   ingress:
     - from:
-        # the gateway
+        # the gateway, for inference
         - namespaceSelector:
             matchLabels:
               name: kserve
@@ -68,5 +80,10 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: svc-dyn
+        # whatever manages adapters. Carrying this label is the grant; nothing
+        # else in the cluster can reach the port.
+        - podSelector:
+            matchLabels:
+              serving.kserve.io/adapter-manager: "true"
       ports:
         - port: 8000

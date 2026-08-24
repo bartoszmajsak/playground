@@ -20,16 +20,21 @@ that works; it does not argue the mechanism is supportable as-is.
 **Do not enable them in production.** Declared adapters go through the spec and
 are reconciled; that path needs none of what follows.
 
-If they are enabled anyway, `manifests/protect.yaml` carries the two controls
-below. Neither is sufficient alone.
+Where they are enabled, the shape that holds up is: **not reachable from outside
+the cluster at all, and callable by one internal component.**
+`manifests/protect.yaml` implements it.
 
-**At the gateway, allow-list the inference paths.** The admin endpoints share
-port 8000 with inference, so only an L7 control separates them:
+That is close to the route's existing structure. Inference paths are enumerated
+and sent to the InferencePool; the admin paths arrive only through the catch-all
+rules that forward health, metrics and the model listing to the workload. Their
+exposure is incidental rather than intended.
 
-| request | result |
+**Gateway: allow-list the inference paths.** The admin endpoints share port 8000
+with inference, so only an L7 control separates them.
+
+| through the gateway | result |
 |---|---|
 | `POST /v1/load_lora_adapter` | 403 |
-| `POST /adapters` | 403 |
 | `DELETE /adapters/{name}` | 403 |
 | `GET /v1/models` | 200 |
 | `POST /v1/chat/completions` | 200 |
@@ -39,16 +44,24 @@ end only, so a deny pattern like `*/adapters/*` never matches - it applies
 cleanly, reports no error, and admin requests continue to work. An allow-list
 refuses paths nobody anticipated instead of admitting them.
 
-**At the network, restrict who can connect.** The gateway policy covers only
-traffic through the gateway; a pod reaching the workload Service directly is
-unaffected by it. A NetworkPolicy limiting ingress to the gateway and the
-endpoint picker closes that, and inference is unaffected.
+**Network: one label is the grant.** The gateway policy covers only traffic
+through the gateway, so a NetworkPolicy decides who inside the cluster may
+connect at all - the gateway, the endpoint picker, and whatever manages
+adapters.
 
-It cannot distinguish inference from administration, since both are the same
-port. It limits reachability; the gateway policy limits paths.
+| in-cluster caller | `POST /v1/load_lora_adapter` |
+|---|---|
+| pod labelled `serving.kserve.io/adapter-manager=true` | 200 |
+| any other pod | connection times out |
 
-Neither addresses the adapter path in a load request, which is an arbitrary
-filesystem path read with the server's permissions.
+An adapter loaded that way is immediately servable through the gateway -
+inference and administration are separate paths, not separate servers - so the
+split costs nothing at request time.
+
+Where that component lives is undecided. This says only what it needs: a label,
+and network reach to port 8000. Neither layer addresses the adapter path in a
+load request, which is an arbitrary filesystem path read with the server's
+permissions.
 
 ### On a Kuadrant cluster, put it in the AuthPolicy instead
 
