@@ -9,7 +9,7 @@ doc owns *what* was agreed; this file owns *how* it got built and every call
 made along the way.
 
 Result up front: branch `upstream/llmisvc/feat/lora-regex-routing` (worktree
-`main__worktrees/feat/lora-regex-routing`), five commits, 290 envtest specs
+`main__worktrees/feat/lora-regex-routing`), six commits, 290 envtest specs
 green, and a clean-cluster e2e qualification passing 10/10 including real
 inference through all 100 fixture adapters plus the base model
 (run `e2e/artifacts/20260824T235410Z-a9ac556d`, 480 recorded requests).
@@ -137,6 +137,41 @@ Deferred as work items (adjacent, out of scope): case-sensitivity in the
 pre-existing exact/strip/discovery paths, exact-path rendering of empty
 adapter names, webhook-side name length caps.
 
+### Weighing the adversarial verdict
+
+The Codex adversarial pass (run through the plugin's rescue path -
+`/codex:adversarial-review` itself is reserved for direct invocation) returned
+an overall **"needs rework"** against the feature commit. That verdict was
+right at the time, and is discharged now:
+
+- The verdict rested on one confirmed blocker: the case-sensitive header
+  recognition letting a lowercase handcrafted regex slip past Q36. Fact-checked
+  against the vendored Gateway API semantics (header-name matching is
+  case-insensitive, first equivalent entry wins), confirmed real, fixed, and
+  re-proven three ways - unit tests, the handcrafted-regex envtest, and the
+  clean-cluster e2e run.
+- Its remaining substantive findings did not survive verification: the Q42
+  "upgrade regression" was refuted (the budget constants mirror the CRD
+  limits, so every route the gate rejects was already inadmissible - the gate
+  only changes *how* it fails, which became the release note), and the
+  effective-strategy message request lost to Q17's authoritative wording.
+- The duplicate-events LOW was accepted (independently raised by two other
+  reviewers) and the events now fire only on condition transitions.
+- Of its test blind-spot list, roughly half was adopted directly
+  (case-insensitivity units, exhaustive ASCII escaping, final-adapter removal,
+  the custom-inline Q36 envtest, partial rollback); the traffic-continuity and
+  churn items were routed to the live validator where they belong; controller
+  restart mid-fan-out was shown to need no test at all (informer initial sync
+  re-enqueues everything by construction); and the transition-identity
+  assertions were partially adopted - rule names and route UID are pinned,
+  while parent refs and hostnames stay under the comparator's derivative
+  semantics by design.
+
+Net: one review, one real bug, two refuted claims, and a sharper test suite -
+about the best return an adversarial pass can give. The "needs rework" stamp
+does not carry forward to the final branch state; the re-validation above is
+what retires it, not the passage of time.
+
 ## E2E decisions
 
 - The harness lives in `e2e/` here, per the validator doc's location decision:
@@ -207,5 +242,5 @@ The point of building the validator before calling the feature finished:
 - Check whether `upstream/llmisvc/fix/stale-lora-route-matches` merged before
   opening the PR; rebase accordingly.
 
-Five commits, one green verdict file, and a validator that earns its keep by
+Six commits, one green verdict file, and a validator that earns its keep by
 finding bugs the unit tests structurally cannot - which was the whole pitch.
