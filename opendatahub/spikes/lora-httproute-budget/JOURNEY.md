@@ -9,7 +9,7 @@ doc owns *what* was agreed; this file owns *how* it got built and every call
 made along the way.
 
 Result up front: branch `upstream/llmisvc/feat/lora-regex-routing` (worktree
-`main__worktrees/feat/lora-regex-routing`), six commits, 290 envtest specs
+`main__worktrees/feat/lora-regex-routing`), seven commits, 290 envtest specs
 green, and a clean-cluster e2e qualification passing 10/10 including real
 inference through all 100 fixture adapters plus the base model
 (run `e2e/artifacts/20260824T235410Z-a9ac556d`, 480 recorded requests).
@@ -172,6 +172,27 @@ about the best return an adversarial pass can give. The "needs rework" stamp
 does not carry forward to the final branch state; the re-validation above is
 what retires it, not the passage of time.
 
+A second adversarial pass - this time `/codex:adversarial-review` proper,
+against the full branch diff - returned "needs-attention" with one confirmed
+medium: the post-injection retained-route path fed `updateRoutingStatus` an
+empty route list for managed-only services, clearing `status.url` and
+`status.addresses` for an endpoint that was still serving. Verified real,
+fixed by feeding the stored route back into discovery while
+`HTTPRoutesReady` stays False.
+
+The regression coverage for that fix took a deliberate detour. The retained
+branch is only reachable in production when group backendRef injection pushes
+a rule past sixteen members, so the first attempts were 17-member envtests -
+and they kept fighting the membership mechanics (a brand-new member has no
+route, so its resolved model names never match and it is classified divergent;
+even a joining standalone service did not converge inside a two-minute
+window). Instead of hardening an inherently churny fixture, the final test
+passes a hand-built over-budget route straight into `reconcileHTTPRoutes`
+with a fake client - same branch, deterministic, and proven to fail without
+the fix on exactly the erased-status symptom. The 17-member scenario stays
+where that kind of churn belongs: the live validator, if it ever earns a
+scenario of its own.
+
 ## E2E decisions
 
 - The harness lives in `e2e/` here, per the validator doc's location decision:
@@ -242,5 +263,5 @@ The point of building the validator before calling the feature finished:
 - Check whether `upstream/llmisvc/fix/stale-lora-route-matches` merged before
   opening the PR; rebase accordingly.
 
-Six commits, one green verdict file, and a validator that earns its keep by
+Seven commits, one green verdict file, and a validator that earns its keep by
 finding bugs the unit tests structurally cannot - which was the whole pitch.
