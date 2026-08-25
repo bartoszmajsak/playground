@@ -130,6 +130,30 @@ def wait_for_stable_route(api, namespace, svc_name, settle=6, timeout=180):
     return wait_until(stable, timeout=timeout, interval=1, desc=f"stable route {namespace}/{svc_name}")
 
 
+def ensure_istiod_ready(api, record, timeout=300):
+    """Istio 1.30.x has a known mergeHTTPRoutes data race: rapid HTTPRoute
+    churn (e.g. the fan-out scenarios) can crash istiod with 'concurrent map
+    writes', and kubelet backoff keeps it down long after the churn stopped.
+    Deleting the pod clears the backoff; the crash is recorded as provider
+    evidence rather than silently compensated."""
+    def ready():
+        pods = api["core"].list_namespaced_pod("istio-system", label_selector="app=istiod").items
+        if pods and all(all(cs.ready for cs in (p.status.container_statuses or [False]))
+                        for p in pods):
+            return True
+        return None
+    try:
+        if ready():
+            return
+    except Exception:  # noqa: BLE001 - fall through to recovery
+        pass
+    record("istiod-restart", {"note": "istiod not ready; clearing crash-loop backoff "
+                                      "(known mergeHTTPRoutes race under route churn)"})
+    for pod in api["core"].list_namespaced_pod("istio-system", label_selector="app=istiod").items:
+        api["core"].delete_namespaced_pod(pod.metadata.name, "istio-system")
+    wait_until(ready, timeout=timeout, interval=5, desc="istiod ready after restart")
+
+
 def rule_names(route):
     return [r.get("name", "") for r in route["spec"].get("rules", [])]
 

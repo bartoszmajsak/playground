@@ -17,6 +17,7 @@ import pytest
 
 from conftest import (
     ADAPTER_NAMES,
+    ensure_istiod_ready,
     wait_for_stable_route,
     FIXTURE_NS,
     MODEL_HEADER,
@@ -333,6 +334,10 @@ def deploy_runtime_service(api, svc, base, adapters, record):
     the base model answers through the shared endpoint."""
     from kubernetes.client.exceptions import ApiException
 
+    # The data plane (and its validation webhook) must be healthy before any
+    # runtime resources are created.
+    ensure_istiod_ready(api, record)
+
     # Exclusive ownership of the fixture namespace: the fast and full profiles
     # declare overlapping adapter identities, and two services sharing an
     # identity is the known namespace-collision defect (Q14/Q15) - it would
@@ -358,14 +363,26 @@ def deploy_runtime_service(api, svc, base, adapters, record):
         svc, FIXTURE_NS, base, adapters, runtime=True,
         max_adapters=2 * len(adapters),  # controller registers name + FQN aliases
     )
-    # Idempotent for focused reruns against a reused cluster.
-    for create in (lambda: create_llmisvc(api, manifest),
-                   lambda: epp_destination_rule(api, FIXTURE_NS, svc)):
-        try:
-            create()
-        except ApiException as exc:
-            if exc.status != 409:
+    # Idempotent for focused reruns against a reused cluster. Istio's
+    # validation webhook can go down mid-sequence when the service's own route
+    # creation re-triggers the mergeHTTPRoutes race, so 500s recover istiod
+    # and retry instead of failing the qualification on a provider crash.
+    def apply_ignoring_conflict(create):
+        def attempt():
+            try:
+                create()
+                return True
+            except ApiException as exc:
+                if exc.status == 409:
+                    return True
+                if exc.status == 500 and "webhook" in str(exc.body):
+                    ensure_istiod_ready(api, record)
+                    return None
                 raise
+        wait_until(attempt, timeout=300, interval=5, desc="resource applied")
+
+    apply_ignoring_conflict(lambda: create_llmisvc(api, manifest))
+    apply_ignoring_conflict(lambda: epp_destination_rule(api, FIXTURE_NS, svc))
     save_resource(f"llmisvc-{svc}.json", manifest)
 
     pattern = expected_regex(FIXTURE_NS, base, adapters)
