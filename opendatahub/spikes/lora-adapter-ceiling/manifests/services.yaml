@@ -1,0 +1,142 @@
+# Two services, same four adapters, differing only in whether the operator
+# states the CPU budget. The comparison is the point: KServe injects
+# --max-cpu-loras only when the field is set (workload_lora.go:533), while the
+# API doc says it "defaults to the number of configured adapters". What vLLM
+# actually resolves the budget to when the flag is absent is the open question.
+---
+apiVersion: serving.kserve.io/v1alpha2
+kind: LLMInferenceService
+metadata:
+  name: ceiling-default
+spec:
+  replicas: 1
+  model:
+    uri: hf://hmellor/tiny-random-LlamaForCausalLM
+    name: tiny-llama
+    lora:
+      # Deliberately no maxAdapters / maxCpuAdapters: the out-of-the-box case.
+      adapters:
+        - { name: ceil-a1, uri: pvc://lora-adapters/ceil-a1 }
+        - { name: ceil-a2, uri: pvc://lora-adapters/ceil-a2 }
+        - { name: ceil-a3, uri: pvc://lora-adapters/ceil-a3 }
+        - { name: ceil-a4, uri: pvc://lora-adapters/ceil-a4 }
+  router:
+    gateway: {}
+    route: {}
+    scheduler: {}
+  template:
+    containers:
+      - name: main
+        # v0.19.0, the runtime the lora-fleet Q-series was measured on. The
+        # newer CPU release image cannot serve LoRA at all: its worker dies
+        # with "'PunicaWrapperCPU' object has no attribute 'token_mapping_meta'".
+        image: vllm/vllm-openai-cpu:v0.19.0
+        args: [--enforce-eager]
+        env:
+          - { name: USER, value: nonroot }
+          - { name: VLLM_CPU_KVCACHE_SPACE, value: "1" }
+          - { name: VLLM_CPU_OMP_THREADS_BIND, value: nobind }
+          # AdapterLRUCache._on_remove and add_adapter log at DEBUG; those
+          # two lines are the eviction evidence.
+          - { name: VLLM_LOGGING_LEVEL, value: DEBUG }
+        resources:
+          requests: { cpu: 500m, memory: 2Gi }
+          limits: { cpu: "2", memory: 4Gi }
+        # The vLLM CPU image runs as root; the preset's pod-level runAsNonRoot
+        # would otherwise refuse the container. Container level wins.
+        securityContext:
+          runAsNonRoot: false
+          runAsUser: 0
+---
+apiVersion: serving.kserve.io/v1alpha2
+kind: LLMInferenceService
+metadata:
+  name: ceiling-explicit
+spec:
+  replicas: 1
+  model:
+    uri: hf://hmellor/tiny-random-LlamaForCausalLM
+    name: tiny-llama-explicit
+    lora:
+      # An operator sizing the budget to the adapters they declared. Four
+      # adapters, four slots - and eight registrations.
+      maxAdapters: 4
+      maxCpuAdapters: 4
+      adapters:
+        - { name: ceil-b1, uri: pvc://lora-adapters/ceil-a1 }
+        - { name: ceil-b2, uri: pvc://lora-adapters/ceil-a2 }
+        - { name: ceil-b3, uri: pvc://lora-adapters/ceil-a3 }
+        - { name: ceil-b4, uri: pvc://lora-adapters/ceil-a4 }
+  router:
+    gateway: {}
+    route: {}
+    scheduler: {}
+  template:
+    containers:
+      - name: main
+        # v0.19.0, the runtime the lora-fleet Q-series was measured on. The
+        # newer CPU release image cannot serve LoRA at all: its worker dies
+        # with "'PunicaWrapperCPU' object has no attribute 'token_mapping_meta'".
+        image: vllm/vllm-openai-cpu:v0.19.0
+        args: [--enforce-eager]
+        env:
+          - { name: USER, value: nonroot }
+          - { name: VLLM_CPU_KVCACHE_SPACE, value: "1" }
+          - { name: VLLM_CPU_OMP_THREADS_BIND, value: nobind }
+          # AdapterLRUCache._on_remove and add_adapter log at DEBUG; those
+          # two lines are the eviction evidence.
+          - { name: VLLM_LOGGING_LEVEL, value: DEBUG }
+        resources:
+          requests: { cpu: 500m, memory: 2Gi }
+          limits: { cpu: "2", memory: 4Gi }
+        # The vLLM CPU image runs as root; the preset's pod-level runAsNonRoot
+        # would otherwise refuse the container. Container level wins.
+        securityContext:
+          runAsNonRoot: false
+          runAsUser: 0
+---
+apiVersion: serving.kserve.io/v1alpha2
+kind: LLMInferenceService
+metadata:
+  name: ceiling-headroom
+spec:
+  replicas: 1
+  model:
+    uri: hf://hmellor/tiny-random-LlamaForCausalLM
+    name: tiny-llama-headroom
+    lora:
+      # The control arm. Same four adapters, same eight registrations, but a
+      # budget sized to the registrations rather than to the adapters. If the
+      # duplication is what causes eviction, this arm must not evict.
+      maxAdapters: 4
+      maxCpuAdapters: 8
+      adapters:
+        - { name: ceil-c1, uri: pvc://lora-adapters/ceil-a1 }
+        - { name: ceil-c2, uri: pvc://lora-adapters/ceil-a2 }
+        - { name: ceil-c3, uri: pvc://lora-adapters/ceil-a3 }
+        - { name: ceil-c4, uri: pvc://lora-adapters/ceil-a4 }
+  router:
+    gateway: {}
+    route: {}
+    scheduler: {}
+  template:
+    containers:
+      - name: main
+        # v0.19.0, the runtime the lora-fleet Q-series was measured on. The
+        # newer CPU release image cannot serve LoRA at all: its worker dies
+        # with "'PunicaWrapperCPU' object has no attribute 'token_mapping_meta'".
+        image: vllm/vllm-openai-cpu:v0.19.0
+        args: [--enforce-eager]
+        env:
+          - { name: USER, value: nonroot }
+          - { name: VLLM_CPU_KVCACHE_SPACE, value: "1" }
+          - { name: VLLM_CPU_OMP_THREADS_BIND, value: nobind }
+          - { name: VLLM_LOGGING_LEVEL, value: DEBUG }
+        resources:
+          requests: { cpu: 500m, memory: 2Gi }
+          limits: { cpu: "2", memory: 4Gi }
+        # The vLLM CPU image runs as root; the preset's pod-level runAsNonRoot
+        # would otherwise refuse the container. Container level wins.
+        securityContext:
+          runAsNonRoot: false
+          runAsUser: 0
