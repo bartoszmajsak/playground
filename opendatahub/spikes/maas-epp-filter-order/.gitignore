@@ -1,0 +1,7 @@
+.kubeconfig*
+results/*.log
+results/*/*
+!results/*/validate.out
+!results/*/versions.txt
+manifests/generated/
+__pycache__/

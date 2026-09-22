@@ -1,0 +1,341 @@
+--- /home/bartek/code/work/model-serving/maas-billing/models-as-a-service/test/e2e/scripts/local-deploy.sh	2026-08-21 12:24:49.047767521 +0200
++++ vendor/local-deploy.sh	2026-09-22 19:51:49.261083055 +0200
+@@ -1,6 +1,11 @@
+ #!/bin/bash
+ # Deploy MaaS platform locally on a Kind cluster (macOS + Linux/WSL2).
+ #
++# VENDORED COPY for the maas-epp-filter-order spike. Upstream:
++#   models-as-a-service/test/e2e/scripts/local-deploy.sh
++# Regenerate with patches/vendor-local-deploy.py; the edits are listed there
++# and diffed into patches/local-deploy.upstream.diff.
++#
+ # One-click deployment of: Kind + Istio + Gateway API + cert-manager +
+ # Kuadrant (auth/rate-limiting) + PostgreSQL + MaaS controller + MaaS API.
+ #
+@@ -23,11 +28,14 @@
+ # ─── Constants ──────────────────────────────────────────────────────────────
+ 
+ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
++PROJECT_ROOT="${MAAS_REPO:?MAAS_REPO must point at a models-as-a-service checkout}"
++SPIKE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+ 
+ KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME:-maas-local}"
+ ISTIO_VERSION="${ISTIO_VERSION:-1.29.2}"  # needs Envoy >=1.37 for ext_proc FULL_DUPLEX fix (envoy#41654)
+-KUADRANT_VERSION="${KUADRANT_VERSION:-1.3.1}"  # matches MaaS install-dependencies.sh
++KUADRANT_VERSION="${KUADRANT_VERSION:-1.5.3}"  # >=1.5.0: wasm via EnvoyFilter (RHCL 1.4); 1.4.x: WasmPlugin CR
++METALLB_SLOT="${METALLB_SLOT:-0}"  # LB pool 172.18.<slot>.200-250, so spike clusters can coexist
++ISTIO_OPERATOR_FILE="${ISTIO_OPERATOR_FILE:-$SPIKE_DIR/manifests/istio-operator.yaml}"
+ CERTMANAGER_VERSION="${CERTMANAGER_VERSION:-1.17.2}"
+ GATEWAY_API_VERSION="${GATEWAY_API_VERSION:-1.3.0}"
+ MAAS_NAMESPACE="${MAAS_NAMESPACE:-maas-system}"
+@@ -46,8 +54,11 @@
+ 
+ # KServe (for LLMInferenceService / internal models)
+ KSERVE_VERSION="${KSERVE_VERSION:-v0.15.2}"
+-KSERVE_COMMIT="47894470ea49"  # opendatahub fork commit pinned in maas-controller go.mod
+-LLMISVC_IMAGE="quay.io/opendatahub/odh-kserve-llmisvc-controller:odh-stable"
++# CRDs, controller manifests and the GIE CRD bundle all come from one clone
++# of the opendatahub fork, so they cannot disagree on API versions.
++KSERVE_CLONE="${KSERVE_CLONE:-/tmp/opendatahub-kserve}"
++KSERVE_ODH_REF="${KSERVE_ODH_REF:-}"  # empty = default branch
++LLMISVC_IMAGE="${LLMISVC_IMAGE:-quay.io/opendatahub/odh-kserve-llmisvc-controller:odh-stable}"
+ 
+ ARCH="$(uname -m)"
+ # Docker platform string (arm64 stays arm64, x86_64 becomes amd64)
+@@ -460,11 +471,12 @@
+ fi
+ ok "Tools: kind, kubectl, kustomize, helm, jq"
+ 
+-# istioctl — install inline if missing
+-if ! command -v istioctl &>/dev/null; then
+-  warn "istioctl not found, installing ${ISTIO_VERSION}..."
+-  curl -sL https://istio.io/downloadIstio | ISTIO_VERSION="$ISTIO_VERSION" sh -
+-  export PATH="$PWD/istio-${ISTIO_VERSION}/bin:$PATH"
++# istioctl — install inline unless the one on PATH is exactly ISTIO_VERSION
++_istioctl_ver="$(istioctl version --remote=false 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
++if [[ "$_istioctl_ver" != "$ISTIO_VERSION" ]]; then
++  warn "istioctl ${_istioctl_ver:-not found} on PATH, installing ${ISTIO_VERSION}..."
++  (cd /tmp && curl -sL https://istio.io/downloadIstio | ISTIO_VERSION="$ISTIO_VERSION" sh - >/dev/null)
++  export PATH="/tmp/istio-${ISTIO_VERSION}/bin:$PATH"
+ fi
+ ok "istioctl: $(istioctl version --remote=false 2>/dev/null || echo "$ISTIO_VERSION")"
+ 
+@@ -476,8 +488,8 @@
+   if kubectl cluster-info --context "kind-${KIND_CLUSTER_NAME}" &>/dev/null; then
+     ok "Cluster '${KIND_CLUSTER_NAME}' already exists and is reachable"
+   else
+-    warn "Cluster exists but unreachable, recreating..."
+-    kind delete cluster --name "$KIND_CLUSTER_NAME"
++    fail "Cluster '${KIND_CLUSTER_NAME}' exists but is unreachable; not recreating it. Fix the kubeconfig or run --teardown first."
++    exit 1
+   fi
+ fi
+ 
+@@ -504,6 +516,25 @@
+   ok "Gateway API CRDs v${GATEWAY_API_VERSION} installed"
+ fi
+ 
++# ─── Step 2b: opendatahub-io/kserve clone + Inference Extension CRDs ───────
++
++step "Cloning opendatahub-io/kserve (llmisvc manifests, CRDs, GIE bundle)"
++
++if [[ ! -d "$KSERVE_CLONE/.git" ]]; then
++  gh repo clone opendatahub-io/kserve "$KSERVE_CLONE" -- --depth 1 2>&1 | tail -1
++fi
++if [[ -n "$KSERVE_ODH_REF" ]] && [[ "$(git -C "$KSERVE_CLONE" rev-parse HEAD)" != "$KSERVE_ODH_REF"* ]]; then
++  git -C "$KSERVE_CLONE" fetch --depth 1 origin "$KSERVE_ODH_REF"
++  git -C "$KSERVE_CLONE" checkout -q FETCH_HEAD
++fi
++ok "opendatahub-io/kserve at $(git -C "$KSERVE_CLONE" rev-parse --short=12 HEAD)"
++
++# istiod compiles InferencePool backendRefs into ext_proc only if these CRDs
++# exist when it starts; installed later they are ignored until a restart.
++kubectl apply --server-side -f "$KSERVE_CLONE/config/llmisvc/gateway-inference-extension.yaml" 2>&1 | tail -2
++kubectl wait --for=condition=Established crd/inferencepools.inference.networking.k8s.io --timeout=60s
++ok "Gateway API Inference Extension CRDs installed"
++
+ # ─── Step 3: Istio ──────────────────────────────────────────────────────────
+ 
+ step "Installing Istio (minimal profile)"
+@@ -511,10 +542,9 @@
+ if kubectl get deployment istiod -n istio-system &>/dev/null; then
+   ok "Istio already installed"
+ else
+-  istioctl install --set profile=minimal \
+-    --set values.pilot.env.SUPPORT_GATEWAY_API_INFERENCE_EXTENSION=true \
+-    --set values.pilot.env.ENABLE_GATEWAY_API_INFERENCE_EXTENSION=true \
+-    -y
++  # IstioOperator file rather than --set: the JSON access-log format the
++  # spike scores against carries commas.
++  istioctl install -y -f "$ISTIO_OPERATOR_FILE"
+   kubectl rollout status deployment/istiod -n istio-system --timeout=120s
+   ok "Istio ${ISTIO_VERSION} installed"
+ fi
+@@ -536,7 +566,7 @@
+ 
+   # Configure IP pool from Kind's docker network (extract IPv4 subnet)
+   KIND_SUBNET=$(docker network inspect kind -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}' | tr ' ' '\n' | grep '\.')
+-  LB_BASE=$(echo "$KIND_SUBNET" | cut -d'.' -f1-3)
++  LB_BASE="$(echo "$KIND_SUBNET" | cut -d'.' -f1-2).${METALLB_SLOT}"
+   _metallb_retries=0
+   while [[ $_metallb_retries -lt 6 ]]; do
+     if kubectl apply -f - <<EOF 2>/dev/null
+@@ -659,6 +689,52 @@
+   ok "TLS certificate created for maas-api (CA chain)"
+ fi
+ 
++# maas-controller mounts maas-controller-webhook-cert and maas-controller-metrics-tls
++# (deployment/base/maas-controller/manager/manager.yaml), provisioned by service-ca
++# on OpenShift. Issue both from the same CA so the webhook caBundle can be injected.
++if kubectl get secret maas-controller-webhook-cert -n "$MAAS_NAMESPACE" &>/dev/null; then
++  ok "maas-controller certificates already exist"
++else
++  kubectl apply -f - <<EOF
++apiVersion: cert-manager.io/v1
++kind: Certificate
++metadata:
++  name: maas-controller-webhook-server
++  namespace: ${MAAS_NAMESPACE}
++spec:
++  secretName: maas-controller-webhook-cert
++  commonName: maas-controller-webhook-service.${MAAS_NAMESPACE}.svc
++  dnsNames:
++  - maas-controller-webhook-service.${MAAS_NAMESPACE}.svc
++  - maas-controller-webhook-service.${MAAS_NAMESPACE}.svc.cluster.local
++  issuerRef:
++    name: maas-ca-issuer
++    kind: Issuer
++  duration: 8760h
++  renewBefore: 720h
++---
++apiVersion: cert-manager.io/v1
++kind: Certificate
++metadata:
++  name: maas-controller-metrics
++  namespace: ${MAAS_NAMESPACE}
++spec:
++  secretName: maas-controller-metrics-tls
++  commonName: maas-controller-metrics.${MAAS_NAMESPACE}.svc
++  dnsNames:
++  - maas-controller-metrics.${MAAS_NAMESPACE}.svc
++  - maas-controller-metrics.${MAAS_NAMESPACE}.svc.cluster.local
++  issuerRef:
++    name: maas-ca-issuer
++    kind: Issuer
++  duration: 8760h
++  renewBefore: 720h
++EOF
++  kubectl wait --for=condition=Ready certificate/maas-controller-webhook-server \
++    certificate/maas-controller-metrics -n "$MAAS_NAMESPACE" --timeout=60s
++  ok "TLS certificates created for maas-controller (webhook + metrics)"
++fi
++
+ # ─── Step 5: Kuadrant ──────────────────────────────────────────────────────
+ 
+ step "Installing Kuadrant (auth + rate limiting)"
+@@ -674,9 +750,7 @@
+   helm upgrade --install kuadrant-operator kuadrant/kuadrant-operator \
+     --namespace kuadrant-system \
+     --version "$KUADRANT_VERSION" \
+-    --set manager.env[0].name=ISTIO_GATEWAY_CONTROLLER_NAMES \
+-    --set manager.env[0].value=istio.io/gateway-controller \
+-    --wait --timeout 180s
++    --wait --timeout 300s
+ 
+   ok "Kuadrant operator v${KUADRANT_VERSION} installed"
+ 
+@@ -907,9 +981,9 @@
+   ok "KServe CRDs already installed"
+ else
+   kubectl apply --server-side -f \
+-    "https://raw.githubusercontent.com/opendatahub-io/kserve/${KSERVE_COMMIT}/config/crd/full/serving.kserve.io_llminferenceservices.yaml"
++    "$KSERVE_CLONE/config/crd/full/llmisvc/serving.kserve.io_llminferenceservices.yaml"
+   kubectl apply --server-side -f \
+-    "https://raw.githubusercontent.com/opendatahub-io/kserve/${KSERVE_COMMIT}/config/crd/full/serving.kserve.io_llminferenceserviceconfigs.yaml"
++    "$KSERVE_CLONE/config/crd/full/llmisvc/serving.kserve.io_llminferenceserviceconfigs.yaml"
+   kubectl wait --for=condition=Established crd/llminferenceservices.serving.kserve.io --timeout=60s
+   ok "KServe CRDs installed"
+ fi
+@@ -935,12 +1009,7 @@
+ if kubectl get deployment llmisvc-controller-manager -n kserve &>/dev/null; then
+   ok "LLMIS controller already installed"
+ else
+-  # Clone opendatahub kserve fork to get the deployment manifests
+-  KSERVE_CLONE="/tmp/opendatahub-kserve"
+-  if [[ ! -d "$KSERVE_CLONE" ]]; then
+-    echo "  Cloning opendatahub-io/kserve..."
+-    gh repo clone opendatahub-io/kserve "$KSERVE_CLONE" -- --depth 1 2>&1 | tail -1
+-  fi
++  # The fork was cloned in step 2b (the GIE CRDs had to precede istiod).
+ 
+   # Build arm64 image if needed
+   if [[ "$ARCH" == "arm64" ]]; then
+@@ -981,6 +1050,22 @@
+   ok "Gateway already exists"
+ else
+   kubectl apply -f - <<EOF
++apiVersion: cert-manager.io/v1
++kind: Certificate
++metadata:
++  name: maas-default-gateway-tls
++  namespace: ${GATEWAY_NAMESPACE}
++spec:
++  secretName: maas-default-gateway-tls
++  commonName: maas-default-gateway-istio.${GATEWAY_NAMESPACE}.svc
++  dnsNames:
++  - maas-default-gateway-istio.${GATEWAY_NAMESPACE}.svc
++  - maas-default-gateway-istio.${GATEWAY_NAMESPACE}.svc.cluster.local
++  issuerRef:
++    name: maas-selfsigned-issuer
++    kind: ClusterIssuer
++  duration: 8760h
++---
+ apiVersion: gateway.networking.k8s.io/v1
+ kind: Gateway
+ metadata:
+@@ -994,7 +1079,25 @@
+     protocol: HTTP
+     allowedRoutes:
+       namespaces:
+-        from: Same
++        from: Selector
++        selector:
++          matchLabels:
++            maas.opendatahub.io/gateway-access: "true"
++  # maas-api resolves the gateway through a Service port 443; the probes
++  # themselves follow the model URL scheme.
++  - name: https
++    port: 443
++    protocol: HTTPS
++    tls:
++      mode: Terminate
++      certificateRefs:
++      - name: maas-default-gateway-tls
++    allowedRoutes:
++      namespaces:
++        from: Selector
++        selector:
++          matchLabels:
++            maas.opendatahub.io/gateway-access: "true"
+ EOF
+ 
+   echo "  Waiting for Gateway to be programmed..."
+@@ -1091,6 +1194,7 @@
+ 
+ # Create subscription namespace
+ kubectl create namespace "$SUBSCRIPTION_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
++kubectl label namespace "$MAAS_NAMESPACE" maas.opendatahub.io/gateway-access=true --overwrite >/dev/null
+ 
+ # Build a small local kustomize wrapper for maas-controller only.
+ # The controller then reconciles maas-api and payload-processing via Tenant.
+@@ -1120,6 +1224,7 @@
+ - envs:
+   - params.env
+   name: maas-parameters
++  behavior: merge
+ generatorOptions:
+   disableNameSuffixHash: true
+ 
+@@ -1172,9 +1277,23 @@
+   exit 1
+ fi
+ 
++kubectl annotate validatingwebhookconfiguration maas-validating-webhook-configuration \
++  "cert-manager.io/inject-ca-from=${MAAS_NAMESPACE}/maas-controller-webhook-server" --overwrite >/dev/null
++echo "  Waiting for webhook caBundle injection..."
++for _i in $(seq 1 30); do
++  [[ -n "$(kubectl get validatingwebhookconfiguration maas-validating-webhook-configuration \
++        -o jsonpath='{.webhooks[0].clientConfig.caBundle}' 2>/dev/null)" ]] && break
++  sleep 2
++done
++
+ echo "  Waiting for MaaS controller..."
+ kubectl rollout status deployment/maas-controller -n "$MAAS_NAMESPACE" --timeout=180s 2>/dev/null || \
+   warn "maas-controller not ready yet"
++# The controller creates its bootstrap AITenant at startup, through the
++# webhook. Restart once now that the caBundle is in place.
++kubectl rollout restart deployment/maas-controller -n "$MAAS_NAMESPACE" >/dev/null
++kubectl rollout status deployment/maas-controller -n "$MAAS_NAMESPACE" --timeout=180s 2>/dev/null || \
++  warn "maas-controller not ready after restart"
+ 
+ echo "  Waiting for controller to reconcile maas-api..."
+ for _i in $(seq 1 36); do
+@@ -1199,6 +1318,28 @@
+     -p='{"spec":{"template":{"metadata":{"annotations":{"sidecar.istio.io/inject":"false"}}}}}' 2>/dev/null || true
+   kubectl rollout status deployment/payload-processing -n "$GATEWAY_NAMESPACE" --timeout=180s 2>/dev/null || \
+     warn "payload-processing not ready yet"
++  kubectl apply -f - <<EOF
++apiVersion: networking.k8s.io/v1
++kind: NetworkPolicy
++metadata:
++  name: payload-processing-allow-gateway
++  namespace: ${GATEWAY_NAMESPACE}
++spec:
++  # Only the IPP pods: an empty podSelector would also isolate the
++  # gateway pod and drop the traffic arriving from outside the cluster.
++  podSelector:
++    matchExpressions:
++    - key: app
++      operator: In
++      values: [payload-processing, payload-pre-processing]
++  policyTypes: [Ingress]
++  ingress:
++  - from:
++    - namespaceSelector:
++        matchLabels:
++          kubernetes.io/metadata.name: ${GATEWAY_NAMESPACE}
++EOF
++  ok "NetworkPolicy allows the gateway namespace to reach payload-processing"
+ else
+   warn "payload-processing deployment was not created by maas-controller"
+ fi
+@@ -1215,6 +1356,8 @@
+ 
+ kubectl create namespace "$MODEL_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+ kubectl create namespace "$INTERNAL_MODEL_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
++kubectl label namespace "$MODEL_NAMESPACE" "$INTERNAL_MODEL_NAMESPACE" \
++  maas.opendatahub.io/gateway-access=true --overwrite >/dev/null
+ 
+ # ── External model (ExternalModel → llm-katan on AWS) ──
+ if kubectl get externalmodel llm-katan-openai -n "$MODEL_NAMESPACE" &>/dev/null; then

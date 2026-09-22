@@ -1,0 +1,15 @@
+# Applied only when the scheduler runs with --secure-serving=true: the EPP then
+# serves gRPC over a self-signed certificate and the gateway must originate
+# TLS to it without verification. With --secure-serving=false this rule would
+# break the connection instead.
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: LLMISVCNAME_-epp-tls
+  namespace: NAMESPACE_
+spec:
+  host: LLMISVCNAME_-epp-service.NAMESPACE_.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: SIMPLE
+      insecureSkipVerify: true

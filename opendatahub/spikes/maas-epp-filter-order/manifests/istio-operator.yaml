@@ -1,0 +1,28 @@
+# IstioOperator for the vendored MaaS installer (istioctl install -f).
+#
+# Same minimal profile and inference-extension pilot flags as the upstream
+# script, plus a pinned JSON access-log format. Two of its fields carry the
+# per-request evidence this spike scores against:
+#
+#   ep_requested  Envoy's own record of the endpoint the EPP asked for
+#                 (dynamic metadata envoy.lb:x-gateway-destination-endpoint).
+#                 Empty means no picker ran for the request.
+#   ep_served     the endpoint override_host actually used. Equal to
+#                 ep_requested when the pick was honoured.
+#
+# model_hdr shows what ipp-pre produced from the body; route_name identifies
+# the compiled HTTPRoute rule (<ns>.<route>.<rule-index>) that served.
+apiVersion: install.istio.io/v1alpha1
+kind: IstioOperator
+spec:
+  profile: minimal
+  values:
+    pilot:
+      env:
+        ENABLE_GATEWAY_API_INFERENCE_EXTENSION: "true"
+        SUPPORT_GATEWAY_API_INFERENCE_EXTENSION: "true"
+  meshConfig:
+    accessLogFile: /dev/stdout
+    accessLogEncoding: JSON
+    accessLogFormat: |
+      {"start_time":"%START_TIME%","method":"%REQ(:METHOD)%","path":"%REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%","req_id":"%REQ(X-REQ-ID)%","response_code":"%RESPONSE_CODE%","response_flags":"%RESPONSE_FLAGS%","response_code_details":"%RESPONSE_CODE_DETAILS%","duration":"%DURATION%","upstream_host":"%UPSTREAM_HOST%","upstream_cluster":"%UPSTREAM_CLUSTER%","route_name":"%ROUTE_NAME%","authority":"%REQ(:AUTHORITY)%","model_hdr":"%REQ(X-GATEWAY-MODEL-NAME)%","ep_requested":"%DYNAMIC_METADATA(envoy.lb:x-gateway-destination-endpoint)%","ep_served":"%DYNAMIC_METADATA(envoy.lb:x-gateway-destination-endpoint-served)%"}

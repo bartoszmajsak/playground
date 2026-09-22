@@ -1,0 +1,70 @@
+# A scheduler-backed LLMInferenceService on the MaaS gateway, served by real
+# vLLM on CPU. Same shape as the other spikes' CPU workloads: the KServe
+# preset supplies the command (`vllm serve /mnt/models --served-model-name
+# <name> publishers/<ns>/models/<name> --port 8000`), the storage initializer
+# fetches the weights from Hugging Face, this only swaps the image, trims
+# resources and caps the KV cache.
+#
+# Placeholders substituted by render_manifest() in lib.sh:
+#   LLMISVCNAME_ NAMESPACE_ REPLICAS_ MODELNAME_ MODELURI_ VLLMIMAGE_
+#   GATEWAYNAME_ GATEWAYNAMESPACE_
+apiVersion: serving.kserve.io/v1alpha2
+kind: LLMInferenceService
+metadata:
+  name: LLMISVCNAME_
+  namespace: NAMESPACE_
+spec:
+  replicas: REPLICAS_
+  model:
+    name: MODELNAME_
+    uri: MODELURI_
+  router:
+    gateway:
+      refs:
+        - name: GATEWAYNAME_
+          namespace: GATEWAYNAMESPACE_
+    route: {}
+    scheduler:
+      template:
+        containers:
+          - name: main
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                cpu: "1"
+                memory: 1Gi
+  template:
+    containers:
+      - name: main
+        image: VLLMIMAGE_
+        imagePullPolicy: IfNotPresent
+        args:
+          - --enforce-eager
+        env:
+          # 1 GiB of CPU KV cache per replica: enough for opt-125m and small
+          # enough that kv-cache utilisation moves under a short burst.
+          - name: VLLM_CPU_KVCACHE_SPACE
+            value: "1"
+          - name: VLLM_CPU_OMP_THREADS_BIND
+            value: nobind
+          - name: VLLM_LOGGING_LEVEL
+            value: INFO
+        # The CPU image runs as root.
+        securityContext:
+          runAsNonRoot: false
+          runAsUser: 0
+        resources:
+          requests:
+            cpu: 500m
+            memory: 2Gi
+          limits:
+            cpu: "2"
+            memory: 4Gi
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          periodSeconds: 10
+          failureThreshold: 120

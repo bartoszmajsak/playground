@@ -1,0 +1,84 @@
+# A scheduler-backed LLMInferenceService on the MaaS gateway.
+#
+# Placeholders substituted by render_manifest() in lib.sh:
+#   LLMISVCNAME_ NAMESPACE_ SIMREPLICAS_ MODELNAME_ SIMIMAGE_
+#   GATEWAYNAME_ GATEWAYNAMESPACE_
+#
+# The MaaS installer's own fixture has no scheduler, so it produces no
+# InferencePool and no EPP; this one does. Three replicas so Envoy's
+# round-robin fallback is visible when the EPP is bypassed.
+apiVersion: serving.kserve.io/v1alpha2
+kind: LLMInferenceService
+metadata:
+  name: LLMISVCNAME_
+  namespace: NAMESPACE_
+spec:
+  replicas: SIMREPLICAS_
+  model:
+    name: MODELNAME_
+    uri: hf://placeholder/no-model
+  storageInitializer:
+    enabled: false
+  router:
+    gateway:
+      refs:
+        - name: GATEWAYNAME_
+          namespace: GATEWAYNAMESPACE_
+    route: {}
+    scheduler:
+      # The preset requests cpu 1 / 2Gi and limits 6 / 16Gi for the picker,
+      # which does not fit a kind node next to the rest of the stack.
+      template:
+        containers:
+          - name: main
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                cpu: "1"
+                memory: 1Gi
+  template:
+    containers:
+      - name: main
+        image: SIMIMAGE_
+        command: ["/app/llm-d-inference-sim"]
+        args:
+          - "--port"
+          - "8000"
+          - "--model"
+          - "MODELNAME_"
+          # The generated model-routing rule matches
+          # X-Gateway-Model-Name: publishers/<ns>/models/<model>, and the
+          # simulator 404s a model name it was not told to serve.
+          - "--served-model-name"
+          - "MODELNAME_"
+          - "publishers/NAMESPACE_/models/MODELNAME_"
+          - "--mode"
+          - "echo"
+        env:
+          # Without POD_NAME the simulator omits x-inference-pod entirely.
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+        ports:
+          - containerPort: 8000
+            name: http
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 2
+          periodSeconds: 2
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi

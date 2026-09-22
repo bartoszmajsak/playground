@@ -1,0 +1,30 @@
+# A subject allowed to GET the EPP's /metrics. Port 9090 on the endpoint
+# picker is authenticated even in plaintext mode, and nothing in KServe or GIE
+# creates a subject with GET on the non-resource URL /metrics.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: metrics-reader
+  namespace: NAMESPACE_
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: maas-epp-spike-metrics-reader
+rules:
+  - nonResourceURLs: ["/metrics"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: maas-epp-spike-metrics-reader-NAMESPACE_
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: maas-epp-spike-metrics-reader
+subjects:
+  - kind: ServiceAccount
+    name: metrics-reader
+    namespace: NAMESPACE_
