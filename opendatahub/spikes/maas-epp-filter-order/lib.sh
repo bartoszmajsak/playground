@@ -99,11 +99,9 @@ esac
 # generated model-routing rule matches the publisher form exactly.
 MODEL_ID="${MODEL_ID:-publishers/${NS}/models/${MODEL_NAME}}"
 
-# pre-only moves ipp-pre ahead of Istio's ext_proc and leaves ipp behind the
-# auth filter. extproc also moves ipp, which breaks MaaS auth: the post-stage
-# maas-headers-guard strips the Authorization header, so the wasm then sees
-# no credentials and answers 401 (measured: ep_requested set, 401).
-FIX_VARIANT="${FIX_VARIANT:-pre-only}"
+# Move native EPP after IPP so both request routing and TRLP response processing
+# work. The earlier pre-only/first variants reproduce the response defect.
+FIX_VARIANT="${FIX_VARIANT:-epp-after-ipp}"
 FIX_EF_NAME="payload-processing-epp-order"
 REQUESTS="${REQUESTS:-20}"
 

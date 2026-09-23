@@ -1,6 +1,8 @@
 # Findings, with the evidence behind each
 
-All paths relative to `results/kuadrant-1.5.3+istio-1.29.2/`.
+Paths relative to `results/kuadrant-1.5.3+istio-1.29.2+vllm-cpu/` unless
+stated. The verification suite added on 2026-09-23 writes to
+`results/verification-20260923/`.
 
 ## Chain before and after
 
@@ -8,73 +10,97 @@ All paths relative to `results/kuadrant-1.5.3+istio-1.29.2/`.
   index 1 (0-based), `ipp-pre` at 7, raw wasm at 8, `ipp` at 9, router at 10.
   Identical indices on the production dump (`~/Downloads/dump.txt`, listener
   443).
-- After (`pre-only`): `fix/diag.txt`. `ipp-pre` at 1, Istio's ext_proc at 2,
-  wasm at 8, `ipp` at 9. `NO_DUPLICATES=OK`, so the REMOVE in the fix
-  EnvoyFilter took and Istio did not re-add the MaaS insert.
-- The fix object: `manifests/generated/fix-envoyfilter.yaml`, rendered from the
-  live controller-owned EnvoyFilter by `scripts/render-fix.sh`.
+- First fix (`pre-only`): `fix/diag.txt`. `ipp-pre` at 1, Istio's ext_proc at
+  2, wasm at 8, `ipp` at 9. `NO_DUPLICATES=OK`.
+- Final order (`epp-after-ipp`, also `scripts/epp-order-workaround.sh`):
+  `ipp-pre` at 6, wasm at 7, `ipp` at 8, Istio's ext_proc at 9, router at 10,
+  on both listeners (`epp-after-ipp-probe/run.log`).
 
-## Defect
+## Defect 1: EPP bypassed
 
-- `defect/traffic.tsv`: 20 x 200.
-- `defect/access.jsonl`: every line `route_name=maas-epp-spike.sim-pool-kserve-route.4`,
-  `upstream_cluster=outbound|54321||sim-pool-inference-pool-ip-93c59962...`,
-  `model_hdr=publishers/maas-epp-spike/models/facebook/opt-125m`,
-  `ep_requested` null. Upstream hosts 10.244.0.34/.35/.36 with 6/7/7 requests:
-  Envoy's round robin, no picker.
-- `defect/epp-before.prom` vs `defect/epp-after.prom`:
-  `inference_extension_plugin_duration_seconds_count{extension_point="Picker"}`
-  61 -> 61.
+- `defect/traffic.tsv`: 20 x 200, every body a parsed completion.
+- `defect/access.jsonl`: every line on the `vllm-pool-kserve-route.4` rule and
+  the pool cluster, `model_hdr` set (ipp-pre ran), `ep_requested` null.
+  Upstream hosts 7/7/6: Envoy's round robin, no picker.
+- `defect/epp.log`: 0 x `EPP received request`; picker counter delta 0/32.
+- Same-prefix burst 3/5/4 across pods; every pod paid its own prefix miss
+  (`vllm-*-prefix-{before,after}.prom`).
 
-## Fix (`pre-only`)
+## First fix (`pre-only`): EPP engaged, responses empty
 
-- `fix/traffic.tsv`: 20 x 200.
+- `fix/traffic.tsv` (run of 2026-09-23 with body checks): 20 x 200, 1 parsed
+  completion, 19 bodies of 0 bytes. `fix/traffic-prefix.tsv`: 12 x 200, 11 to
+  12 empty. `fix/traffic-sse.tsv`: 200, `[DONE]`, sometimes curl exit 18.
 - `fix/access.jsonl`: `ep_requested` set on every line and equal to
-  `upstream_host`; picks 6/6/8 across the three pods.
-- Picker counter 61 -> 81.
-- `ep_served` is null on every line: Istio 1.29.2 (Envoy 1.37.2-dev) does not
-  populate `envoy.lb:x-gateway-destination-endpoint-served`.
+  `upstream_host`; picker counter +33 (20 + 12 + the streamed request);
+  `fix/epp.log` 33 received. Routing is right; the response path is not.
+- Burst 8/4/0 with the pinned pod's `prefix_cache_hits_total` +1024 of +1659:
+  the picker works, which is what made the empty bodies easy to miss.
+- The first version of `score.py` keyed on status codes and passed this. The
+  independent review in `results/fresh-review-20260923T054744Z/REPORT.md`
+  caught it with a probe that read the payload.
 
-## Why the `extproc` variant is wrong for MaaS
+## Why the responses are empty
 
-First attempt used `FIX_VARIANT=extproc` (both stages around Istio's
-ext_proc). Chain: `ipp-pre, ext_proc, ipp, ..., wasm, router`. Result: 20 x
-401 with `ep_requested` set. `ipp`'s first plugin, `maas-headers-guard`,
-removes `authorization` (plugin.go:91) because in the designed order it runs
-after auth and must not forward the MaaS key to the model server. Ahead of
-the wasm it strips the credential before Authorino sees it. `ipp` has to stay
-`INSERT_AFTER` the auth filter.
+`empty-body/proxy-debug.log`, `empty-body/headers.txt` (`200`,
+`transfer-encoding: chunked`), `empty-body/body.bin` (0 bytes). One request,
+ext_proc and wasm at debug, TRLP present, `pre-only` applied. Response path
+`router -> ipp -> wasm -> EPP -> ipp-pre`:
 
-## Real vLLM (default backend), `results/kuadrant-1.5.3+istio-1.29.2+vllm-cpu/`
+1. `ipp` drains the 633-byte body and the end-of-stream frame, re-injects two
+   chunks. The first continues the headers: the EPP filter sends its
+   ResponseHeaders message, stops, forwards the 633 bytes to the EPP.
+2. The wasm gets the re-injected end-of-stream frame, dispatches the TRLP
+   `Report` and pauses. The empty frame sits in the filter manager's shared
+   buffer with end-of-stream observed.
+3. The EPP's header reply arrives; its filter never saw end-of-stream, so it
+   continues; `commonContinue()` forwards the parked empty frame as
+   end-of-stream past the EPP filter. Response over. `onDestroy` on all three
+   ext_proc filters, then `proxy_on_grpc_receive invalid context_id` when the
+   `Report` reply lands.
 
-Same chain, same verdicts, plus routing-quality evidence from the same-prefix
-burst (12 requests, 6 concurrent, one shared prefix, `max_tokens: 32`):
+Isolation on the live cluster (controller paused, policies deleted and
+restored): no TRLP on the route, complete bodies; EPP response processing
+skipped, complete bodies; TRLP restored, empty again. Streaming completes
+because the header reply lands before the end frame.
 
-- `defect/`: `epp.log` 0 x `EPP received request`; burst 3/5/4 across the
-  pods (`access-prefix.jsonl`); `vllm-*-prefix-{before,after}.prom` deltas:
-  each pod served 3-5 and had one miss each (hits 512/828, 384/621,
-  640/1038 prefix tokens).
-- `fix/`: `epp.log` 32 received (20 + 12); picker counter +32; burst 8/4/0;
-  the pinned pod's `vllm:prefix_cache_hits_total` +1024 of +1659 queried,
-  the second +512/+828, the third +0/+0.
-- `auth-order/`: 20 x 401, `epp.log` 20 received, picker +20.
-- `vllm:kv_cache_usage_perc` is 0 in every after-scrape: the cache is freed
-  before the scrape lands with this model size. Not a contradiction, just not
-  a usable signal at this scale.
+Envoy #43175 is in the build (guard string in the binary) and does not cover
+this; #46842 (1.37.6) is not in the build and addresses a Continue-after-drain
+case, not a Pause.
 
-## `first` variant (the shape of the MaaS fix)
+## Why the `extproc` variant is wrong
 
-`FIX_VARIANT=first ./validate.sh --scenario fix --smoke`: REMOVE `ipp-pre`,
-INSERT_FIRST it with no anchor. Chain `ipp-pre, istio.metadata_exchange,
-envoy.filters.http.ext_proc, ...`. 5/5 picker calls, all 200, pick ==
-upstream host. Works without an InferencePool on the gateway, which the
-INSERT_BEFORE variant cannot.
+Both stages around Istio's ext_proc: `ipp-pre, ext_proc, ipp, ..., wasm,
+router`. 20 x 401 with `ep_requested` set. `ipp`'s first plugin,
+`maas-headers-guard`, removes `authorization` (plugin.go:91) because in the
+designed order it runs after auth. Ahead of the wasm it strips the credential
+before Authorino sees it. `ipp` has to stay behind the auth filter.
+
+## `first` variant
+
+`INSERT_FIRST` for `ipp-pre`, no anchor: 5/5 picks in a smoke run, and the
+same response defect as `pre-only`, for the same reason (the EPP filter is
+still ahead of the wasm). Retracted as the shape of the MaaS fix.
+
+## Final order (`epp-after-ipp`): EPP engaged, responses complete, auth first
+
+Standalone probe with `scripts/epp-order-workaround.sh apply` on kind,
+2026-09-23 (`epp-after-ipp-probe/`): 20 x 200 with 20 parsed completions, 0
+empty; burst 12 x 200 with 12 completions; streamed request 200, curl exit 0,
+2470 bytes, `[DONE]`; picker +33 for 33 authenticated requests; 5 requests
+without credentials 401 with picker +0; revert restored the bypassed chain.
+
+The verification suite (`results/verification-20260923/validate.out`): 60
+requests, 60 picks, 60 complete responses, six SSE, six fragmented bodies, a
+12-request burst, 189 tokens reported and 189 charged by Limitador, 429 after
+quota exhaustion with no EPP call.
 
 ## auth-order
 
-- `auth-order/traffic.tsv`: 20 x 401 (no `Authorization` header sent).
-- `auth-order/access.jsonl`: `ep_requested` set on all 20, route resolved.
-- Picker counter 41 -> 61.
+- `auth-order/traffic.tsv`: 20 x 401 (no `Authorization` header sent) with
+  the `pre-only` order.
+- `auth-order/access.jsonl`: `ep_requested` set on all 20, route resolved;
+  picker +20. With the final order the same traffic costs 0 picks.
 
 ## Vendored installer changes (upstream candidates)
 
@@ -109,3 +135,6 @@ INSERT_BEFORE variant cannot.
 - `maas-api-key-cleanup` CronJob: `CreateContainerConfigError`, non-numeric
   user in `curlimages/curl` under `runAsNonRoot`.
 - IPP `setup.trace` export errors: no OTLP collector on kind.
+- `ep_served` is null on Istio 1.29.2: the proxy does not populate
+  `envoy.lb:x-gateway-destination-endpoint-served`; `upstream_host` carries
+  the same fact.

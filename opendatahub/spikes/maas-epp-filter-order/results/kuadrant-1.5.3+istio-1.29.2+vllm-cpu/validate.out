@@ -1,40 +1,44 @@
 
 Preflight
-  OK: gateway pod maas-default-gateway-istio-6b6d44bdfc-j547k on proxyv2:1.29.2
+  OK: gateway pod maas-default-gateway-istio-6b6d44bdfc-gtt4r on proxyv2:1.29.2
   OK: gateway http://172.18.0.200, model publishers/maas-epp-spike/models/tiny-llama, 20 requests per scenario
 
 Scenario: defect
     chain: BROKEN (auth via raw-wasm, MaaS EF mode wasm-anchored)
-    EPP vllm-pool-kserve-router-scheduler-6869678c7-wmrwc and 3 model pods scraped before traffic
+    EPP vllm-pool-kserve-router-scheduler-6869678c7-9st8h and 3 model pods scraped before traffic
     sent 20 requests: 200 x20 
     same-prefix burst: 200 x12 
     access log lines: 20; EPP log lines: 0
     evidence
       chain: [1]istio.metadata_exchange [2]ext_proc* [3]grpc_stats [4]istio.alpn [5]fault [6]cors [7]istio.stats [8]ext_proc.ipp-pre* [9]wasm* [10]ext_proc.ipp* [11]router
-      verdict: EPP_ENGAGED=BROKEN: ipp-pre [8] runs after envoy.filters.http.ext_proc [2]; 16 of 32 pool routes on this listener require X-Gateway-Model-Name, so at [2] no such route matches, no picker is merged, and the re-route after ipp-pre cannot bring the filter back
+      verdict: EPP_ENGAGED=BROKEN: ipp-pre [8] runs after envoy.filters.http.ext_proc [2]; 8 of 16 pool routes on this listener require X-Gateway-Model-Name, so at [2] no such route matches, no picker is merged, and the re-route after ipp-pre cannot bring the filter back
       route hit x20: maas-epp-spike.vllm-pool-kserve-route.4 -> outbound|54321||vllm-pool-inference-pool-ip-fe8fc19b.maas-epp-spike.svc.cluster.local; picker override -> outbound|9002||vllm-pool-epp-service.maas-epp-spike.svc.cluster.local
       responses: 200 x20
-      upstream hosts: 10.244.0.42:8000 x7, 10.244.0.43:8000 x6, 10.244.0.44:8000 x7
+      upstream hosts: 10.244.0.31:8000 x7, 10.244.0.32:8000 x6, 10.244.0.33:8000 x7
       ep_requested (EPP pick): none x20
-      EPP picker counter: 92 -> 92 (delta 0); scheduler attempts delta 0
+      EPP picker counter: 76 -> 76 (delta 0); scheduler attempts delta 0
       EPP-scraped pool avg kv-cache utilisation (after): 0
       EPP-scraped pool avg queue size (after): 0
       EPP-scraped pool ready pods (after): 3
       EPP scorers: queue-scorer=2, kv-cache-utilization-scorer=2, prefix-cache-scorer=3, no-hit-lru-scorer=2
       EPP log in the window: 0 x 'EPP received request', 0 x 'sent request body response'
-      same-prefix burst (12 requests, 200 x12): 10.244.0.42:8000 x3, 10.244.0.43:8000 x5, 10.244.0.44:8000 x4; top pod share 42%
-      vLLM vllm-pool-kserve-fcbd4f6d5-ph92s: served 4 of the burst, prefix-cache hits 512/828 tokens, kv_cache_usage_perc now 0.000
-      vLLM vllm-pool-kserve-fcbd4f6d5-tvwcq: served 3 of the burst, prefix-cache hits 384/621 tokens, kv_cache_usage_perc now 0.000
-      vLLM vllm-pool-kserve-fcbd4f6d5-v8dst: served 5 of the burst, prefix-cache hits 640/1038 tokens, kv_cache_usage_perc now 0.000
+      same-prefix burst (12 requests, 200 x12): 10.244.0.31:8000 x4, 10.244.0.32:8000 x5, 10.244.0.33:8000 x3; top pod share 42%
+      vLLM vllm-pool-kserve-fcbd4f6d5-8rkcd: served 5 of the burst, prefix-cache hits 640/1035 tokens, kv_cache_usage_perc now 0.000
+      vLLM vllm-pool-kserve-fcbd4f6d5-j7vlv: served 4 of the burst, prefix-cache hits 512/829 tokens, kv_cache_usage_perc now 0.000
+      vLLM vllm-pool-kserve-fcbd4f6d5-pcgqg: served 3 of the burst, prefix-cache hits 384/623 tokens, kv_cache_usage_perc now 0.000
     checks
     ok   20 requests sent (20 recorded)
     ok   EPP scrape carries llm_d_epp_ready_endpoints (scrape sanity)
     ok   20 access-log lines for this scenario (20 found)
+      response bodies: 20 parsed completions, 0 empty bodies of 20; SSE: HTTP 200, 2232 bytes, 10 data lines, done
     ok   every request returned 200 (got ['200'])
+    ok   every 200 carried a completion (20 parsed, 0 empty bodies)
+    ok   streamed completion terminated with [DONE] (HTTP 200, 2232 bytes, 10 data lines, done)
+    ok   every burst response carried a body (0 empty of 12)
     ok   every request served by an HTTPRoute rule of maas-epp-spike.vllm-pool-kserve-route.*
     ok   every request went to the InferencePool cluster
     ok   X-Gateway-Model-Name was publishers/maas-epp-spike/models/tiny-llama on every request (ipp-pre ran)
-    ok   chain order predicts a bypassed EPP: EPP_ENGAGED=BROKEN (ipp-pre [8] runs after envoy.filters.http.ext_proc [2]; 16 of 32 pool routes on this listener require X-Gateway-Model-Name, so at [2] no such route matches, no picker is merged, and the re-route after ipp-pre cannot bring the filter back)
+    ok   chain order predicts a bypassed EPP: EPP_ENGAGED=BROKEN (ipp-pre [8] runs after envoy.filters.http.ext_proc [2]; 8 of 16 pool routes on this listener require X-Gateway-Model-Name, so at [2] no such route matches, no picker is merged, and the re-route after ipp-pre cannot bring the filter back)
     ok   EPP picker was never invoked (delta 0)
     ok   EPP log shows no request in the window (0 received)
     ok   EPP scheduler attempts unchanged (delta 0)
@@ -47,44 +51,48 @@ INFO: applied EnvoyFilter payload-processing-epp-order (variant pre-only); waiti
 
 Scenario: fix
     chain: OK (auth via raw-wasm, MaaS EF mode wasm-anchored)
-    EPP vllm-pool-kserve-router-scheduler-6869678c7-wmrwc and 3 model pods scraped before traffic
+    EPP vllm-pool-kserve-router-scheduler-6869678c7-9st8h and 3 model pods scraped before traffic
     sent 20 requests: 200 x20 
     same-prefix burst: 200 x12 
-    access log lines: 20; EPP log lines: 3289
+    access log lines: 20; EPP log lines: 1142
     evidence
       chain: [1]istio.metadata_exchange [2]ext_proc.ipp-pre* [3]ext_proc* [4]grpc_stats [5]istio.alpn [6]fault [7]cors [8]istio.stats [9]wasm* [10]ext_proc.ipp* [11]router
-      verdict: EPP_ENGAGED=OK: ipp-pre [2] runs before envoy.filters.http.ext_proc [3], so the header exists when the per-route picker is read; 16 of 32 pool routes on this listener require X-Gateway-Model-Name
+      verdict: EPP_ENGAGED=OK: ipp-pre [2] runs before envoy.filters.http.ext_proc [3], so the header exists when the per-route picker is read; 8 of 16 pool routes on this listener require X-Gateway-Model-Name
       route hit x20: maas-epp-spike.vllm-pool-kserve-route.4 -> outbound|54321||vllm-pool-inference-pool-ip-fe8fc19b.maas-epp-spike.svc.cluster.local; picker override -> outbound|9002||vllm-pool-epp-service.maas-epp-spike.svc.cluster.local
       responses: 200 x20
-      upstream hosts: 10.244.0.42:8000 x7, 10.244.0.43:8000 x7, 10.244.0.44:8000 x6
-      ep_requested (EPP pick): 10.244.0.42:8000 x7, 10.244.0.43:8000 x7, 10.244.0.44:8000 x6
-      EPP picker counter: 92 -> 124 (delta 32); scheduler attempts delta 32
+      upstream hosts: 10.244.0.31:8000 x7, 10.244.0.32:8000 x7, 10.244.0.33:8000 x6
+      ep_requested (EPP pick): 10.244.0.31:8000 x7, 10.244.0.32:8000 x7, 10.244.0.33:8000 x6
+      EPP picker counter: 76 -> 109 (delta 33); scheduler attempts delta 33
       EPP-scraped pool avg kv-cache utilisation (after): 0
       EPP-scraped pool avg queue size (after): 0
       EPP-scraped pool ready pods (after): 3
       EPP scorers: queue-scorer=2, kv-cache-utilization-scorer=2, prefix-cache-scorer=3, no-hit-lru-scorer=2
-      EPP log in the window: 32 x 'EPP received request', 32 x 'sent request body response'
-      same-prefix burst (12 requests, 200 x12): 10.244.0.42:8000 x8, 10.244.0.44:8000 x4; top pod share 67%
-      vLLM vllm-pool-kserve-fcbd4f6d5-ph92s: served 4 of the burst, prefix-cache hits 512/828 tokens, kv_cache_usage_perc now 0.000
-      vLLM vllm-pool-kserve-fcbd4f6d5-tvwcq: served 8 of the burst, prefix-cache hits 1024/1659 tokens, kv_cache_usage_perc now 0.000
-      vLLM vllm-pool-kserve-fcbd4f6d5-v8dst: served 0 of the burst, prefix-cache hits 0/0 tokens, kv_cache_usage_perc now 0.000
+      EPP log in the window: 33 x 'EPP received request', 33 x 'sent request body response'
+      same-prefix burst (12 requests, 200 x12): 10.244.0.31:8000 x8, 10.244.0.32:8000 x1, 10.244.0.33:8000 x3; top pod share 67%
+      vLLM vllm-pool-kserve-fcbd4f6d5-8rkcd: served 1 of the burst, prefix-cache hits 128/207 tokens, kv_cache_usage_perc now 0.000
+      vLLM vllm-pool-kserve-fcbd4f6d5-j7vlv: served 8 of the burst, prefix-cache hits 1024/1658 tokens, kv_cache_usage_perc now 0.000
+      vLLM vllm-pool-kserve-fcbd4f6d5-pcgqg: served 3 of the burst, prefix-cache hits 384/622 tokens, kv_cache_usage_perc now 0.000
     checks
     ok   20 requests sent (20 recorded)
     ok   EPP scrape carries llm_d_epp_ready_endpoints (scrape sanity)
     ok   20 access-log lines for this scenario (20 found)
+      response bodies: 1 parsed completions, 19 empty bodies of 20; SSE: HTTP 200000, 2464 bytes, 11 data lines, done
     ok   every request returned 200 (got ['200'])
+    FAIL every 200 carried a completion (1 parsed, 19 empty bodies)
+    FAIL streamed completion terminated with [DONE] (HTTP 200000, 2464 bytes, 11 data lines, done)
+    FAIL every burst response carried a body (12 empty of 12)
     ok   every request served by an HTTPRoute rule of maas-epp-spike.vllm-pool-kserve-route.*
     ok   every request went to the InferencePool cluster
     ok   X-Gateway-Model-Name was publishers/maas-epp-spike/models/tiny-llama on every request (ipp-pre ran)
-    ok   chain order predicts an engaged EPP: EPP_ENGAGED=OK (ipp-pre [2] runs before envoy.filters.http.ext_proc [3], so the header exists when the per-route picker is read; 16 of 32 pool routes on this listener require X-Gateway-Model-Name)
+    ok   chain order predicts an engaged EPP: EPP_ENGAGED=OK (ipp-pre [2] runs before envoy.filters.http.ext_proc [3], so the header exists when the per-route picker is read; 8 of 16 pool routes on this listener require X-Gateway-Model-Name)
     ok   no duplicated ext_proc filters after the patch
-    ok   EPP picker invoked once per request, burst included (delta 32/32)
-    ok   EPP log shows the requests (32 received in the window)
+    FAIL EPP picker invoked once per request, burst included (delta 33/32)
+    ok   EPP log shows the requests (33 received in the window)
     ok   prefix-cache scorer pinned the same-prefix burst (top pod share 67%)
     ok   vLLM reports prefix-cache hits for the burst (1536 tokens)
     ok   every request carried an endpoint pick (ep_requested set)
     ok   every pick was honoured (upstream_host == ep_requested; no ep_served metadata on this Istio)
-    => fix: EPP engaged - chain OK, picker delta 32/32, all ['200'], same-prefix burst 67% on one pod
+    => fix: EPP engaged - chain OK, picker delta 33/32, all ['200'], same-prefix burst 67% on one pod
 INFO: deleted EnvoyFilter payload-processing-epp-order; waiting for EPP_ENGAGED=BROKEN
   OK: EPP_ENGAGED=BROKEN
 Warning: EnvoyFilter exposes internal implementation details that may change at any time. Prefer other APIs if possible, and exercise extreme caution, especially around upgrades.
@@ -93,17 +101,17 @@ INFO: applied EnvoyFilter payload-processing-epp-order (variant pre-only); waiti
 
 Scenario: auth-order
     chain: OK (auth via raw-wasm, MaaS EF mode wasm-anchored)
-    EPP vllm-pool-kserve-router-scheduler-6869678c7-wmrwc and 3 model pods scraped before traffic
+    EPP vllm-pool-kserve-router-scheduler-6869678c7-9st8h and 3 model pods scraped before traffic
     sent 20 requests: 401 x20 
-    access log lines: 20; EPP log lines: 40
+    access log lines: 20; EPP log lines: 2190
     evidence
       chain: [1]istio.metadata_exchange [2]ext_proc.ipp-pre* [3]ext_proc* [4]grpc_stats [5]istio.alpn [6]fault [7]cors [8]istio.stats [9]wasm* [10]ext_proc.ipp* [11]router
-      verdict: EPP_ENGAGED=OK: ipp-pre [2] runs before envoy.filters.http.ext_proc [3], so the header exists when the per-route picker is read; 16 of 32 pool routes on this listener require X-Gateway-Model-Name
+      verdict: EPP_ENGAGED=OK: ipp-pre [2] runs before envoy.filters.http.ext_proc [3], so the header exists when the per-route picker is read; 8 of 16 pool routes on this listener require X-Gateway-Model-Name
       route hit x20: maas-epp-spike.vllm-pool-kserve-route.4 -> outbound|54321||vllm-pool-inference-pool-ip-fe8fc19b.maas-epp-spike.svc.cluster.local; picker override -> outbound|9002||vllm-pool-epp-service.maas-epp-spike.svc.cluster.local
       responses: 401 x20
       upstream hosts: - x20
-      ep_requested (EPP pick): 10.244.0.42:8000 x6, 10.244.0.43:8000 x7, 10.244.0.44:8000 x7
-      EPP picker counter: 124 -> 144 (delta 20); scheduler attempts delta 20
+      ep_requested (EPP pick): 10.244.0.31:8000 x6, 10.244.0.32:8000 x7, 10.244.0.33:8000 x7
+      EPP picker counter: 109 -> 129 (delta 20); scheduler attempts delta 20
       EPP-scraped pool avg kv-cache utilisation (after): 0
       EPP-scraped pool avg queue size (after): 0
       EPP-scraped pool ready pods (after): 3
@@ -113,6 +121,7 @@ Scenario: auth-order
     ok   20 requests sent (20 recorded)
     ok   EPP scrape carries llm_d_epp_ready_endpoints (scrape sanity)
     ok   20 access-log lines for this scenario (20 found)
+      response bodies: 0 parsed completions, 20 empty bodies of 20
     ok   unauthenticated requests rejected with 401 (got ['401'])
     ok   EPP picker still invoked for every unauthenticated request (delta 20/20)
     ok   each rejected request already carried an endpoint pick
@@ -122,6 +131,6 @@ INFO: deleted EnvoyFilter payload-processing-epp-order; waiting for EPP_ENGAGED=
 
 Summary (kuadrant-1.5.3+istio-1.29.2+vllm-cpu)
   1. defect: EPP bypassed - chain BROKEN, picker delta 0/32, 3 upstream hosts, all ['200'], same-prefix burst 42% on one pod
-  2. fix: EPP engaged - chain OK, picker delta 32/32, all ['200'], same-prefix burst 67% on one pod
+  2. fix: EPP engaged - chain OK, picker delta 33/32, all ['200'], same-prefix burst 67% on one pod
   3. auth-order: with the fix the EPP runs before Kuadrant auth - 20 unauthenticated requests got 401 and still cost 20 picks
-  OK: all checks passed
+FAIL: 4 check(s) failed

@@ -1,262 +1,69 @@
-# MaaS EPP Filter Order Spike
+# MaaS, EPP and token-rate-limit filter ordering
 
-Reproduces, on kind, why the InferencePool endpoint picker (EPP) is never called
-on a MaaS gateway running RHCL 1.4 / Kuadrant 1.5: the MaaS `ipp-pre` ext_proc
-filter is inserted after Istio's InferencePool ext_proc filter. Diagnoses it
-from the live gateway, applies a fix, and shows the EPP being called.
+This spike reproduces two failures on a MaaS gateway with Istio-native
+InferencePools and Kuadrant's router-anchored Wasm filter:
 
-Analysis this spike verifies:
-https://gist.github.com/bartoszmajsak/44644760573111949faf158c68a5c9f4
+1. **EPP bypass:** the picker filter runs before `ipp-pre` extracts
+   `X-Gateway-Model-Name` from the request body. Its per-route configuration is
+   resolved before the model route matches. Requests reach the pool through
+   ordinary load balancing, without an EPP call.
+2. **Empty responses after the first ordering fix:** moving only `ipp-pre`
+   before EPP engages the picker, but with TokenRateLimitPolicy (TRLP) enabled,
+   ordinary completions return HTTP 200 with empty bodies and SSE can hang.
+   Removing TRLP restores complete responses; restoring TRLP restores the failure.
 
-## TL;DR
+The working workaround moves **EPP after `ipp`**, preserving both MaaS stages,
+authentication, token accounting and all response processing.
 
-- On Kuadrant >= 1.5 (RHCL 1.4) the MaaS `ipp-pre` ext_proc lands after
-  Istio's InferencePool ext_proc. Envoy reads that filter's per-route picker
-  once, at request headers, when no header-gated route matches yet. The EPP is
-  never called and the pool round-robins.
-- Reproduced on kind with the real stack (Istio 1.29.2, Kuadrant 1.5.3, MaaS,
-  ODH llmisvc, llm-d EPP v0.10.0, IPP `odh-stable`). Same 11-filter chain as
-  production; the diagnostic gives the same verdict on the production dump.
-- 20 body-routed requests per scenario: defect - 0 picker calls, 3 pods hit
-  round robin, all 200. Fix - 20 picker calls, pick == upstream host, all 200.
-  Fix without credentials - 401 x20 and still 20 picker calls.
-- Fix: re-anchor `ipp-pre` `INSERT_BEFORE envoy.filters.http.ext_proc`. Only
-  `ipp-pre`. Moving `ipp` too puts `maas-headers-guard` ahead of auth, it
-  strips `Authorization`, and every request 401s (measured).
-- Workaround for a live cluster: one extra EnvoyFilter rendered from the
-  controller-owned one, `oc apply` to enable, `oc delete` to revert. Survives
-  controller reconciles and gateway restarts. See "Workaround on a live
-  cluster" below.
-- Cost: the EPP runs before Kuadrant auth. That is Istio's placement plus
-  Kuadrant's router anchor, not the fix; unauthenticated requests reach the
-  picker.
-- Diagnostic: `scripts/check-filter-order.sh`. One file, `kubectl`/`oc` +
-  `jq` + `python3`, also scores a saved `config_dump`.
+```text
+Original request order:
+EPP -> ipp-pre -> Kuadrant auth/token rate limiting -> ipp -> router
 
-## What is measured, per scenario
+Earlier, incomplete fix:
+ipp-pre -> EPP -> Kuadrant auth/token rate limiting -> ipp -> router
 
-Real vLLM on CPU, three replicas, 20 body-routed requests one at a time plus a
-12-request burst sharing one prompt prefix, 6 concurrent
-(`results/kuadrant-1.5.3+istio-1.29.2+vllm-cpu/`):
-
-| | bypassed (`defect`) | engaged (`fix`, `ipp-pre` re-anchored) |
-|---|---|---|
-| chain verdict from the config dump | BROKEN: `ipp-pre` [8] after `envoy.filters.http.ext_proc` [2] | OK: `ipp-pre` [2] before it [3] |
-| EPP log, `EPP received request` in the window | 0 | 32 |
-| EPP picker counter delta | 0 / 32 | 32 / 32 |
-| `ep_requested` in the gateway access log | empty on all 20 | set on all 20, equal to `upstream_host` |
-| the 20 single requests, by pod | 7 / 7 / 6 (round robin) | as picked |
-| the same-prefix burst, by pod | 3 / 5 / 4 | 8 / 4 / 0 |
-| vLLM `prefix_cache_hits_total` per pod, tokens | every pod misses once: 512/828, 384/621, 640/1038 | pinned pod 1024/1659, second 512/828, third idle 0/0 |
-| response codes | 200 x32 | 200 x32 |
-
-Structural and empirical, side by side: the verdict is read off the filter
-chain; the counters and logs are what the same traffic did. The EPP scores
-with `queue-scorer=2, kv-cache-utilization-scorer=2, prefix-cache-scorer=3,
-no-hit-lru-scorer=2` (KServe's preset, captured in `epp-config.yaml`), so an
-engaged EPP concentrates same-prefix traffic where the cache holds it, and a
-bypassed one makes every pod pay the miss. `vllm:kv_cache_usage_perc` reads 0
-after each burst at this model size; the prefix counters are the durable
-signal.
-
-## What this proves
-
-Istio implements an InferencePool as one listener-level
-`envoy.filters.http.ext_proc` (inert: cluster `dummy`, header mode `SKIP`) plus
-a per-route `ExtProcPerRoute` override that names the real picker. Envoy merges
-that override exactly once per stream, in `decodeHeaders`. KServe's generated
-pool routes match on `X-Gateway-Model-Name`, which MaaS produces from the
-request body in `ipp-pre`. So `ipp-pre` has to run before Istio's ext_proc, or
-the picker is never bound: the route re-resolves after `ipp-pre`, the router
-dials the pool, and `override_host` falls back to round robin.
-
-Who puts `ipp-pre` where: the MaaS EnvoyFilter
-(`deployment/base/payload-processing/manager/envoy-filter.yaml`) anchors it
-`INSERT_BEFORE` Kuadrant's auth filter. Istio places every WasmPlugin CR before
-its InferencePool ext_proc (`pilot/pkg/networking/core/listener_builder.go`),
-so with Kuadrant <= 1.4 (WasmPlugin) the anchor lands before the EPP filter and
-the chain works. Kuadrant >= 1.5.0 (RHCL 1.4) injects the wasm-shim through an
-EnvoyFilter `INSERT_BEFORE` the router (`internal/istio/utils.go`,
-`BuildEnvoyFilterWasmPatch`), i.e. after Istio's ext_proc, and the same MaaS
-anchor now pulls `ipp-pre` in behind the EPP filter.
-
-Expected outcomes:
-
-- `defect`: diagnostic reports `EPP_ENGAGED BROKEN`; body-routed requests return
-  200 on the right model, the EPP picker counter does not move, no request
-  carries an endpoint pick, requests spread across the pool.
-- `fix`: a priority-20 EnvoyFilter re-anchors `ipp-pre`/`ipp` on
-  `envoy.filters.http.ext_proc`; diagnostic reports `OK`; the picker counter
-  moves once per request and every request carries a pick that Envoy honoured.
-- `auth-order`: with the fix, the EPP runs before Kuadrant auth. Unauthenticated
-  requests get 401 and still cost an EPP pick. This is inherent to Istio's
-  placement plus Kuadrant's router-anchored injection, not to the fix.
-
-## Setup
-
-```bash
-./setup.sh                          # ~15 min: kind + Istio 1.29.2 + Kuadrant 1.5.3 + MaaS + llmisvc + a vLLM CPU pool with EPP
-MODEL_BACKEND=sim ./setup.sh        # the same with the llm-d simulator behind the pool instead
-./setup.sh --teardown
+Validated workaround:
+ipp-pre -> Kuadrant auth/token rate limiting -> ipp -> EPP -> router
 ```
 
-Two model backends, same chain, same verdicts. The default, `vllm-cpu`, is
-what the LoRA spikes run: `vllm/vllm-openai-cpu:v0.19.0` on the KServe preset
-(`vllm serve /mnt/models --served-model-name <name> publishers/<ns>/models/<name>`),
-`hf://hmellor/tiny-random-LlamaForCausalLM` fetched by the storage initializer,
-`--enforce-eager`, 1 GiB of CPU KV cache per replica, three replicas. Real
-vLLM, so the EPP scores on real queue and KV-cache metrics and the evidence
-block prints the pool gauges it scraped. `sim` is
-`ghcr.io/llm-d/llm-d-inference-sim` in echo mode for a two-minute run when the
-model server is not the question. The LLMInferenceService is named after the
-backend (`vllm-pool`, `sim-pool`) and KServe derives every child name from it
-(`<name>-kserve-route`, `<name>-inference-pool`, `<name>-epp-service`).
-Results land in `results/<kuadrant>+<istio>+<backend>/`.
+Responses traverse these filters in reverse. In the workaround, EPP processes
+the response before IPP and Kuadrant. Both order changes preserve the native
+EPP configuration and Istio's per-route picker overrides.
 
-The MaaS stack comes from `vendor/local-deploy.sh`, a patched copy of the MaaS
-repo's own kind installer (`test/e2e/scripts/local-deploy.sh`). The copy is
-generated by `patches/vendor-local-deploy.py`; `patches/local-deploy.upstream.diff`
-is the resulting diff and the basis for an upstream change. What it patches and why:
+## Why the order is wrong
 
-| Change | Why |
-|---|---|
-| Kuadrant chart 1.3.1 -> 1.5.3 | 1.5.x injects the wasm-shim via EnvoyFilter, the RHCL 1.4 data plane |
-| GIE CRDs applied before istiod starts | istiod wires InferencePool support only if the CRDs exist at startup |
-| LLMISVC CRDs from the same clone as the controller | the pinned commit serves only `v1alpha1`; the controller from `master` stores `v1alpha2` |
-| `configMapGenerator ... behavior: merge` | the base kustomization already generates `maas-parameters`; kustomize rejects a second one |
-| cert-manager Certificates for `maas-controller-webhook-cert` / `maas-controller-metrics-tls` + CA injection into the validating webhook | the controller hard-mounts both secrets (service-ca on OpenShift) and its webhook is `failurePolicy: Fail` |
-| Gateway `allowedRoutes.namespaces.from: Selector` + labelled namespaces | `from: Same` admits neither the maas-api route nor any model route |
-| Gateway HTTPS listener with a cert-manager self-signed cert | maas-api refuses to start unless the gateway Service exposes port 443 (`ResolveGatewayInternalHost`) |
-| extra NetworkPolicy allowing the gateway namespace to reach the IPP pods | the MaaS policy admits `openshift-ingress` only; kind's CNI enforces it and every ext_proc call times out |
-| istioctl version check, IstioOperator file, MetalLB slot | a stale istioctl on PATH installs the wrong Istio; JSON access-log format; two spike clusters on one docker network |
+Four facts, each with the code that makes it so:
 
-Env overrides (see `lib.sh`): `CLUSTER_NAME`, `NS`, `ISTIO_VERSION`,
-`KUADRANT_VERSION`, `METALLB_SLOT`, `KSERVE_ODH_REF`, `SIM_IMAGE`,
-`SIM_REPLICAS`, `MODEL_NAME`, `MAAS_REPO`, `FIX_VARIANT`, `REQUESTS`.
+1. Istio implements an InferencePool as one listener-level
+   `envoy.filters.http.ext_proc` (cluster `dummy`, header modes `SKIP`) plus a
+   per-route `ExtProcPerRoute` override naming the real picker
+   ([`filters.go`](https://github.com/openshift-service-mesh/istio/blob/db8b9e53e8897459c5a309148a61d3166128e185/pilot/pkg/xds/filters/filters.go#L163-L177)).
+   The base chain puts that filter right after every WasmPlugin phase and
+   before `grpc_stats`, `istio.stats` and the router
+   ([`listener_builder.go`](https://github.com/openshift-service-mesh/istio/blob/db8b9e53e8897459c5a309148a61d3166128e185/pilot/pkg/networking/core/listener_builder.go#L399-L416)).
+2. Envoy merges the per-route ext_proc config once per stream, in
+   `decodeHeaders`
+   ([`ext_proc.cc`](https://github.com/envoyproxy/envoy/blob/v1.34.14/source/extensions/filters/http/ext_proc/ext_proc.cc#L540-L542)).
+   KServe's pool routes match on `X-Gateway-Model-Name`. If the header is not
+   there yet, no pool route matches, no picker is merged, and the route refresh
+   after `ipp-pre` cannot bring the filter back.
+3. MaaS produces that header from the request body in `ipp-pre` and anchors it
+   `INSERT_BEFORE` Kuadrant's auth filter
+   ([`envoy-filter.yaml`](https://github.com/opendatahub-io/models-as-a-service/blob/fdaa979a3586c759206368939f87895ef915cbc7/deployment/base/payload-processing/manager/envoy-filter.yaml#L80-L95),
+   rendered per gateway by
+   [`params.go`](https://github.com/opendatahub-io/models-as-a-service/blob/3457194a4d3e612a55ee1a6cfb0f5df39bb8137a/maas-controller/pkg/platform/tenantreconcile/params.go#L1003)).
+   Nothing in it references Istio's filter.
+4. Kuadrant <= 1.4 installs its filter as a WasmPlugin CR, which Istio places
+   in the base chain before the InferencePool filter, so the anchor lands early
+   and the chain works. Kuadrant >= 1.5.0 (RHCL 1.4) injects a raw
+   `envoy.filters.http.wasm` through an EnvoyFilter `INSERT_BEFORE` the router
+   ([kuadrant-operator#1953](https://github.com/Kuadrant/kuadrant-operator/pull/1953),
+   [RHCL 1.4 release notes](https://docs.redhat.com/en/documentation/red_hat_connectivity_link/1.4/html-single/release_notes/index)),
+   after Istio's filter. The same MaaS anchor now pulls `ipp-pre` in behind the
+   EPP filter.
 
-Control run (Kuadrant 1.4.x, WasmPlugin, EPP invoked without any fix):
-
-```bash
-KUADRANT_VERSION=1.4.7 CLUSTER_NAME=maas-epp-ctl-spike METALLB_SLOT=1 ./setup.sh
-KUADRANT_VERSION=1.4.7 CLUSTER_NAME=maas-epp-ctl-spike ./validate.sh --scenario control
-```
-
-## Validation
-
-```bash
-./validate.sh --scenario defect        # the EPP is bypassed
-./validate.sh --scenario fix           # apply fix.sh, EPP engaged, revert
-./validate.sh --scenario auth-order    # EPP before auth with the fix
-./validate.sh --scenario all           # the three above; exit code = failed checks
-./validate.sh --scenario defect --smoke
-```
-
-Each authenticated scenario sends 20 body-routed requests one at a time, then
-a same-prefix burst: 12 requests sharing a long prompt prefix, 6 at a time,
-`max_tokens: 32`. The burst is where routing quality shows: an engaged EPP
-with the `prefix-cache-scorer` (weight 3 in the KServe config) pins it to the
-pod that already holds the prefix; Envoy's round robin spreads it and every
-pod pays its own prefix miss.
-
-Evidence lands in `results/<slug>/<scenario>/` and is scored by `score.py`
-(`validate.out` and `versions.txt` are committed):
-
-| file | what it is |
-|---|---|
-| `config_dump.json`, `filters.tsv`, `routes.tsv`, `clusters.tsv` | the gateway's Envoy config: raw dump, the HTTP filter chain with positions, pool routes with header match and picker override, pool/EPP/IPP clusters with endpoint health |
-| `diag.txt`, `diag.json`, `envoyfilters.yaml`, `httproutes.yaml`, `inferencepools.yaml` | the diagnostic's verdicts with reasons, and the objects that produced the chain |
-| `epp-config.yaml`, `epp-before.prom`, `epp-after.prom`, `epp.log` | the EPP's scheduler config (scorers, weights), its `/metrics` before and after traffic (picker counter, pool gauges), and its log for the window (`EPP received request` per request) |
-| `vllm-<pod>-{before,after,prefix-before,prefix-after}.prom` | every model pod's own `/metrics`: `vllm:request_success_total`, `vllm:prefix_cache_hits_total`, `vllm:prefix_cache_queries_total`, `vllm:kv_cache_usage_perc`, `vllm:num_requests_{running,waiting}` |
-| `traffic.tsv`, `access.jsonl`, `traffic-prefix.tsv`, `access-prefix.jsonl` | per-request status and `x-inference-pod`, and the gateway access-log line per request (`route_name`, `upstream_host`, `model_hdr`, `ep_requested`) |
-| `score.txt`, `headline` | the printed evidence block and checks, and the one-line result |
-
-The evidence block printed before the checks summarises all of it: chain with
-positions, verdict and reason, routes hit with their picker override, response
-codes, upstream host distribution, EPP picks, picker counter delta, EPP-scraped
-pool gauges, EPP scorers, EPP log counts, the burst distribution and each
-vLLM pod's served count and prefix-cache hits.
-
-The diagnostic on its own:
-
-```bash
-./scripts/check-filter-order.sh                       # this spike's gateway
-./scripts/check-filter-order.sh --dump dump.json --listener-port 443   # a saved config_dump
-KUBECTL=oc GATEWAY_NAMESPACE=openshift-ingress ./scripts/check-filter-order.sh --listener-port 443
-```
-
-It prints the HTTP filter chain with the three filters that matter marked,
-verdict lines (`EPP_ENGAGED`, `AUTH_SEES_MODEL_HEADER`, `IPP_AFTER_AUTH`,
-`EPP_AFTER_AUTH`, `NO_DUPLICATES`, `ROUTER_LAST`), the EnvoyFilters selecting the
-gateway with each anchor and whether it matched, the MaaS EnvoyFilter's mode
-(wasm-anchored vs router-fallback), and the pool routes with their picker
-override. Exit 1 on `BROKEN`; `--expect broken|ok` inverts. It is one file with
-no dependencies beyond `kubectl`/`oc`, `jq` and `python3`, so it runs on the
-production gateway as is.
-
-The fix on its own:
-
-```bash
-./fix.sh apply | revert | status       # FIX_VARIANT=pre-only (default) | first (INSERT_FIRST, the MaaS fix) | extproc (also moves ipp: breaks auth)
-```
-
-## Workaround on a live cluster
-
-The controller renders `EnvoyFilter/payload-processing` and owns it through
-server-side apply, so editing it is a losing race. The workaround is a second
-EnvoyFilter, `payload-processing-epp-order`, at the MaaS one's priority + 10:
-it REMOVEs `envoy.filters.http.ext_proc.ipp-pre` where the MaaS filter put it
-and re-inserts the same typed_config `INSERT_BEFORE envoy.filters.http.ext_proc`.
-Istio applies EnvoyFilters in priority order and does not dedupe inserts, so
-the result is exactly one `ipp-pre`, ahead of the InferencePool filter.
-`render-fix.sh` copies the typed_config from the live object, so timeouts,
-cluster name and processing modes stay whatever the controller rendered.
-
-```bash
-export KUBECONFIG=~/.kube/config            # lib.sh otherwise points at the spike's kind kubeconfig
-export KUBECTL=oc GATEWAY_NAMESPACE=openshift-ingress GATEWAY_NAME=maas-default-gateway
-./scripts/check-filter-order.sh --listener-port 443       # expect EPP_ENGAGED BROKEN
-./scripts/render-fix.sh fix-envoyfilter.yaml              # from the live payload-processing EnvoyFilter
-oc apply -f fix-envoyfilter.yaml
-./scripts/check-filter-order.sh --listener-port 443       # expect EPP_ENGAGED OK, NO_DUPLICATES OK
-oc delete envoyfilter payload-processing-epp-order -n openshift-ingress   # revert
-```
-
-Preconditions and limits:
-
-- The gateway must have an InferencePool attached, otherwise
-  `envoy.filters.http.ext_proc` is absent, the REMOVE still applies and nothing
-  re-inserts `ipp-pre`. `render-fix.sh` refuses in that case (`FIX_FORCE=1`
-  overrides).
-- Per-tenant gateways render their own EnvoyFilter: set
-  `EF_NAME=payload-processing-<tenant>`.
-- The copy is taken at render time. If the controller changes the `ipp-pre`
-  typed_config (timeouts, cluster name), re-render and re-apply.
-- It is a workaround, not the fix: a new gateway or tenant needs it applied
-  again. The change belongs in `deployment/base/payload-processing/manager/envoy-filter.yaml`
-  and `tenantreconcile/params.go`.
-
-## Key findings
-
-Runs of 2026-09-22 on Kuadrant chart 1.5.3 (EnvoyFilter, raw
-`envoy.filters.http.wasm`), Istio 1.29.2 / Envoy 1.37.2, ODH llmisvc
-controller `docker.io/kserve/llmisvc-controller@sha256:55b7a0…` (fork
-`7d068b1b`), GIE v1.5.0-rc.2, EPP `llm-d-router-endpoint-picker@sha256:2e516f…`
-(v0.10.0), IPP `odh-ai-gateway-payload-processing@sha256:ed1cc3…`. Full
-records in `results/kuadrant-1.5.3+istio-1.29.2+vllm-cpu/` and
-`results/kuadrant-1.5.3+istio-1.29.2+sim/`.
-
-| backend | scenario | chain | picker calls / requests | EPP log | `ep_requested` | same-prefix burst (12) | vLLM prefix-cache hits | result |
-|---|---|---|---|---|---|---|---|---|
-| vLLM CPU, tiny-llama x3 | defect | BROKEN | 0 / 32 | 0 received | empty on all 20; 20 requests spread 7/7/6 | 3 / 5 / 4 across pods (top 42%) | every pod misses once: 512/828, 384/621, 640/1038 tokens | EPP bypassed, all 200 |
-| vLLM CPU | fix (`pre-only`) | OK | 32 / 32 | 32 received | set on all 20, equal to `upstream_host` | 8 / 4 / 0 (top 67%) | pinned pod 1024/1659, second 512/828, third idle 0/0 | EPP engaged, prefix-aware routing, all 200 |
-| vLLM CPU | auth-order (fix, no credentials) | OK | 20 / 20 | 20 received | set on all 20 | n/a | n/a | 401 for all 20, EPP still consulted |
-| simulator x3 | defect | BROKEN | 0 / 20 | n/a | empty; 6/7/7 | n/a | n/a | EPP bypassed |
-| simulator | fix (`pre-only`) | OK | 20 / 20 | n/a | set, equal to `upstream_host` | n/a | n/a | EPP engaged |
-| simulator | auth-order | OK | 20 / 20 | n/a | set | n/a | n/a | 401 x20, 20 picks |
-
-The kind gateway reproduces the production chain filter for filter, and the
-diagnostic returns the same verdict on the saved production `config_dump`
-(`--dump ~/Downloads/dump.txt --listener-port 443`):
+The production dump (`~/Downloads/dump.txt`, listener 443, OSSM 1.26.8) and
+the kind gateway have the same chain, filter for filter:
 
 ```
 [ 1] istio.metadata_exchange
@@ -267,125 +74,348 @@ diagnostic returns the same verdict on the saved production `config_dump`
 [ 6] envoy.filters.http.cors
 [ 7] istio.stats
 [ 8] envoy.filters.http.ext_proc.ipp-pre  <- X-Gateway-Model-Name produced here
-[ 9] envoy.filters.http.wasm              <- Kuadrant auth (raw-wasm)
+[ 9] envoy.filters.http.wasm              <- Kuadrant auth + token rate limiting (raw wasm)
 [10] envoy.filters.http.ext_proc.ipp
 [11] envoy.filters.http.router
 ```
 
-After `fix.sh apply` (default `FIX_VARIANT=pre-only`):
+MaaS's own check
+([`check-payload-ext-proc-filters.sh`](https://github.com/opendatahub-io/models-as-a-service/blob/fdaa979a3586c759206368939f87895ef915cbc7/scripts/check-payload-ext-proc-filters.sh#L145-L157))
+asserts `pre < auth < ipp < router` only and passes this chain.
+
+## Why the first fix empties responses
+
+Moving `ipp-pre` in front of Istio's filter (`FIX_VARIANT=pre-only`, or
+`INSERT_FIRST` as the upstream llm-d chart does) engages the EPP: 32/32 picks,
+prefix-aware routing. It also makes the EPP filter the second full-duplex
+ext_proc on the response path, behind the Kuadrant wasm:
 
 ```
-[ 1] istio.metadata_exchange
-[ 2] envoy.filters.http.ext_proc.ipp-pre
-[ 3] envoy.filters.http.ext_proc          <- header exists, picker override bound
-[ 4..8] grpc_stats, alpn, fault, cors, istio.stats
-[ 9] envoy.filters.http.wasm
-[10] envoy.filters.http.ext_proc.ipp
-[11] envoy.filters.http.router
+response path:  router -> ipp -> kuadrant wasm -> EPP ext_proc -> ipp-pre -> client
 ```
 
-What the run established:
+Sequence for a non-streaming completion, from
+`results/kuadrant-1.5.3+istio-1.29.2+vllm-cpu/empty-body/proxy-debug.log`
+(ext_proc and wasm at debug, TRLP present):
 
-1. **The defect is the filter order, nothing else.** With the same routes,
-   policies, EPP and IPP, moving `ipp-pre` in front of Istio's ext_proc takes
-   the picker from 0 calls to one call per request, and the endpoint the EPP
-   asked for is the endpoint Envoy used.
-2. **Only `ipp-pre` may move.** The obvious fix, re-anchoring both stages on
-   Istio's ext_proc (`FIX_VARIANT=extproc`), puts `ipp` ahead of the Kuadrant
-   wasm, and the post-stage `maas-headers-guard` removes the `Authorization`
-   header
-   (https://github.com/opendatahub-io/ai-gateway-payload-processing/blob/07727563b63153c410434a20b62f3ebc5f24ed01/pkg/plugins/maas-headers-guard/plugin.go#L91).
-   Measured: every request 401 with `ep_requested` already set. The IPP
-   hub-mode README's "post stage `INSERT_AFTER` the EPP filter" recipe is
-   therefore wrong for MaaS on Istio-native pools; `ipp` has to stay behind
-   auth.
-3. **The EPP runs before auth on Kuadrant >= 1.5 whenever it runs at all.**
-   Twenty requests without credentials cost twenty picker calls and got 401.
-   This is Istio's placement plus Kuadrant's router anchor, not the fix; with
-   Kuadrant 1.4's WasmPlugin the auth filter sits before Istio's ext_proc.
-4. **Istio 1.29's Envoy does not emit `x-gateway-destination-endpoint-served`**
-   in dynamic metadata; `upstream_host` carries the same fact. `score.py` falls
-   back to it.
-4b. **With real vLLM the bypass is a routing-quality loss, not just a missing
-   log line.** The EPP runs `queue-scorer=2, kv-cache-utilization-scorer=2,
-   prefix-cache-scorer=3, no-hit-lru-scorer=2` (`epp-config.yaml`, from
-   KServe's scheduler preset). A 12-request burst sharing one prompt prefix
-   spread 3/5/4 over the pods when bypassed and 8/4/0 once the EPP was
-   engaged, and vLLM's own counters agree: bypassed, every pod paid its own
-   prefix miss; engaged, the pinned pod served 8 with 1024 of 1659 prefix
-   tokens hitting its cache and the third pod stayed idle. The EPP log
-   (`epp.log`) shows 0 `EPP received request` in the bypassed window and one
-   per request afterwards. `vllm:kv_cache_usage_perc` reads 0 after each
-   burst: with a tiny model and 32 output tokens the cache empties within the
-   sampling gap, so the prefix-cache counters are the durable signal here.
-5. **MaaS's own kind installer does not run against today's `main`.** The
-   vendored copy needed: Kuadrant 1.5.x, GIE CRDs before istiod, LLMISVC CRDs
-   from the same clone as the controller (the pinned commit serves only
-   `v1alpha1`), a `behavior: merge` on the duplicated `maas-parameters`
-   generator, cert-manager secrets plus CA injection for the controller
-   webhook, `from: Selector` on the Gateway, an HTTPS listener because maas-api
-   requires a 443 Service port, and an allow NetworkPolicy because the MaaS one
-   admits `openshift-ingress` only and kindnet enforces it. All in
-   `patches/local-deploy.upstream.diff`.
-6. Noise worth knowing about: the IPP and maas-controller log
-   `ExternalModel` status conflicts for the installer's llm-katan fixture, and
-   the `maas-api-key-cleanup` CronJob cannot start with `curlimages/curl`
-   under `runAsNonRoot`. Neither touches the data path.
+1. `ipp` drains the 633-byte body and the 0-byte end-of-stream frame to its
+   server and re-injects them as two chunks. The first re-injection continues
+   the headers: the EPP filter sends its ResponseHeaders message and stops
+   iteration waiting for the reply, then forwards the 633 bytes to the EPP and
+   drains them (`StopIterationNoBuffer`).
+2. The second re-injection is the end-of-stream frame. The wasm-shim has a
+   TokenRateLimitPolicy `Report` to make from the body: `on_http_response_body`
+   dispatches it and returns `Action::Pause`
+   ([`kuadrant_filter.rs`](https://github.com/Kuadrant/wasm-shim/blob/222a42a812e23d5864e3239570c72559b77c5887/crates/wasm-shim/src/filter/kuadrant_filter.rs#L189-L218)).
+   The empty frame is parked in the filter manager's shared response buffer
+   with end-of-stream observed.
+3. The EPP's header reply arrives. Its filter has not seen end-of-stream
+   (`complete_body_available_` false), so `handleHeaderContinue()` takes the
+   full-duplex branch and continues
+   ([`processor_state.cc`](https://github.com/envoyproxy/envoy/blob/c5320a6f4e6ff60c4ae33d1c08882092c5c0bd2a/source/extensions/filters/http/ext_proc/processor_state.cc#L239-L260)).
+   `commonContinue()` pushes the headers and then the parked empty buffer as
+   end-of-stream past the EPP filter
+   ([`filter_manager.cc`](https://github.com/envoyproxy/envoy/blob/c5320a6f4e6ff60c4ae33d1c08882092c5c0bd2a/source/common/http/filter_manager.cc#L107-L133)).
+   The client gets `200`, `transfer-encoding: chunked`, terminator. The stream
+   is destroyed, the EPP's gRPC stream is closed with the body never returned,
+   and the `Report` reply lands on a destroyed context
+   (`proxy_on_grpc_receive invalid context_id`).
 
-## The fix for MaaS
+The capture reads exactly like that: `Sending a body chunk of 633 bytes,
+end_stream false` to the EPP, wasm `on_http_response_body` then `Dispatching
+gRPC call to ... RateLimitService.Report`, then `Received response headers
+response` carrying `x-went-into-resp-headers`, `Continuing processing`,
+`onDestroy`, and the access log line with `response_code: 200`.
 
-Measured on this cluster with `FIX_VARIANT=first` (5/5 picks, all 200,
-`ipp-pre` at position 1 ahead of `istio.metadata_exchange`): insert `ipp-pre`
-with `INSERT_FIRST` and no anchor at all. It is what the upstream llm-d
-`payload-processor` chart does by default, it works on every Kuadrant form,
-and it works on gateways that have no InferencePool (ExternalModel-only
-tenants), where `envoy.filters.http.ext_proc` does not exist and an anchor on
-it would match nothing. `ipp` keeps its `INSERT_AFTER` auth anchors: it must
-stay behind the wasm because it strips `Authorization`.
+Why the isolation runs came out the way they did:
 
-1. `deployment/base/payload-processing/manager/envoy-filter.yaml`: replace the
-   three `ipp-pre` patches (INSERT_BEFORE WasmPlugin, INSERT_BEFORE raw wasm,
-   INSERT_BEFORE router) with one `operation: INSERT_FIRST` patch whose match
-   has no `subFilter`. Keep the three `ipp` patches. Rewrite the "Stage 1 must
-   run BEFORE the WasmPlugin" comment: stage 1 is first in the chain, ahead of
-   Kuadrant auth in any form and ahead of Istio's InferencePool ext_proc,
-   which reads its per-route picker once at request headers.
-2. `maas-controller/pkg/platform/tenantreconcile/params.go`,
-   `patchPayloadProcessingEnvoyFilter` (lines 949-1073): the patch-slice
-   layout becomes `[0]` ipp-pre (always kept, only its grpc `cluster_name`
-   rewritten), `[1:3]` ipp after WasmPlugin / raw wasm (kept unless the router
-   fallback is on), `[3]` ipp before router (fallback), `[4:]` route disables.
-   `wasmFilterPatchCount` 4 -> 2, `routerFallbackPatchCount` 2 -> 1, and the
-   `wasmSubFilters` rewrite loop only touches the `ipp` patches. Update
-   `patch_test.go` / `params_test.go` accordingly.
-3. `scripts/check-payload-ext-proc-filters.sh`: add
-   `istio_ext_proc = idx("envoy.filters.http.ext_proc")` and assert
-   `pre < istio_ext_proc` when it is present, keep `pre < auth < ipp < router`,
-   drop the `spec.targetRefs` assertion the controller already invalidates.
-   Or replace the body with `scripts/check-filter-order.sh` from here.
-4. Same one-patch change in `praxis-extproc/deploy/overlays/odh/envoy-filter.yaml`
-   (four `ipp-pre` anchor variants -> one INSERT_FIRST) and its copy in
-   `ai-gateway-controller/config/manifests/praxis-extproc/overlays/odh/`.
-5. IPP `deploy/examples/hub-mode/README.md`: pre stage `INSERT_FIRST`, post
-   stage `INSERT_AFTER` the auth filter, never "after the EPP filter".
+- No TRLP on the route: the wasm returns Continue, the end frame reaches the
+  EPP filter before its header reply, `handleCompleteBodyAvailable()` waits
+  for the body reply. Complete.
+- EPP response processing skipped: no header reply to continue on. Complete.
+- Streaming: the header reply lands long before the end frame, so the continue
+  forwards nothing. Complete, occasionally without the chunked terminator
+  (curl exit 18).
+- One JSON request in twenty came back intact: the same race, won the other
+  way.
 
-Unchanged by the fix: the EPP runs before Kuadrant auth on Kuadrant >= 1.5. If
-that matters, gate inference paths on an `Authorization` header with an Istio
-AuthorizationPolicy (RBAC sits before the ext_proc in the base chain) or a
-presence check in `ipp-pre`.
+Envoy's [#43175](https://github.com/envoyproxy/envoy/pull/43175) (issue
+[#41654](https://github.com/envoyproxy/envoy/issues/41654)) is in this proxy
+build (`envoy.reloadable_features.ext_proc_inject_data_with_state_update` is
+in the binary) and does not cover it: the flag it corrects is current here,
+the frame is genuinely parked by a filter between the two ext_procs.
+Production OSSM 1.26.8 / Envoy 1.34.14 lacks even that.
 
-Not measured here, but visible in the route table: the path-prefixed
-per-model URLs (`/publishers/<ns>/models/<name>/v1/...`) select the pool route
-on the first pass and never depended on the order.
+The rule that follows: the Kuadrant wasm has to sit before the InferencePool
+filter in the chain. That is auth before scheduling, and on the response path
+the wasm then pauses behind the EPP filter, which has already seen
+end-of-stream. Kuadrant 1.4 had this order for free.
+
+## Measured results
+
+Fresh kind cluster, 2026-09-23: Istio 1.29.2 / Envoy 1.37.2-dev, Kuadrant 1.5.3,
+MaaS, IPP, llm-d EPP v0.10.0 and three real vLLM CPU replicas serving tiny-llama.
+
+| Configuration | Requests | EPP picks | Complete inference responses |
+|---|---:|---:|---:|
+| Original order, TRLP enabled | 38 | 0 | 38 |
+| Earlier pre-only fix, TRLP enabled | 38 | 38 | 1; 35 empty non-SSE responses, two SSE timeouts |
+| Original order, TRLP removed | 38 | 0 | 38 |
+| Earlier pre-only fix, TRLP removed | 38 | 38 | 38 |
+| Earlier pre-only fix, TRLP restored | 3 | 3 | 0; all empty HTTP 200 |
+| EPP after IPP, TRLP enabled | 60 | 60 | 60 |
+
+The last row includes six SSE requests, six fragmented request bodies and a
+12-request burst at concurrency six. Every EPP pick matched the actual upstream.
+Twenty requests with missing/invalid credentials returned 401 before EPP or any
+model was reached. A seven-request accounting check returned 189 tokens in total;
+Limitador charged exactly 189. After exhausting a one-token quota, five subsequent
+requests returned 429 without reaching EPP; restoring the quota restored inference.
+
+Configuration comparisons confirm that the ordering experiments change only
+filter positions. The TRLP comparisons keep routes and filter order identical;
+only Kuadrant's Wasm configuration changes. The mechanism behind the
+interaction is in "Why the first fix empties responses" above.
+
+The revised default suite also passed all nine phases (220 requests), including
+the expected TRLP failures. Its final-order phase returned 34 complete responses
+and charged exactly 7,034 tokens. See the [recorded run](results/verification-20260923/validate.out)
+and [versions](results/verification-20260923/versions.txt).
+
+## Setup and validation
+
+```bash
+./setup.sh                              # kind + the real MaaS/KServe/vLLM stack
+./validate.sh                          # default: defect, TRLP isolation, fix, auth
+./validate.sh --smoke                   # fewer ordinary requests; retains SSE/fragment/burst checks
+./validate.sh --scenario trlp           # TRLP present -> absent -> restored
+./validate.sh --scenario fix            # final order, accounting, then revert and verify bypass
+./validate.sh --scenario auth           # missing and invalid credentials with the final order
+./validate.sh --scenario auth-order     # demonstrate EPP-before-auth cost of the earlier fix
+./setup.sh --teardown
+```
+
+Use a **disposable kind cluster** for general validation. The `trlp` scenario:
+
+1. Applies the earlier pre-only order and requires an empty HTTP 200 completion.
+2. Saves the model and inherited gateway TRLPs, pauses MaaS reconciliation, and
+   deletes those policies. Authentication remains enabled.
+3. Waits until their references disappear from the live Wasm configuration.
+4. Requires complete ordinary, SSE, fragmented and concurrent responses with EPP
+   engaged; then verifies that the original order still bypasses EPP without TRLP.
+5. Restores policies and controller replicas, reapplies the pre-only order, and
+   requires the empty-response defect to return.
+
+An expected defect counts as a passing reproducer only in the explicit
+`trlp-present` and `trlp-restored` phases. Successful inference phases reject empty
+or malformed bodies, wrong model names, unfinished SSE, failed burst requests,
+missing/duplicate access records and picks that differ from the actual upstream.
+Every request, including SSE and bursts, is included in EPP counters and logs.
+The scorer reparses retained bodies rather than trusting a precomputed result.
+
+The `fix` phase additionally compares response usage with Limitador counters.
+Pod identities/restarts and configuration comparisons guard against confounded
+results. Distribution and cache statistics are observations, not pass criteria.
+The general suite checks accounting; the quota-exhaustion experiment above was a
+separate check. It does not silently turn off enforcement to make inference pass.
+
+Each run writes a new `results/<versions+backend>/validation-<timestamp>-<pid>/`:
+raw responses, request records, proxy configuration, policy snapshots, EPP/vLLM
+metrics, gateway/EPP logs, per-phase scores, and `validate.out`. `images.json` and
+`server-info.json` record the running binaries. The run restores temporary filters,
+policies and controller replicas even on failure; `--keep-fix` leaves the final
+order applied only after a successful run. Previous evidence is retained.
+
+Configuration comes from `lib.sh`: `KUBECONFIG`, `CLUSTER_NAME`, `NS`,
+`GATEWAY_NAMESPACE`, `GATEWAY_NAME`, `RESULTS`, `REQUESTS`, `PREFIX_REQUESTS`,
+`PREFIX_CONCURRENCY`, `MAAS_REPO`, and the component versions/images. The default
+backend is vLLM CPU. `MODEL_BACKEND=sim` selects the simulator; the complete-response
+and accounting checks still apply. Installer adjustments are in
+[`patches/local-deploy.upstream.diff`](patches/local-deploy.upstream.diff).
+
+Scorer regression tests:
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+## Applying the workaround
+
+```bash
+./fix.sh apply                         # default: FIX_VARIANT=epp-after-ipp
+./fix.sh status
+./fix.sh revert
+```
+
+[`scripts/render-fix.sh`](scripts/render-fix.sh) copies the **live native EPP
+typed configuration** from the proxy and renders a separate EnvoyFilter at the
+MaaS filter's priority + 10. It removes native EPP and reinserts it after `ipp`.
+It rejects missing anchors, inconsistent native configurations across listeners,
+and an unscoped workload selector. The controller-owned MaaS resource is not edited.
+
+For another gateway, render and inspect the patch against that gateway first:
+
+```bash
+KUBECONFIG=/path/to/target-kubeconfig KUBECTL=oc \
+  GATEWAY_NAMESPACE=openshift-ingress GATEWAY_NAME=<gateway> \
+  ./scripts/render-fix.sh /tmp/maas-epp-order.yaml
+# Apply with the intended kubeconfig/context; delete payload-processing-epp-order to revert.
+```
+
+`FIX_VARIANT=pre-only` and `first` retain the earlier response defect in this
+stack. `extproc` also moves IPP ahead of auth and breaks valid authentication:
+`maas-headers-guard` removes `Authorization`. They remain diagnostic variants.
+
+For a cluster without this checkout,
+[`scripts/epp-order-workaround.sh`](scripts/epp-order-workaround.sh) is the
+same change as one file: `oc`/`kubectl` plus `jq`, a static EnvoyFilter
+(Istio's filter config is identical on OSSM 1.26.8 and Istio 1.29.2, and the
+script refuses to apply if the live one differs), `status` per listener, the
+same `status` offline against a saved config_dump, `apply`, `revert`. Measured
+on kind (`results/kuadrant-1.5.3+istio-1.29.2+vllm-cpu/epp-after-ipp-probe/`):
+33/33 picks, 20/20 JSON bodies, 12/12 burst, SSE to `[DONE]`, 401 with 0 picks
+without credentials, revert restores the old chain.
+
+```bash
+export KUBECTL=oc GATEWAY_NAMESPACE=openshift-ingress GATEWAY_NAME=maas-default-gateway
+./scripts/epp-order-workaround.sh status
+./scripts/epp-order-workaround.sh apply
+./scripts/epp-order-workaround.sh revert
+DUMP_FILE=~/Downloads/dump.txt ./scripts/epp-order-workaround.sh status   # no cluster access needed
+```
+
+The standalone diagnostic also reads saved dumps:
+
+```bash
+./scripts/check-filter-order.sh
+./scripts/check-filter-order.sh --dump dump.json --listener-port 443
+```
+
+## Fix for MaaS
+
+The workaround made permanent: `ipp-pre` and `ipp` stay where they are, Istio's
+inert InferencePool filter moves behind `ipp`. Retracted: the earlier
+recommendation to re-anchor `ipp-pre` (`INSERT_BEFORE envoy.filters.http.ext_proc`
+or `INSERT_FIRST`). It engages the EPP and empties responses.
+
+1. `deployment/base/payload-processing/manager/envoy-filter.yaml`: two more
+   `HTTP_FILTER` patches after the existing `ipp` inserts, `REMOVE` with
+   `subFilter.name: envoy.filters.http.ext_proc`, then `INSERT_AFTER`
+   `envoy.filters.http.ext_proc.ipp` with Istio's static filter config (the
+   `value` printed by `scripts/epp-order-workaround.sh render`). Unconditional:
+   the anchor is MaaS's own filter name, so the result is the same in all
+   three anchor modes (WasmPlugin, raw wasm, router fallback), and on a gateway
+   without a pool the REMOVE matches nothing and the inserted filter, every
+   mode `SKIP`, never opens a stream, which is Istio's own placement on
+   non-pool routes today. Works unchanged with praxis-extproc, whose ODH
+   overlay inserts the same two filter names
+   ([`envoy-filter.yaml`](https://github.com/opendatahub-io/praxis-extproc/blob/0fe8f9dff6cd3477f27df35c1aab0c24592f5e39/deploy/overlays/odh/envoy-filter.yaml#L212-L244)).
+2. `tenantreconcile/params.go` `patchPayloadProcessingEnvoyFilter`
+   ([L1003](https://github.com/opendatahub-io/models-as-a-service/blob/3457194a4d3e612a55ee1a6cfb0f5df39bb8137a/maas-controller/pkg/platform/tenantreconcile/params.go#L1003)):
+   the patch slice gains the two constant patches between the router-fallback
+   pair and the route disables; `wasmFilterPatchCount` and
+   `routerFallbackPatchCount` unchanged; the mode switch must keep them in
+   every mode. Cases in `params_test.go` for all three modes.
+3. `scripts/check-payload-ext-proc-filters.sh`: assert
+   `pre < auth < ipp < envoy.filters.http.ext_proc < router` whenever the
+   InferencePool filter is present and drop the `spec.targetRefs` assertion.
+   `scripts/epp-order-workaround.sh status` is the same check, usable as is.
+4. Pin the copied config: an e2e reads the gateway's config_dump and compares
+   the re-inserted typed_config with the one Istio rendered elsewhere in the
+   chain, so an Istio bump that changes it fails loudly instead of silently
+   changing timeouts.
+
+Not needed: changes to the EPP, IPP, praxis-extproc or KServe. Follow-ups
+elsewhere: Kuadrant (placement regression since 1.5, scheduling before auth
+and rate limiting for every Istio-native InferencePool user), Envoy
+(filter-manager report with the debug log above), the IPP hub-mode README and
+the praxis-extproc overlay comment (the "`INSERT_BEFORE` auth" recipe needs
+"and the InferencePool filter after `ipp`").
+
+### E2E tests MaaS should carry
+
+Every one goes through a pool route with a TokenRateLimitPolicy, from outside
+the mesh, and reads the payload: a status code is not a pass. Parameterise the
+payload processor (IPP today, praxis-extproc tomorrow) and key the checks on
+the filter names `envoy.filters.http.ext_proc.ipp-pre` / `.ipp`, on the EPP
+counters and on the access log, never on which implementation answers.
+
+1. Chain order: config_dump of the gateway pod; every HTTP chain has
+   `ipp-pre < auth < ipp < envoy.filters.http.ext_proc < router`, exactly one
+   of each, and the re-inserted typed_config equals Istio's.
+2. EPP engaged: N JSON completions, each `200` with a non-empty
+   `choices[0].message.content` and a consistent `usage`; picker counter +N;
+   access-log `ep_requested` set and equal to `upstream_host` on every line.
+3. Streamed completion: `text/event-stream`, events, `data: [DONE]`, clean
+   termination; picker +1.
+4. Burst: same-prefix requests, concurrently; all complete. The distribution
+   is an observation, not a gate.
+5. Auth before scheduling: no credentials and a bad key both give `401`,
+   picker +0, no `ep_requested`.
+6. Token accounting: sum of `usage.total_tokens` equals Limitador's charge;
+   after exhausting a quota, `429` with picker +0.
+7. No-pool gateway: the EnvoyFilter renders, the chain has no InferencePool
+   filter, ExternalModel traffic unaffected.
+8. Negative control, kind only: apply the `pre-only` order and require the
+   empty-body defect, so the suite proves it can see it.
+
+## Other observations and limits
+
+- Removing TRLP alone does not fix EPP bypass: 38 requests still made zero EPP
+  calls and distributed 13/13/12 across the backends.
+- Deleting only the model TRLP exposes the gateway's inherited default-deny
+  token policy and returns 429. A no-TRLP experiment must account for inheritance
+  and prevent the MaaS controller from recreating the deleted policy.
+- Supplying the model header directly engages EPP in the original order, but
+  still exposes the response failure. The publisher-prefixed URL control returned
+  403 from subscription model extraction, so it is not a demonstrated workaround.
+- Skipping EPP response callbacks restored seven responses, but removed EPP
+  response-derived token/latency metrics. Moving EPP after IPP preserves those
+  observations and leaves running-request gauges at zero after completion.
+- The original validator reported success for empty HTTP 200 responses. Its
+  older saved success logs do not prove working inference. Backend concentration
+  also does not establish a cache-efficiency or performance improvement.
+- The production dump uses Istio 1.26.8 / Envoy 1.34.14. Its bypassing order matches,
+  but this workaround still needs testing on that exact proxy. Kuadrant 1.4's
+  WasmPlugin placement is a source-based comparison, not a measured control here.
+
+## Related upstream reports
+
+Checked 2026-09-23.
+
+- [Envoy #43175](https://github.com/envoyproxy/envoy/pull/43175) for
+  [#41654](https://github.com/envoyproxy/envoy/issues/41654), two ext_proc
+  filters in one chain: in the tested proxy (runtime guard string present in
+  the binary), does not cover this case.
+- [Envoy #46841](https://github.com/envoyproxy/envoy/issues/46841), buffered
+  body lost when a wasm filter continues, reported with Kuadrant wasm and
+  full-duplex ext_proc: the closest report. Its fix
+  ([#46842](https://github.com/envoyproxy/envoy/pull/46842), Envoy 1.37.6) is
+  absent from the tested proxy (guard
+  `filter_manager_forward_added_data_on_continue` not in the binary), but it
+  handles a filter that returns Continue after draining a frame, while the
+  wasm-shim here returns Pause on the end-of-stream frame. Unlikely to be the
+  same defect; not tested against this reproducer.
+- [Envoy #43983](https://github.com/envoyproxy/envoy/issues/43983), two
+  full-duplex body processors: same family.
+- [wasm-shim #388](https://github.com/Kuadrant/wasm-shim/issues/388) (large
+  request bodies, `allow_on_headers_stop_iteration`) and
+  [wasm-shim #425](https://github.com/Kuadrant/wasm-shim/issues/425) (TRLP
+  hanging on upstream errors): different triggers; this failure is on
+  successful model responses.
 
 ## References
 
 - MaaS EnvoyFilter: https://github.com/opendatahub-io/models-as-a-service/blob/fdaa979a3586c759206368939f87895ef915cbc7/deployment/base/payload-processing/manager/envoy-filter.yaml#L80-L95
+- MaaS renderer: https://github.com/opendatahub-io/models-as-a-service/blob/3457194a4d3e612a55ee1a6cfb0f5df39bb8137a/maas-controller/pkg/platform/tenantreconcile/params.go#L1003
 - MaaS filter-order check (asserts `pre < auth < ipp < router` only): https://github.com/opendatahub-io/models-as-a-service/blob/fdaa979a3586c759206368939f87895ef915cbc7/scripts/check-payload-ext-proc-filters.sh#L145-L157
 - Istio base chain order (OSSM release-1.26): https://github.com/openshift-service-mesh/istio/blob/db8b9e53e8897459c5a309148a61d3166128e185/pilot/pkg/networking/core/listener_builder.go#L399-L416
 - Istio InferencePool filter: https://github.com/openshift-service-mesh/istio/blob/db8b9e53e8897459c5a309148a61d3166128e185/pilot/pkg/xds/filters/filters.go#L163-L177
-- Envoy ext_proc per-route merge (once, in decodeHeaders): https://github.com/envoyproxy/envoy/blob/v1.34.14/source/extensions/filters/http/ext_proc/ext_proc.cc#L540-L542
+- Envoy ext_proc per-route merge, once in decodeHeaders: https://github.com/envoyproxy/envoy/blob/v1.34.14/source/extensions/filters/http/ext_proc/ext_proc.cc#L540-L542
+- Envoy header-reply continue in full-duplex mode (istio/proxy release-1.29 pin): https://github.com/envoyproxy/envoy/blob/c5320a6f4e6ff60c4ae33d1c08882092c5c0bd2a/source/extensions/filters/http/ext_proc/processor_state.cc#L239-L260
+- Envoy filter manager `commonContinue`: https://github.com/envoyproxy/envoy/blob/c5320a6f4e6ff60c4ae33d1c08882092c5c0bd2a/source/common/http/filter_manager.cc#L107-L133
+- Kuadrant wasm-shim response-body pause: https://github.com/Kuadrant/wasm-shim/blob/222a42a812e23d5864e3239570c72559b77c5887/crates/wasm-shim/src/filter/kuadrant_filter.rs#L189-L218
 - Kuadrant switch to EnvoyFilter injection (first in v1.5.0): https://github.com/Kuadrant/kuadrant-operator/pull/1953
 - RHCL 1.4 release notes ("migrated from an Istio WasmPlugin to EnvoyFilter"): https://docs.redhat.com/en/documentation/red_hat_connectivity_link/1.4/html-single/release_notes/index
 - IPP hub-mode README (the "INSERT_BEFORE auth" recipe): https://github.com/opendatahub-io/ai-gateway-payload-processing/blob/07727563b63153c410434a20b62f3ebc5f24ed01/deploy/examples/hub-mode/README.md#L10-L28
-- Related Istio multi-pool bug this is not: istio/istio#61594, reproducer https://github.com/bartoszmajsak/istio-multipool-extproc
+- praxis-extproc ODH overlay (same filter names and anchors): https://github.com/opendatahub-io/praxis-extproc/blob/0fe8f9dff6cd3477f27df35c1aab0c24592f5e39/deploy/overlays/odh/envoy-filter.yaml#L212-L244

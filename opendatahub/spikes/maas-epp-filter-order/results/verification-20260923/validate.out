@@ -1,0 +1,244 @@
+
+Preflight
+Evidence: /home/bartek/code/work/playground/opendatahub/spikes/maas-epp-filter-order/results/fresh-review-20260923T054744Z/general-validation/validation-20260923T070433Z-2528439
+llminferenceservice.serving.kserve.io/vllm-pool condition met
+INFO: deleted EnvoyFilter payload-processing-epp-order; waiting for EPP_ENGAGED=BROKEN
+  OK: EPP_ENGAGED=BROKEN
+
+Scenario: defect
+defect: sent 34 requests; retained all response bodies
+    ok all scheduled ordinary, SSE, fragmented and burst requests were recorded
+    ok unique request IDs
+    ok exactly one access record for every request
+    ok every request returned HTTP 200
+    ok gateway and client status agree
+    ok EPP metrics scrape is present
+    ok EPP picker delta 0/0, including SSE and burst
+    ok EPP received-request log count 0/0
+    ok endpoint-pick metadata agrees for every request
+    ok no scheduler attempts while EPP is bypassed or request rejected
+    ok filter-order prediction is BROKEN
+    ok no duplicated filters
+    ok model header correct on every request
+    ok every request used the model's InferencePool route
+    ok all JSON/SSE responses complete and valid (34/34)
+    ok model and EPP pods did not restart or change during traffic
+    distribution (observational): {'10.244.0.33:8000': 12, '10.244.0.31:8000': 11, '10.244.0.32:8000': 11}; burst: {'10.244.0.33:8000': 4, '10.244.0.31:8000': 4, '10.244.0.32:8000': 4}
+defect: PASS; 34 requests, 0 picks, 34 complete responses, 0 empty 200s
+Warning: EnvoyFilter exposes internal implementation details that may change at any time. Prefer other APIs if possible, and exercise extreme caution, especially around upgrades.
+INFO: applied EnvoyFilter payload-processing-epp-order (variant pre-only); waiting for the chain
+  OK: EPP_ENGAGED=OK
+
+Scenario: trlp-present
+trlp-present: sent 5 requests; retained all response bodies
+    ok all scheduled ordinary, SSE, fragmented and burst requests were recorded
+    ok unique request IDs
+    ok exactly one access record for every request
+    ok every request returned HTTP 200
+    ok gateway and client status agree
+    ok EPP metrics scrape is present
+    ok EPP picker delta 5/5, including SSE and burst
+    ok EPP received-request log count 5/5
+    ok endpoint-pick metadata agrees for every request
+    ok filter-order prediction is OK
+    ok no duplicated filters
+    ok model header correct on every request
+    ok every request used the model's InferencePool route
+    ok every selected endpoint equals the actual upstream
+    ok reproduced empty HTTP 200 completions (4/5); incomplete SSE recorded separately
+    ok ordinary response defect is an empty completion, not a transport timeout
+    ok model and EPP pods did not restart or change during traffic
+    distribution (observational): {'10.244.0.31:8000': 3, '10.244.0.33:8000': 1, '10.244.0.32:8000': 1}; burst: {}
+trlp-present: PASS; 5 requests, 5 picks, 0 complete responses, 4 empty 200s
+deployment.apps/maas-controller scaled
+pod/maas-controller-6f54dd9c7-h9l2v condition met
+tokenratelimitpolicy.kuadrant.io "gateway-default-deny" deleted from istio-system namespace
+tokenratelimitpolicy.kuadrant.io "maas-trlp-vllm-pool" deleted from maas-epp-spike namespace
+
+Scenario: trlp-absent
+trlp-absent: sent 34 requests; retained all response bodies
+    ok all scheduled ordinary, SSE, fragmented and burst requests were recorded
+    ok unique request IDs
+    ok exactly one access record for every request
+    ok every request returned HTTP 200
+    ok gateway and client status agree
+    ok EPP metrics scrape is present
+    ok EPP picker delta 34/34, including SSE and burst
+    ok EPP received-request log count 34/34
+    ok endpoint-pick metadata agrees for every request
+    ok filter-order prediction is OK
+    ok no duplicated filters
+    ok model header correct on every request
+    ok every request used the model's InferencePool route
+    ok every selected endpoint equals the actual upstream
+    ok all JSON/SSE responses complete and valid (34/34)
+    ok model and EPP pods did not restart or change during traffic
+    distribution (observational): {'10.244.0.31:8000': 12, '10.244.0.33:8000': 12, '10.244.0.32:8000': 10}; burst: {'10.244.0.32:8000': 4, '10.244.0.31:8000': 3, '10.244.0.33:8000': 5}
+trlp-absent: PASS; 34 requests, 34 picks, 34 complete responses, 0 empty 200s
+INFO: deleted EnvoyFilter payload-processing-epp-order; waiting for EPP_ENGAGED=BROKEN
+  OK: EPP_ENGAGED=BROKEN
+
+Scenario: trlp-absent-original
+trlp-absent-original: sent 34 requests; retained all response bodies
+    ok all scheduled ordinary, SSE, fragmented and burst requests were recorded
+    ok unique request IDs
+    ok exactly one access record for every request
+    ok every request returned HTTP 200
+    ok gateway and client status agree
+    ok EPP metrics scrape is present
+    ok EPP picker delta 0/0, including SSE and burst
+    ok EPP received-request log count 0/0
+    ok endpoint-pick metadata agrees for every request
+    ok no scheduler attempts while EPP is bypassed or request rejected
+    ok filter-order prediction is BROKEN
+    ok no duplicated filters
+    ok model header correct on every request
+    ok every request used the model's InferencePool route
+    ok all JSON/SSE responses complete and valid (34/34)
+    ok model and EPP pods did not restart or change during traffic
+    distribution (observational): {'10.244.0.31:8000': 12, '10.244.0.32:8000': 11, '10.244.0.33:8000': 11}; burst: {'10.244.0.31:8000': 4, '10.244.0.33:8000': 4, '10.244.0.32:8000': 4}
+trlp-absent-original: PASS; 34 requests, 0 picks, 34 complete responses, 0 empty 200s
+tokenratelimitpolicy.kuadrant.io/gateway-default-deny created
+tokenratelimitpolicy.kuadrant.io/maas-trlp-vllm-pool created
+deployment.apps/maas-controller scaled
+Waiting for deployment "maas-controller" rollout to finish: 0 of 1 updated replicas are available...
+deployment "maas-controller" successfully rolled out
+Warning: EnvoyFilter exposes internal implementation details that may change at any time. Prefer other APIs if possible, and exercise extreme caution, especially around upgrades.
+INFO: applied EnvoyFilter payload-processing-epp-order (variant pre-only); waiting for the chain
+  OK: EPP_ENGAGED=OK
+
+Scenario: trlp-restored
+trlp-restored: sent 5 requests; retained all response bodies
+    ok all scheduled ordinary, SSE, fragmented and burst requests were recorded
+    ok unique request IDs
+    ok exactly one access record for every request
+    ok every request returned HTTP 200
+    ok gateway and client status agree
+    ok EPP metrics scrape is present
+    ok EPP picker delta 5/5, including SSE and burst
+    ok EPP received-request log count 5/5
+    ok endpoint-pick metadata agrees for every request
+    ok filter-order prediction is OK
+    ok no duplicated filters
+    ok model header correct on every request
+    ok every request used the model's InferencePool route
+    ok every selected endpoint equals the actual upstream
+    ok reproduced empty HTTP 200 completions (4/5); incomplete SSE recorded separately
+    ok ordinary response defect is an empty completion, not a transport timeout
+    ok model and EPP pods did not restart or change during traffic
+    distribution (observational): {'10.244.0.31:8000': 3, '10.244.0.33:8000': 1, '10.244.0.32:8000': 1}; burst: {}
+trlp-restored: PASS; 5 requests, 5 picks, 0 complete responses, 4 empty 200s
+INFO: deleted EnvoyFilter payload-processing-epp-order; waiting for EPP_ENGAGED=BROKEN
+  OK: EPP_ENGAGED=BROKEN
+Warning: EnvoyFilter exposes internal implementation details that may change at any time. Prefer other APIs if possible, and exercise extreme caution, especially around upgrades.
+INFO: applied EnvoyFilter payload-processing-epp-order (variant epp-after-ipp); waiting for the chain
+  OK: EPP_ENGAGED=OK
+
+Scenario: fix
+fix: sent 34 requests; retained all response bodies
+    ok all scheduled ordinary, SSE, fragmented and burst requests were recorded
+    ok unique request IDs
+    ok exactly one access record for every request
+    ok every request returned HTTP 200
+    ok gateway and client status agree
+    ok EPP metrics scrape is present
+    ok EPP picker delta 34/34, including SSE and burst
+    ok EPP received-request log count 34/34
+    ok endpoint-pick metadata agrees for every request
+    ok filter-order prediction is OK
+    ok no duplicated filters
+    ok ipp-pre < auth < ipp < EPP < router
+    ok model header correct on every request
+    ok every request used the model's InferencePool route
+    ok every selected endpoint equals the actual upstream
+    ok all JSON/SSE responses complete and valid (34/34)
+    ok model and EPP pods did not restart or change during traffic
+    ok every response supplies consistent token usage, including SSE
+    ok Limitador charged exactly the returned tokens (7034/7034)
+    ok Limitador admitted every request (34/34)
+    distribution (observational): {'10.244.0.31:8000': 14, '10.244.0.33:8000': 11, '10.244.0.32:8000': 9}; burst: {'10.244.0.32:8000': 3, '10.244.0.33:8000': 4, '10.244.0.31:8000': 5}
+fix: PASS; 34 requests, 34 picks, 34 complete responses, 0 empty 200s
+INFO: deleted EnvoyFilter payload-processing-epp-order; waiting for EPP_ENGAGED=BROKEN
+  OK: EPP_ENGAGED=BROKEN
+
+Scenario: reverted
+reverted: sent 34 requests; retained all response bodies
+    ok all scheduled ordinary, SSE, fragmented and burst requests were recorded
+    ok unique request IDs
+    ok exactly one access record for every request
+    ok every request returned HTTP 200
+    ok gateway and client status agree
+    ok EPP metrics scrape is present
+    ok EPP picker delta 0/0, including SSE and burst
+    ok EPP received-request log count 0/0
+    ok endpoint-pick metadata agrees for every request
+    ok no scheduler attempts while EPP is bypassed or request rejected
+    ok filter-order prediction is BROKEN
+    ok no duplicated filters
+    ok model header correct on every request
+    ok every request used the model's InferencePool route
+    ok all JSON/SSE responses complete and valid (34/34)
+    ok model and EPP pods did not restart or change during traffic
+    distribution (observational): {'10.244.0.32:8000': 12, '10.244.0.31:8000': 11, '10.244.0.33:8000': 11}; burst: {'10.244.0.32:8000': 4, '10.244.0.31:8000': 4, '10.244.0.33:8000': 4}
+reverted: PASS; 34 requests, 0 picks, 34 complete responses, 0 empty 200s
+Warning: EnvoyFilter exposes internal implementation details that may change at any time. Prefer other APIs if possible, and exercise extreme caution, especially around upgrades.
+INFO: applied EnvoyFilter payload-processing-epp-order (variant epp-after-ipp); waiting for the chain
+  OK: EPP_ENGAGED=OK
+
+Scenario: no-auth
+no-auth: sent 20 requests; retained all response bodies
+    ok all scheduled ordinary, SSE, fragmented and burst requests were recorded
+    ok unique request IDs
+    ok exactly one access record for every request
+    ok every request returned HTTP 401
+    ok gateway and client status agree
+    ok EPP metrics scrape is present
+    ok EPP picker delta 0/0, including SSE and burst
+    ok EPP received-request log count 0/0
+    ok endpoint-pick metadata agrees for every request
+    ok no scheduler attempts while EPP is bypassed or request rejected
+    ok filter-order prediction is OK
+    ok no duplicated filters
+    ok ipp-pre < auth < ipp < EPP < router
+    ok rejections completed without client timeouts
+    ok rejected requests never reached a model
+    ok model and EPP pods did not restart or change during traffic
+    distribution (observational): {None: 20}; burst: {}
+no-auth: PASS; 20 requests, 0 picks, 0 complete responses, 0 empty 200s
+
+Scenario: invalid-auth
+invalid-auth: sent 20 requests; retained all response bodies
+    ok all scheduled ordinary, SSE, fragmented and burst requests were recorded
+    ok unique request IDs
+    ok exactly one access record for every request
+    ok every request returned HTTP 401
+    ok gateway and client status agree
+    ok EPP metrics scrape is present
+    ok EPP picker delta 0/0, including SSE and burst
+    ok EPP received-request log count 0/0
+    ok endpoint-pick metadata agrees for every request
+    ok no scheduler attempts while EPP is bypassed or request rejected
+    ok filter-order prediction is OK
+    ok no duplicated filters
+    ok ipp-pre < auth < ipp < EPP < router
+    ok rejections completed without client timeouts
+    ok rejected requests never reached a model
+    ok model and EPP pods did not restart or change during traffic
+    distribution (observational): {None: 20}; burst: {}
+invalid-auth: PASS; 20 requests, 0 picks, 0 complete responses, 0 empty 200s
+INFO: deleted EnvoyFilter payload-processing-epp-order; waiting for EPP_ENGAGED=BROKEN
+  OK: EPP_ENGAGED=BROKEN
+
+Summary
+defect: PASS; 34 requests, 0 picks, 34 complete responses, 0 empty 200s
+trlp-present: PASS; 5 requests, 5 picks, 0 complete responses, 4 empty 200s
+trlp-absent: PASS; 34 requests, 34 picks, 34 complete responses, 0 empty 200s
+trlp-absent-original: PASS; 34 requests, 0 picks, 34 complete responses, 0 empty 200s
+trlp-restored: PASS; 5 requests, 5 picks, 0 complete responses, 4 empty 200s
+fix: PASS; 34 requests, 34 picks, 34 complete responses, 0 empty 200s
+reverted: PASS; 34 requests, 0 picks, 34 complete responses, 0 empty 200s
+no-auth: PASS; 20 requests, 0 picks, 0 complete responses, 0 empty 200s
+invalid-auth: PASS; 20 requests, 0 picks, 0 complete responses, 0 empty 200s
+  OK: all requested scenarios passed; see each phase's response expectation
+INFO: deleted EnvoyFilter payload-processing-epp-order; waiting for EPP_ENGAGED=BROKEN
+  OK: EPP_ENGAGED=BROKEN
