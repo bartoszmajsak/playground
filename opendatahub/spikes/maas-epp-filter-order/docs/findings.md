@@ -1,5 +1,8 @@
 # Findings, with the evidence behind each
 
+[Overview and current workaround](../README.md) ·
+[Source analysis and proposed MaaS fix](investigation.md)
+
 Paths relative to `results/kuadrant-1.5.3+istio-1.29.2+vllm-cpu/` unless
 stated. The verification suite added on 2026-09-23 writes to
 `results/verification-20260923/`.
@@ -94,10 +97,15 @@ empty; burst 12 x 200 with 12 completions; streamed request 200, curl exit 0,
 2470 bytes, `[DONE]`; picker +33 for 33 authenticated requests; 5 requests
 without credentials 401 with picker +0; revert restored the bypassed chain.
 
-The verification suite (`results/verification-20260923/validate.out`): 60
-requests, 60 picks, 60 complete responses, six SSE, six fragmented bodies, a
-12-request burst, 189 tokens reported and 189 charged by Limitador, 429 after
-quota exhaustion with no EPP call.
+The independent fresh-cluster experiments
+(`results/fresh-review-20260923T054744Z/REPORT.md`): 60 requests, 60 picks,
+60 complete responses, six SSE, six fragmented bodies, a 12-request burst,
+189 tokens reported and 189 charged by Limitador, 429 after quota exhaustion
+with no EPP call.
+
+The general validation suite separately passed nine phases / 220 requests.
+Its final-order phase returned 34 complete responses and charged 7,034 tokens.
+See the [recorded run](../results/verification-20260923/validate.out).
 
 ## auth-order
 
