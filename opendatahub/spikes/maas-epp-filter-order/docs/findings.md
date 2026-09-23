@@ -64,9 +64,13 @@ restored): no TRLP on the route, complete bodies; EPP response processing
 skipped, complete bodies; TRLP restored, empty again. Streaming completes
 because the header reply lands before the end frame.
 
-Envoy #43175 is in the build (guard string in the binary) and does not cover
-this; #46842 (1.37.6) is not in the build and addresses a Continue-after-drain
-case, not a Pause.
+Known and fixed upstream: Envoy #45355 removes exactly the header-reply
+continue seen at step 3 (in v1.37.6, v1.38.4, v1.39.1; istio/proxyv2 1.29.8 is
+the first Istio 1.29 proxy with it; OSSM 1.26.8's Envoy 1.34.14 has the call
+in `handleHeadersResponse`). Kuadrant reproduced the same wasm trace on RHCL
+1.4.2 (github.com/adam-cattermole/envoy-eos-pause); MaaS tracks it as
+RHOAIENG-94419. #43175 is in the build and does not cover this; #46842 is not
+in the build and addresses a Continue-after-drain case, not a Pause.
 
 ## Why the `extproc` variant is wrong
 

@@ -111,8 +111,11 @@ Sequence for a non-streaming completion, from
    with end-of-stream observed.
 3. The EPP's header reply arrives. Its filter has not seen end-of-stream
    (`complete_body_available_` false), so `handleHeaderContinue()` takes the
-   full-duplex branch and continues
-   ([`processor_state.cc`](https://github.com/envoyproxy/envoy/blob/c5320a6f4e6ff60c4ae33d1c08882092c5c0bd2a/source/extensions/filters/http/ext_proc/processor_state.cc#L239-L260)).
+   full-duplex branch and continues the filter chain
+   ([`processor_state.cc` at v1.37.5](https://github.com/envoyproxy/envoy/blob/v1.37.5/source/extensions/filters/http/ext_proc/processor_state.cc#L251-L255);
+   the same call sits in `handleHeadersResponse` on
+   [v1.34.14](https://github.com/envoyproxy/envoy/blob/v1.34.14/source/extensions/filters/http/ext_proc/processor_state.cc#L233-L237),
+   the production proxy).
    `commonContinue()` pushes the headers and then the parked empty buffer as
    end-of-stream past the EPP filter
    ([`filter_manager.cc`](https://github.com/envoyproxy/envoy/blob/c5320a6f4e6ff60c4ae33d1c08882092c5c0bd2a/source/common/http/filter_manager.cc#L107-L133)).
@@ -139,17 +142,48 @@ Why the isolation runs came out the way they did:
 - One JSON request in twenty came back intact: the same race, won the other
   way.
 
-Envoy's [#43175](https://github.com/envoyproxy/envoy/pull/43175) (issue
-[#41654](https://github.com/envoyproxy/envoy/issues/41654)) is in this proxy
-build (`envoy.reloadable_features.ext_proc_inject_data_with_state_update` is
-in the binary) and does not cover it: the flag it corrects is current here,
-the frame is genuinely parked by a filter between the two ext_procs.
-Production OSSM 1.26.8 / Envoy 1.34.14 lacks even that.
+This is a known Envoy bug, fixed upstream. Kuadrant's Adam Cattermole hit the
+same trace on RHCL 1.4.2 / OSSM 1.26.8 (`proxy_on_response_body(.., 0, 1)` ->
+Report, pause, `proxy_on_done` while the report is in flight,
+`proxy_on_grpc_receive invalid context_id`), built a reproducer
+([envoy-eos-pause](https://github.com/adam-cattermole/envoy-eos-pause)) and
+bisected it to [#45355](https://github.com/envoyproxy/envoy/pull/45355):
+"ext-proc: remove unnecessary continueIfNecessary()", one line out of
+`handleHeaderContinue`, merged 2026-06-24. Without that continue, the chain
+resumes only when the body reply arrives, so the parked frame is never pushed
+past the EPP filter early. Envoy releases with it: v1.37.6, v1.38.4, v1.39.1.
+MaaS tracks the symptom as RHOAIENG-94419 ("intermittently return 200 with no
+body").
 
-The rule that follows: the Kuadrant wasm has to sit before the InferencePool
-filter in the chain. That is auth before scheduling, and on the response path
-the wasm then pauses behind the EPP filter, which has already seen
-end-of-stream. Kuadrant 1.4 had this order for free.
+Who has it, by reading the pinned ext_proc source of each build:
+
+| proxy | Envoy | header-reply continue |
+|---|---|---|
+| OSSM 1.26.8 (production) | 1.34.14 | present, no backport on that line |
+| istio/proxyv2 1.29.2 to 1.29.7 (this spike: 1.29.2) | 1.37.2-dev to 1.37.6-dev | present |
+| istio/proxyv2 1.29.8 | 1.37.7-dev | removed |
+| istio/proxyv2 1.30.0 | 1.38.1-dev | present (1.38.4 needed) |
+
+The other fixes in this area do not cover it: [#43175](https://github.com/envoyproxy/envoy/pull/43175)
+for [#41654](https://github.com/envoyproxy/envoy/issues/41654) is in the tested
+proxy (its runtime guard string is in the binary) and corrects a flag that is
+current here; [#46842](https://github.com/envoyproxy/envoy/pull/46842) for
+[#46841](https://github.com/envoyproxy/envoy/issues/46841) is absent from the
+tested proxy but handles a filter that returns Continue after draining a frame,
+not a Pause.
+
+The rule that follows, on any proxy without #45355: the Kuadrant wasm has to
+sit before the InferencePool filter in the chain. That is auth before
+scheduling, and on the response path the wasm then pauses behind the EPP
+filter, which has already seen end-of-stream. Kuadrant 1.4 had this order for
+free. With #45355 in the proxy the empty bodies go away in any order; the
+ordering fix is still needed for defect 1 and for auth before the EPP.
+
+Production sees defect 2 today wherever the EPP is engaged despite defect 1:
+the path-prefixed per-model URLs (`/<publisher>/<model>/v1/chat/completions`)
+select the pool route by path on the first pass, which is the URL form in the
+RHCL 1.4.2 report above. The bare `/v1/chat/completions` form is bypassed and
+so returns full bodies. That is the "intermittent" in RHOAIENG-94419.
 
 ## Measured results
 
@@ -325,12 +359,15 @@ or `INSERT_FIRST`). It engages the EPP and empties responses.
    chain, so an Istio bump that changes it fails loudly instead of silently
    changing timeouts.
 
-Not needed: changes to the EPP, IPP, praxis-extproc or KServe. Follow-ups
-elsewhere: Kuadrant (placement regression since 1.5, scheduling before auth
-and rate limiting for every Istio-native InferencePool user), Envoy
-(filter-manager report with the debug log above), the IPP hub-mode README and
-the praxis-extproc overlay comment (the "`INSERT_BEFORE` auth" recipe needs
-"and the InferencePool filter after `ipp`").
+Not needed: changes to the EPP, IPP, praxis-extproc or KServe. The Envoy fix
+(#45355) is not a substitute either: OSSM 1.26 ships Envoy 1.34, which will not
+get it, and the ordering fix is what restores the EPP and auth-before-EPP; it
+also makes MaaS immune to the race on every proxy in the table above.
+Follow-ups elsewhere: Kuadrant (placement regression since 1.5, scheduling
+before auth and rate limiting for every Istio-native InferencePool user), OSSM
+(consume an Envoy with #45355), the IPP hub-mode README and the praxis-extproc
+overlay comment (the "`INSERT_BEFORE` auth" recipe needs "and the
+InferencePool filter after `ipp`").
 
 ### E2E tests MaaS should carry
 
@@ -383,6 +420,11 @@ counters and on the access log, never on which implementation answers.
 
 Checked 2026-09-23.
 
+- [Envoy #45355](https://github.com/envoyproxy/envoy/pull/45355), the fix for
+  this defect (see "Why the first fix empties responses"), with Adam
+  Cattermole's reproducer [envoy-eos-pause](https://github.com/adam-cattermole/envoy-eos-pause);
+  in Envoy v1.37.6, v1.38.4, v1.39.1; istio/proxyv2 1.29.8 is the first Istio
+  1.29 proxy with it. RHOAIENG-94419 tracks the MaaS symptom.
 - [Envoy #43175](https://github.com/envoyproxy/envoy/pull/43175) for
   [#41654](https://github.com/envoyproxy/envoy/issues/41654), two ext_proc
   filters in one chain: in the tested proxy (runtime guard string present in
@@ -412,7 +454,9 @@ Checked 2026-09-23.
 - Istio base chain order (OSSM release-1.26): https://github.com/openshift-service-mesh/istio/blob/db8b9e53e8897459c5a309148a61d3166128e185/pilot/pkg/networking/core/listener_builder.go#L399-L416
 - Istio InferencePool filter: https://github.com/openshift-service-mesh/istio/blob/db8b9e53e8897459c5a309148a61d3166128e185/pilot/pkg/xds/filters/filters.go#L163-L177
 - Envoy ext_proc per-route merge, once in decodeHeaders: https://github.com/envoyproxy/envoy/blob/v1.34.14/source/extensions/filters/http/ext_proc/ext_proc.cc#L540-L542
-- Envoy header-reply continue in full-duplex mode (istio/proxy release-1.29 pin): https://github.com/envoyproxy/envoy/blob/c5320a6f4e6ff60c4ae33d1c08882092c5c0bd2a/source/extensions/filters/http/ext_proc/processor_state.cc#L239-L260
+- Envoy header-reply continue in full-duplex mode, before the fix: https://github.com/envoyproxy/envoy/blob/v1.37.5/source/extensions/filters/http/ext_proc/processor_state.cc#L251-L255 (v1.34.14: https://github.com/envoyproxy/envoy/blob/v1.34.14/source/extensions/filters/http/ext_proc/processor_state.cc#L233-L237)
+- Envoy fix, "ext-proc: remove unnecessary continueIfNecessary()": https://github.com/envoyproxy/envoy/pull/45355
+- Kuadrant reproducer for the same trace: https://github.com/adam-cattermole/envoy-eos-pause
 - Envoy filter manager `commonContinue`: https://github.com/envoyproxy/envoy/blob/c5320a6f4e6ff60c4ae33d1c08882092c5c0bd2a/source/common/http/filter_manager.cc#L107-L133
 - Kuadrant wasm-shim response-body pause: https://github.com/Kuadrant/wasm-shim/blob/222a42a812e23d5864e3239570c72559b77c5887/crates/wasm-shim/src/filter/kuadrant_filter.rs#L189-L218
 - Kuadrant switch to EnvoyFilter injection (first in v1.5.0): https://github.com/Kuadrant/kuadrant-operator/pull/1953
